@@ -1,0 +1,11 @@
+# Python & Sanal Ortam
+venv/
+__pycache__/
+*.pyc
+
+# Ortam Değişkenleri (Şifreler)
+.env
+
+# Veritabanı
+*.db
+*.sqlite3

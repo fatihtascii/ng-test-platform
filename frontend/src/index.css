@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Tailwind v4 Dark Mode Tetikleyici */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html {
+    /* Geçişlerin yumuşak olması için */
+    transition-property: color, background-color, border-color;
+    transition-duration: 300ms;
+  }
+
+  body {
+    /* IŞIK MODU: Temiz bir gri/beyaz */
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+
+  .dark body {
+    /* DARK MOD: Derin bir lacivert/siyah */
+    @apply bg-slate-950 text-slate-100;
+  }
+}
+
+/* Scrollbar'ı da temaya uyduralım (Opsiyonel ama şıktır) */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 dark:bg-slate-800 rounded-full;
+}
