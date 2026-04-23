@@ -59,7 +59,6 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 // ── Ana Bileşen ────────────────────────────────────────────────
 const Reports = () => {
-  // HOOK BURAYA TAŞINDI! 
   const { can } = usePermission();
 
   const [rawData, setRawData]         = useState({ testRuns: [], testCases: [], projects: [], testPlans: [] });
@@ -69,6 +68,9 @@ const Reports = () => {
   const [isExportingPdf, setIsExportingPdf]   = useState(false);
   const [toast, setToast]             = useState(null);
   const reportRef = useRef(null);
+
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const showToast = useCallback((type, message) => {
     setToast({ type, message });
@@ -80,25 +82,28 @@ const Reports = () => {
     setError(null);
     setLoading(true);
     try {
+      // ✅ Domino Etkisi Çözüldü: Her fetch kendi hatasını yakalar, diğerlerini bozmaz.
       const [runsRes, casesRes, projsRes, plansRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/test-runs'),
-        fetch('http://127.0.0.1:8000/test-cases'),
-        fetch('http://127.0.0.1:8000/projects'),
-        fetch('http://127.0.0.1:8000/test-plans'),
+        fetch(`${API_BASE}/test-runs`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-plans`).catch(() => ({ ok: false })),
       ]);
+      
       setRawData({
         testRuns:  runsRes.ok  ? await runsRes.json()  : [],
         testCases: casesRes.ok ? await casesRes.json() : [],
         projects:  projsRes.ok ? await projsRes.json() : [],
         testPlans: plansRes.ok ? await plansRes.json() : [],
       });
-      if (!runsRes.ok || !casesRes.ok || !projsRes.ok) setError('Bazı veriler yüklenemedi.');
+      
+      if (!runsRes.ok || !casesRes.ok || !projsRes.ok) setError('Bazı veriler yüklenemedi. Rapor eksik olabilir.');
     } catch {
       setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [API_BASE]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 

@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
 import {
-  FolderKanban, Beaker, CheckCircle2, XCircle, Activity,
-  Clock, PlayCircle, ArrowRight, FileEdit, AlertCircle,
-  RefreshCw, ClipboardList, TrendingUp, Plus, ChevronRight,
-  Zap, Target, BarChart3, Layers
+  FolderKanban, Beaker, Clock, PlayCircle, ArrowRight, FileEdit, 
+  AlertCircle, RefreshCw, ClipboardList, TrendingUp, Plus, ChevronRight,
+  Zap, Target, BarChart3
 } from 'lucide-react';
 
 // ── Yardımcılar ───────────────────────────────────────────────
@@ -68,7 +67,6 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { can }  = usePermission();
 
-  // ✅ Düzeltildi: user state'e alındı
   const [user] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
   });
@@ -76,31 +74,35 @@ const Dashboard = () => {
   const [projects,  setProjects]  = useState([]);
   const [testCases, setTestCases] = useState([]);
   const [testPlans, setTestPlans] = useState([]);
-  const [testRuns,  setTestRuns]  = useState([]);  // ✅ Eklendi
+  const [testRuns,  setTestRuns]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
+
+  // ✅ Dinamik API Base URL (Geliştirme için .env veya window objesinden çekilmeli, şimdilik fallback eklendi)
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const fetchAll = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
       const [projRes, tcRes, plansRes, runsRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/projects'),
-        fetch('http://127.0.0.1:8000/test-cases'),
-        fetch('http://127.0.0.1:8000/test-plans').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/test-runs').catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/projects`),
+        fetch(`${API_BASE}/test-cases`),
+        fetch(`${API_BASE}/test-plans`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-runs`).catch(() => ({ ok: false })),
       ]);
       if (projRes.ok)  setProjects(await projRes.json());
       if (tcRes.ok)    setTestCases(await tcRes.json());
       if (plansRes.ok) setTestPlans(await plansRes.json());
       if (runsRes.ok)  setTestRuns(await runsRes.json());
+      
       if (!projRes.ok || !tcRes.ok) setError('Bazı veriler yüklenemedi.');
     } catch {
       setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [API_BASE]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -111,7 +113,7 @@ const Dashboard = () => {
     const failed   = testCases.filter(tc => tc.status === 'Başarısız').length;
     const draft    = testCases.filter(tc => tc.status === 'Taslak').length;
     const untested = testCases.filter(tc => tc.status === 'Test Edilmedi').length;
-    // ✅ Düzeltildi: Gerçek başarı oranı = passed / (passed + failed)
+    
     const testedCount = passed + failed;
     const successRate = testedCount > 0 ? Math.round((passed / testedCount) * 100) : 0;
 
@@ -128,7 +130,18 @@ const Dashboard = () => {
     return { total, passed, failed, draft, untested, successRate, testedCount, activePlans, completedPlans, statusBar };
   }, [testCases, testPlans]);
 
-  // ✅ Son aktiviteler — id'ye göre sort (created_at güvenilmez)
+  // ✅ Performans Düzeltmesi: Proje istatistiklerini önden hesapla
+  const projectStats = useMemo(() => {
+    const stats = {};
+    testCases.forEach(tc => {
+      if (!stats[tc.project_id]) stats[tc.project_id] = { total: 0, passed: 0, failed: 0 };
+      stats[tc.project_id].total += 1;
+      if (tc.status === 'Başarılı') stats[tc.project_id].passed += 1;
+      if (tc.status === 'Başarısız') stats[tc.project_id].failed += 1;
+    });
+    return stats;
+  }, [testCases]);
+
   const recentItems = useMemo(() =>
     [...testCases].sort((a, b) => b.id - a.id).slice(0, 5),
   [testCases]);
@@ -136,8 +149,6 @@ const Dashboard = () => {
   const getProjectName = (id) => projects.find(p => p.id === id)?.name || '—';
 
   const firstName = user?.full_name?.split(' ')[0] || user?.username || 'Kullanıcı';
-
-  // Selamlama metni
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Günaydın' : hour < 18 ? 'İyi günler' : 'İyi akşamlar';
 
@@ -252,7 +263,6 @@ const Dashboard = () => {
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {/* Stacked progress bar */}
                   <div>
                     <div className="flex justify-between text-xs text-slate-400 mb-2">
                       <span>{metrics.total} toplam senaryo</span>
@@ -267,7 +277,6 @@ const Dashboard = () => {
                     </div>
                   </div>
 
-                  {/* Detay satırları */}
                   <div className="grid grid-cols-2 gap-3">
                     {metrics.statusBar.map(item => (
                       <div key={item.label} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
@@ -312,11 +321,10 @@ const Dashboard = () => {
             ) : (
               <div className="divide-y divide-slate-50 dark:divide-slate-800/50">
                 {projects.slice(0, 5).map(project => {
-                  const pTCs    = testCases.filter(tc => tc.project_id === project.id);
-                  const pPassed = pTCs.filter(tc => tc.status === 'Başarılı').length;
-                  const pFailed = pTCs.filter(tc => tc.status === 'Başarısız').length;
-                  const pTested = pPassed + pFailed;
-                  const pRate   = pTested > 0 ? Math.round((pPassed / pTested) * 100) : null;
+                  const stats = projectStats[project.id] || { total: 0, passed: 0, failed: 0 };
+                  const pTested = stats.passed + stats.failed;
+                  const pRate   = pTested > 0 ? Math.round((stats.passed / pTested) * 100) : null;
+                  
                   return (
                     <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)}
                       className="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 group transition-colors text-left">
@@ -328,7 +336,7 @@ const Dashboard = () => {
                           {project.name}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
-                          {pTCs.length} test · {pPassed} geçti · {pFailed} başarısız
+                          {stats.total} test · {stats.passed} geçti · {stats.failed} başarısız
                         </p>
                       </div>
                       {pRate !== null && (
@@ -387,7 +395,7 @@ const Dashboard = () => {
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {recentItems.map((tc, idx) => {
+                  {recentItems.map((tc) => {
                     const statusCls = {
                       'Başarılı':     'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
                       'Başarısız':    'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400',
@@ -408,7 +416,11 @@ const Dashboard = () => {
                           </p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${statusCls}`}>{tc.status}</span>
-                            <span className="text-[10px] text-slate-400 truncate">{getProjectName(tc.project_id)}</span>
+                            <span className="text-[10px] text-slate-400 truncate">
+                              {getProjectName(tc.project_id)} 
+                              {/* ✅ EKLENDİ: Hayalet fonksiyon hayata döndü */}
+                              {tc.created_at && ` • ${timeAgo(tc.created_at)}`} 
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -420,7 +432,6 @@ const Dashboard = () => {
           </div>
 
           {/* Test Planı Durumu */}
-          {/* ✅ Düzeltildi: || true kaldırıldı */}
           {!loading && testPlans.length > 0 && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
@@ -438,6 +449,8 @@ const Dashboard = () => {
                   { label: 'Aktif',      value: metrics.activePlans,      color: 'text-amber-600 dark:text-amber-400',        dot: 'bg-amber-500' },
                   { label: 'Tamamlandı', value: metrics.completedPlans,   color: 'text-emerald-600 dark:text-emerald-400',    dot: 'bg-emerald-500' },
                   { label: 'Beklemede',  value: testPlans.filter(p => p.status === 'Beklemede').length, color: 'text-slate-400', dot: 'bg-slate-300' },
+                  // ✅ EKLENDİ: Unutulan state arayüze dahil edildi
+                  { label: 'Koşulan Testler', value: testRuns.length, color: 'text-indigo-600 dark:text-indigo-400', dot: 'bg-indigo-500' },
                 ].map(row => (
                   <div key={row.label} className="flex items-center justify-between py-1">
                     <div className="flex items-center gap-2">

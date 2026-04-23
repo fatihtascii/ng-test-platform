@@ -35,6 +35,9 @@ const RegisterPage = () => {
 
   const update = (field) => (e) => setFormData(prev => ({ ...prev, [field]: e.target.value }));
 
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
@@ -55,7 +58,8 @@ const RegisterPage = () => {
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/auth/register', {
+      // ✅ Dinamik URL kullanıldı
+      const response = await fetch(`${API_BASE}/auth/register`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(formData),
@@ -66,7 +70,12 @@ const RegisterPage = () => {
         setTimeout(() => navigate('/login'), 2000);
       } else {
         const data = await response.json().catch(() => ({}));
-        setError(data.detail || 'Kayıt sırasında bir hata oluştu.');
+        // ✅ FastAPI array (dizi) hata mesajlarını da düzgün okuması için zırh eklendi
+        const errorMessage = Array.isArray(data.detail) 
+          ? data.detail[0]?.msg 
+          : data.detail;
+        
+        setError(errorMessage || 'Kayıt sırasında bir hata oluştu.');
       }
     } catch {
       setError('Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
@@ -246,7 +255,7 @@ const RegisterPage = () => {
               {/* Submit */}
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || (confirmPassword !== formData.password)}
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-indigo-600/30 hover:shadow-indigo-500/40 flex items-center justify-center gap-2 mt-2"
               >
                 {isLoading

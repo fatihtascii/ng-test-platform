@@ -10,12 +10,15 @@ const LoginPage = () => {
   const [error, setError]           = useState('');
   const navigate = useNavigate();
 
+  // ✅ Dinamik API Base URL (Geliştirme için .env veya fallback)
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/auth/login', {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier, password }),
@@ -23,8 +26,16 @@ const LoginPage = () => {
 
       if (response.ok) {
         const data = await response.json();
-        // Sadece kullanıcı verisini kaydediyoruz, yetkileri App.jsx içindeki AuthContext çekecek
+        
+        // Kullanıcı bilgisini kaydet
         localStorage.setItem('user', JSON.stringify(data.user));
+        
+        // ✅ KRİTİK EKSİK GİDERİLDİ: Access Token Kaydediliyor!
+        // Eğer backend 'access_token' veya 'token' adında bir alan dönüyorsa yakala
+        if (data.access_token || data.token) {
+            localStorage.setItem('token', data.access_token || data.token);
+        }
+        
         navigate('/');
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -82,6 +93,7 @@ const LoginPage = () => {
                 onChange={(e) => setIdentifier(e.target.value)}
                 placeholder="kullaniciadi"
                 required
+                autoFocus // ✅ UX Dokunuşu: Sayfa açıldığında imleç otomatik buraya gelir
                 autoComplete="username"
                 className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700/60 rounded-xl text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
               />

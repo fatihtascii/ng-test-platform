@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
-import PermissionGuard from '../components/PermissionGuard';
 import {
   ArrowLeft, PlayCircle, Folder, Clock, CheckCircle2,
   XCircle, SkipForward, AlertCircle, Play, BarChart3,
-  Target, Hash, Calendar, RefreshCw, Loader2
+  Target, Hash, RefreshCw
 } from 'lucide-react';
 
 // ── Yardımcılar ────────────────────────────────────────────────
@@ -45,7 +44,6 @@ const Skeleton = ({ className }) => (
 
 // ── Ana Bileşen ────────────────────────────────────────────────
 const TestRunDetail = () => {
-  // HOOK BURAYA TAŞINDI!
   const { can } = usePermission();
   const { id }   = useParams();
   const navigate = useNavigate();
@@ -57,14 +55,18 @@ const TestRunDetail = () => {
   const [error, setError]       = useState(null);
   const [activeFilter, setActiveFilter] = useState('All');
 
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   const fetchDetail = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
+      // ✅ Domino Etkisi Çözüldü: Ana koşum verisi dışındakiler hata verse de sayfa çalışır
       const [runRes, projsRes, casesRes] = await Promise.all([
-        fetch(`http://127.0.0.1:8000/test-runs`),
-        fetch('http://127.0.0.1:8000/projects'),
-        fetch('http://127.0.0.1:8000/test-cases'),
+        fetch(`${API_BASE}/test-runs`), // Bu zorunlu
+        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
       ]);
 
       if (!runRes.ok) throw new Error('Koşumlar yüklenemedi.');
@@ -84,9 +86,44 @@ const TestRunDetail = () => {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, API_BASE]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
+
+  // ── Hesaplamalar (✅ useMemo ile Optimize Edildi) ────────────
+  const results = useMemo(() => safeParseResults(run?.results), [run?.results]);
+  
+  const stats = useMemo(() => {
+    const total    = results.length;
+    const passed   = results.filter(r => r.status === 'Passed').length;
+    const failed   = results.filter(r => r.status === 'Failed').length;
+    const skipped  = results.filter(r => r.status === 'Skipped').length;
+    const pending  = total - passed - failed - skipped;
+    const rate     = total > 0 ? Math.round((passed / total) * 100) : 0;
+    
+    return { total, passed, failed, skipped, pending, rate };
+  }, [results]);
+
+  const enrichedResults = useMemo(() => {
+    return results.map((r, idx) => {
+      const tc = testCases.find(t => t.id === r.test_case_id || t.id === r.case_id);
+      return {
+        ...r,
+        index:    idx,
+        tc_title: tc?.title    || r.caseName || `Test #${r.test_case_id ?? idx}`,
+        tc_prio:  tc?.priority || null,
+        tc_id:    tc?.id       || r.test_case_id,
+      };
+    });
+  }, [results, testCases]);
+
+  const visibleResults = useMemo(() => {
+    if (activeFilter === 'All') return enrichedResults;
+    return enrichedResults.filter(r => {
+      if (activeFilter === 'Pending') return r.status !== 'Passed' && r.status !== 'Failed' && r.status !== 'Skipped';
+      return r.status === activeFilter;
+    });
+  }, [enrichedResults, activeFilter]);
 
   if (loading) return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -121,47 +158,17 @@ const TestRunDetail = () => {
     </div>
   );
 
-  // ── Hesaplamalar ─────────────────────────────────────────────
-  const results  = safeParseResults(run.results);
-  const total    = results.length;
-  const passed   = results.filter(r => r.status === 'Passed').length;
-  const failed   = results.filter(r => r.status === 'Failed').length;
-  const skipped  = results.filter(r => r.status === 'Skipped').length;
-  const pending  = total - passed - failed - skipped;
-  const rate     = total > 0 ? Math.round((passed / total) * 100) : 0;
-
-  const rateColor = rate >= 80 ? 'text-emerald-600 dark:text-emerald-400' : rate >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400';
-  const rateBarColor = rate >= 80 ? 'bg-emerald-500' : rate >= 50 ? 'bg-amber-500' : 'bg-rose-500';
-
+  const rateColor = stats.rate >= 80 ? 'text-emerald-600 dark:text-emerald-400' : stats.rate >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400';
   const statConf = getStatusConfig(run.status);
-
-  // Her result'a test case bilgisini ekle
-  const enrichedResults = results.map((r, idx) => {
-    const tc = testCases.find(t => t.id === r.test_case_id || t.id === r.case_id);
-    return {
-      ...r,
-      index:    idx,
-      tc_title: tc?.title    || r.caseName || `Test #${r.test_case_id ?? idx}`,
-      tc_prio:  tc?.priority || null,
-      tc_id:    tc?.id       || r.test_case_id,
-    };
-  });
 
   // Filtre
   const filterOptions = [
-    { key: 'All',     label: 'Tümü',       count: total   },
-    { key: 'Failed',  label: 'Başarısız',  count: failed  },
-    { key: 'Passed',  label: 'Geçti',      count: passed  },
-    { key: 'Skipped', label: 'Atlandı',    count: skipped },
-    { key: 'Pending', label: 'Bekliyor',   count: pending },
+    { key: 'All',     label: 'Tümü',       count: stats.total   },
+    { key: 'Failed',  label: 'Başarısız',  count: stats.failed  },
+    { key: 'Passed',  label: 'Geçti',      count: stats.passed  },
+    { key: 'Skipped', label: 'Atlandı',    count: stats.skipped },
+    { key: 'Pending', label: 'Bekliyor',   count: stats.pending },
   ].filter(f => f.count > 0 || f.key === 'All');
-
-  const visibleResults = activeFilter === 'All'
-    ? enrichedResults
-    : enrichedResults.filter(r => {
-        if (activeFilter === 'Pending') return r.status !== 'Passed' && r.status !== 'Failed' && r.status !== 'Skipped';
-        return r.status === activeFilter;
-      });
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -193,10 +200,10 @@ const TestRunDetail = () => {
       {/* ÖZET KARTLARI */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Toplam',     value: total,   icon: <Hash size={18}/>,          bg: 'bg-slate-100 dark:bg-slate-800',           text: 'text-slate-600 dark:text-slate-300' },
-          { label: 'Geçti',      value: passed,  icon: <CheckCircle2 size={18}/>,  bg: 'bg-emerald-50 dark:bg-emerald-500/10',     text: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Başarısız',  value: failed,  icon: <XCircle size={18}/>,       bg: 'bg-rose-50 dark:bg-rose-500/10',           text: 'text-rose-600 dark:text-rose-400' },
-          { label: 'Atlanan',    value: skipped, icon: <SkipForward size={18}/>,   bg: 'bg-amber-50 dark:bg-amber-500/10',         text: 'text-amber-600 dark:text-amber-400' },
+          { label: 'Toplam',     value: stats.total,   icon: <Hash size={18}/>,          bg: 'bg-slate-100 dark:bg-slate-800',           text: 'text-slate-600 dark:text-slate-300' },
+          { label: 'Geçti',      value: stats.passed,  icon: <CheckCircle2 size={18}/>,  bg: 'bg-emerald-50 dark:bg-emerald-500/10',     text: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Başarısız',  value: stats.failed,  icon: <XCircle size={18}/>,       bg: 'bg-rose-50 dark:bg-rose-500/10',           text: 'text-rose-600 dark:text-rose-400' },
+          { label: 'Atlanan',    value: stats.skipped, icon: <SkipForward size={18}/>,   bg: 'bg-amber-50 dark:bg-amber-500/10',         text: 'text-amber-600 dark:text-amber-400' },
         ].map(s => (
           <div key={s.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center ${s.text} shrink-0`}>{s.icon}</div>
@@ -215,7 +222,7 @@ const TestRunDetail = () => {
         <div className="lg:col-span-2 space-y-4">
 
           {/* Filtre Tabları */}
-          {total > 0 && (
+          {stats.total > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               {filterOptions.map(f => (
                 <button key={f.key} onClick={() => setActiveFilter(f.key)}
@@ -234,7 +241,7 @@ const TestRunDetail = () => {
           )}
 
           {/* Sonuç Kartları */}
-          {total === 0 ? (
+          {stats.total === 0 ? (
             <div className="text-center py-16 bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-slate-400">
               <PlayCircle size={32} className="mx-auto mb-3 opacity-20"/>
               <p className="text-sm font-medium">Bu koşum henüz çalıştırılmamış.</p>
@@ -311,7 +318,7 @@ const TestRunDetail = () => {
                 { icon: <Hash size={13}/>,          label: 'ID',     value: `#${run.id}` },
                 { icon: <Folder size={13}/>,         label: 'Proje',  value: project?.name || '—' },
                 { icon: <Target size={13}/>,         label: 'Durum',  value: run.status },
-                { icon: <BarChart3 size={13}/>,      label: 'Testler',value: `${total} test senaryosu` },
+                { icon: <BarChart3 size={13}/>,      label: 'Testler',value: `${stats.total} test senaryosu` },
               ].map(({ icon, label, value }) => (
                 <div key={label} className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 dark:border-slate-800 last:border-0">
                   <span className="flex items-center gap-2 text-xs text-slate-400 shrink-0">{icon}{label}</span>
@@ -322,36 +329,36 @@ const TestRunDetail = () => {
           </div>
 
           {/* Başarı Oranı */}
-          {total > 0 && (
+          {stats.total > 0 && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Başarı Oranı</h3>
 
               {/* Büyük yüzde */}
               <div className="text-center mb-4">
-                <p className={`text-5xl font-bold tabular-nums ${rateColor}`}>%{rate}</p>
-                <p className="text-xs text-slate-400 mt-1">{passed}/{total} test geçti</p>
+                <p className={`text-5xl font-bold tabular-nums ${rateColor}`}>%{stats.rate}</p>
+                <p className="text-xs text-slate-400 mt-1">{stats.passed}/{stats.total} test geçti</p>
               </div>
 
               {/* Stacked bar */}
               <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex gap-0.5 mb-4">
-                {passed  > 0 && <div className="bg-emerald-500 h-full rounded-full transition-all duration-700" style={{width:`${(passed/total)*100}%`}}/>}
-                {failed  > 0 && <div className="bg-rose-500 h-full rounded-full transition-all duration-700" style={{width:`${(failed/total)*100}%`}}/>}
-                {skipped > 0 && <div className="bg-amber-500 h-full rounded-full transition-all duration-700" style={{width:`${(skipped/total)*100}%`}}/>}
+                {stats.passed  > 0 && <div className="bg-emerald-500 h-full rounded-full transition-all duration-700" style={{width:`${(stats.passed/stats.total)*100}%`}}/>}
+                {stats.failed  > 0 && <div className="bg-rose-500 h-full rounded-full transition-all duration-700" style={{width:`${(stats.failed/stats.total)*100}%`}}/>}
+                {stats.skipped > 0 && <div className="bg-amber-500 h-full rounded-full transition-all duration-700" style={{width:`${(stats.skipped/stats.total)*100}%`}}/>}
               </div>
 
               {/* Dağılım */}
               <div className="space-y-2">
                 {[
-                  { label: 'Geçti',     count: passed,  color: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-                  { label: 'Başarısız', count: failed,  color: 'bg-rose-500',    text: 'text-rose-600 dark:text-rose-400' },
-                  { label: 'Atlandı',   count: skipped, color: 'bg-amber-500',   text: 'text-amber-600 dark:text-amber-400' },
-                  { label: 'Bekliyor',  count: pending, color: 'bg-slate-400',   text: 'text-slate-500' },
+                  { label: 'Geçti',     count: stats.passed,  color: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+                  { label: 'Başarısız', count: stats.failed,  color: 'bg-rose-500',    text: 'text-rose-600 dark:text-rose-400' },
+                  { label: 'Atlandı',   count: stats.skipped, color: 'bg-amber-500',   text: 'text-amber-600 dark:text-amber-400' },
+                  { label: 'Bekliyor',  count: stats.pending, color: 'bg-slate-400',   text: 'text-slate-500' },
                 ].filter(i => i.count > 0).map(i => (
                   <div key={i.label} className="flex items-center gap-2 text-xs">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${i.color}`}/>
                     <span className={`flex-1 font-medium ${i.text}`}>{i.label}</span>
                     <span className="font-bold text-slate-600 dark:text-slate-300 tabular-nums">{i.count}</span>
-                    <span className="text-slate-400 w-8 text-right tabular-nums">%{Math.round((i.count/total)*100)}</span>
+                    <span className="text-slate-400 w-8 text-right tabular-nums">%{Math.round((i.count/stats.total)*100)}</span>
                   </div>
                 ))}
               </div>
@@ -364,10 +371,10 @@ const TestRunDetail = () => {
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm font-medium">
               <ArrowLeft size={15}/> Koşumlar Listesine Dön
             </button>
-            {failed > 0 && (
+            {stats.failed > 0 && (
               <button onClick={() => navigate('/defects')}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-2xl hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors text-sm font-medium">
-                <XCircle size={15}/> {failed} Hatayı İncele
+                <XCircle size={15}/> {stats.failed} Hatayı İncele
               </button>
             )}
           </div>

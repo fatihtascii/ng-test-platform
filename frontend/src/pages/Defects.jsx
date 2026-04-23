@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import {
   Bug, Search, Filter, AlertCircle, CheckCircle2,
-  Clock, ArrowRightCircle, Target, Folder, X,
+  Clock, ArrowRightCircle, Folder, X,
   RefreshCw, CheckSquare, Square, Copy, Check,
-  ChevronDown, TrendingDown, Zap, PlayCircle 
-} from 'lucide-react'; // <-- PlayCircle BURAYA EKLENDİ
+  TrendingDown, Zap, PlayCircle 
+} from 'lucide-react'; // KULLANILMAYAN İKONLAR TEMİZLENDİ
 
 // ── Sabitler ──────────────────────────────────────────────────
 const STATUS_OPTIONS = [
@@ -66,15 +66,18 @@ const Defects = () => {
   // Kopyalama feedback
   const [copied, setCopied] = useState(false);
 
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   // ── Veri Çekme ──────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [runsRes, projsRes, casesRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/test-runs').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/projects').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/test-cases').catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-runs`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
       ]);
       setRawData({
         testRuns:  runsRes.ok  ? await runsRes.json()  : [],
@@ -87,7 +90,7 @@ const Defects = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [API_BASE]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -253,7 +256,7 @@ const Defects = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* EKLENEN BUTON: Dışa Aktar (Kopyala) */}
+          {/* Dışa Aktar (Kopyala) */}
           <button onClick={handleCopyReport} disabled={filtered.length === 0}
             className={`flex items-center gap-2 px-3 py-2 border rounded-xl font-medium text-sm transition-colors ${
               copied 

@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import {
-  ArrowLeft, Bug, Target, Clock, AlertCircle,
-  Terminal, AlignLeft, CheckCircle2, PlayCircle,
-  Folder, Tag, RefreshCw, Copy, Check
-} from 'lucide-react';
+  ArrowLeft, Bug, Target, Clock,
+  Terminal, AlignLeft, PlayCircle,
+  Folder, RefreshCw, Copy, Check
+} from 'lucide-react'; // KULLANILMAYAN İKONLAR TEMİZLENDİ
 
 // ── Sabitler (Defects.jsx ile %100 Uyumlu) ─────────────────────
 const STATUS_OPTIONS = [
@@ -50,6 +50,9 @@ const DefectDetail = () => {
   const [status, setStatus]         = useState('Open');
   const [copied, setCopied]         = useState(false);
 
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   // localStorage'dan statü oku
   useEffect(() => {
     try {
@@ -85,9 +88,9 @@ const DefectDetail = () => {
       const runId = parts[1];
 
       const [runsRes, projsRes, casesRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/test-runs').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/projects').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/test-cases').catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-runs`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
       ]);
 
       if (!runsRes || !runsRes.ok) throw new Error('Sunucuya bağlanılamadı (Test Koşumları yüklenemedi).');
@@ -161,7 +164,7 @@ const DefectDetail = () => {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, API_BASE]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 

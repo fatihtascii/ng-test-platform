@@ -4,10 +4,10 @@ import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
 import {
   ClipboardList, Plus, Search, MoreVertical, X, Pencil, Trash2,
-  AlertCircle, CheckCircle2, Clock, Folder, Calendar, PlayCircle,
-  ChevronRight, Loader2, CircleDot, Ban, Filter, MessageSquare,
-  CheckCheck, XCircle, RefreshCw, TrendingUp, BarChart3, Zap
-} from 'lucide-react';
+  AlertCircle, CheckCircle2, Folder, Calendar, PlayCircle,
+  Loader2, CircleDot, Ban, Filter, MessageSquare, Bug,
+  CheckCheck, RefreshCw, Zap
+} from 'lucide-react'; 
 
 // ── Sabitler ───────────────────────────────────────────────────
 const RUN_STATUSES = ['Bekliyor', 'Başarılı', 'Başarısız', 'Atlandı'];
@@ -87,6 +87,9 @@ const TestPlans = () => {
   const [updatingItem, setUpdatingItem] = useState(null);
   const [itemNotes, setItemNotes]   = useState({});
   const [isBulkLoading, setIsBulkLoading] = useState(false);
+  
+  // Defect
+  const [isDefectCreating, setIsDefectCreating] = useState(false);
 
   // Silme
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -99,25 +102,30 @@ const TestPlans = () => {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   // ── Veri Çekme ──────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setError(null);
     try {
       const [planRes, projRes, tcRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/test-plans'),
-        fetch('http://127.0.0.1:8000/projects'),
-        fetch('http://127.0.0.1:8000/test-cases'),
+        fetch(`${API_BASE}/test-plans`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
       ]);
+      
       if (planRes.ok) setPlans(await planRes.json());
+      else setError('Test planları yüklenemedi.');
+      
       if (projRes.ok) setProjects(await projRes.json());
       if (tcRes.ok)   setTestCases(await tcRes.json());
-      else if (!planRes.ok) setError('Test planları yüklenemedi.');
+      
     } catch {
       setError('Sunucuya bağlanılamadı.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [API_BASE]);
 
   useEffect(() => {
     fetchAll();
@@ -128,7 +136,7 @@ const TestPlans = () => {
 
   const refreshRunPlan = useCallback(async (planId) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/test-plans/${planId}`);
+      const res = await fetch(`${API_BASE}/test-plans/${planId}`);
       if (res.ok) {
         const updated = await res.json();
         setRunPlan(updated);
@@ -137,7 +145,7 @@ const TestPlans = () => {
     } catch (err) {
       console.warn('Plan yenilenemedi:', err);
     }
-  }, []);
+  }, [API_BASE]);
 
   // ── Plan CRUD ────────────────────────────────────────────────
   const openCreatePanel = () => {
@@ -170,8 +178,8 @@ const TestPlans = () => {
     setIsSubmitting(true);
     try {
       const url    = panelMode === 'create'
-        ? 'http://127.0.0.1:8000/test-plans'
-        : `http://127.0.0.1:8000/test-plans/${form.id}`;
+        ? `${API_BASE}/test-plans`
+        : `${API_BASE}/test-plans/${form.id}`;
       const method = panelMode === 'create' ? 'POST' : 'PUT';
       const res = await fetch(url, {
         method,
@@ -208,7 +216,7 @@ const TestPlans = () => {
   const handleDelete = async (id) => {
     setIsDeleting(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/test-plans/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/test-plans/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setPlans(prev => prev.filter(p => p.id !== id));
         showToast('success', 'Plan silindi.');
@@ -234,11 +242,9 @@ const TestPlans = () => {
   };
 
   const handleAddTestCase = async (tcId) => {
-    // 1. Tıklanan test case'in detaylarını bul
     const tc = testCases.find(t => t.id === tcId);
     if (!tc) return;
 
-    // 2. Optimistic Update: Kullanıcı tıklattığı an listeye sahte (geçici) bir ID ile ekle
     const tempItem = {
       id: `temp-${Date.now()}`,
       test_case_id: tc.id,
@@ -253,21 +259,18 @@ const TestPlans = () => {
       items: [...(prev.items || []), tempItem]
     }));
 
-    // 3. Arka planda sunucuya istek at
     try {
-      const res = await fetch(`http://127.0.0.1:8000/test-plans/${runPlan.id}/items`, {
+      const res = await fetch(`${API_BASE}/test-plans/${runPlan.id}/items`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ test_case_id: tcId }),
       });
       if (res.ok) {
-        // İşlem başarılıysa gerçek verileri (gerçek ID'leri) sunucudan çekip yenile
         await refreshRunPlan(runPlan.id);
       } else {
         throw new Error();
       }
     } catch {
-      // 4. Hata olursa işlemi geri al (Rollback)
       setRunPlan(prev => ({
         ...prev,
         items: prev.items.filter(i => i.id !== tempItem.id)
@@ -277,26 +280,21 @@ const TestPlans = () => {
   };
 
   const handleRemoveItem = async (itemId) => {
-    // 1. Snapshot: Mevcut listeyi yedekle
     const previousItems = [...(runPlan.items || [])];
 
-    // 2. Optimistic Update: Anında listeden çıkar
     setRunPlan(prev => ({
       ...prev,
       items: prev.items.filter(i => i.id !== itemId)
     }));
 
-    // 3. API'ye silme isteği yolla
     try {
-      const res = await fetch(`http://127.0.0.1:8000/test-plans/${runPlan.id}/items/${itemId}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/test-plans/${runPlan.id}/items/${itemId}`, { method: 'DELETE' });
       if (res.ok) {
-        // Sessizce gerçek veriyi tazele
         await refreshRunPlan(runPlan.id);
       } else {
         throw new Error();
       }
     } catch {
-      // 4. Hata durumunda Rollback yapıp uyarı ver
       setRunPlan(prev => ({ ...prev, items: previousItems }));
       showToast('error', 'Test case kaldırılamadı. Bağlantınızı kontrol edin.');
     }
@@ -305,18 +303,16 @@ const TestPlans = () => {
   const handleUpdateItemStatus = async (itemId, runStatus, note = null) => {
     setUpdatingItem(itemId);
     
-    // Snapshot ve hazırlanacak not
     const previousItems = [...(runPlan.items || [])];
     const noteToSend = note !== null ? note : (itemNotes[itemId] ?? null);
 
-    // Optimistic Update: Arayüzde durumu anında değiştir
     setRunPlan(prev => ({
       ...prev,
       items: prev.items.map(i => i.id === itemId ? { ...i, run_status: runStatus, note: noteToSend } : i)
     }));
 
     try {
-      const res = await fetch(`http://127.0.0.1:8000/test-plans/${runPlan.id}/items/${itemId}`, {
+      const res = await fetch(`${API_BASE}/test-plans/${runPlan.id}/items/${itemId}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ run_status: runStatus, note: noteToSend }),
@@ -327,7 +323,6 @@ const TestPlans = () => {
         throw new Error();
       }
     } catch {
-      // Hata olursa geri al
       setRunPlan(prev => ({ ...prev, items: previousItems }));
       showToast('error', 'Statü güncellenemedi.');
     } finally {
@@ -342,7 +337,6 @@ const TestPlans = () => {
 
     const previousItems = [...(runPlan.items || [])];
 
-    // Optimistic Update: Tüm bekleyenleri anında yeni statüye geçir
     setRunPlan(prev => ({
       ...prev,
       items: prev.items.map(i => i.run_status === 'Bekliyor' ? { ...i, run_status: status } : i)
@@ -351,7 +345,7 @@ const TestPlans = () => {
     setIsBulkLoading(true);
     try {
       await Promise.all(targets.map(item =>
-        fetch(`http://127.0.0.1:8000/test-plans/${runPlan.id}/items/${item.id}`, {
+        fetch(`${API_BASE}/test-plans/${runPlan.id}/items/${item.id}`, {
           method:  'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ run_status: status, note: null }),
@@ -360,7 +354,6 @@ const TestPlans = () => {
       await refreshRunPlan(runPlan.id);
       showToast('success', `${targets.length} test "${status}" olarak işaretlendi.`);
     } catch {
-      // Rollback
       setRunPlan(prev => ({ ...prev, items: previousItems }));
       showToast('error', 'Toplu güncelleme tamamlanamadı.');
     } finally {
@@ -376,11 +369,10 @@ const TestPlans = () => {
       return;
     }
     
-    // Optimistic Update for Plan Completeness
     setRunPlan(prev => ({ ...prev, status: 'Tamamlandı' }));
 
     try {
-      const res = await fetch(`http://127.0.0.1:8000/test-plans/${runPlan.id}`, {
+      const res = await fetch(`${API_BASE}/test-plans/${runPlan.id}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -399,10 +391,45 @@ const TestPlans = () => {
         throw new Error();
       }
     } catch {
-      setRunPlan(prev => ({ ...prev, status: 'Aktif' })); // Rollback
+      setRunPlan(prev => ({ ...prev, status: 'Aktif' }));
       showToast('error', 'Plan güncellenemedi.');
     }
   };
+
+  // 🕷️ 1-Tık Defect (Hata) Raporlama Entegrasyonu
+  const handleCreateDefect = async (tcId, tcTitle, note, projectId) => {
+    if (!note || !note.trim()) { 
+      showToast('error', 'Defect açmadan önce lütfen hata detaylarını (Hata Notu) yazın ve kaydedin.'); 
+      return; 
+    }
+    setIsDefectCreating(true);
+    try {
+      const payload = {
+        title: `[Oto-Defect] ${tcTitle} - Plan Hatası`,
+        description: `**Bağlı Test Planı:** ${runPlan?.title}\n**Test Case ID:** #${tcId}\n\n**Bulgu / Hata Notu:**\n${note}`,
+        status: 'Açık',
+        priority: 'Yüksek',
+        project_id: projectId
+      };
+
+      const res = await fetch(`${API_BASE}/defects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        showToast('success', '🔥 Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
+      } else {
+        showToast('error', 'Defect oluşturulamadı. Sunucu hatası.');
+      }
+    } catch {
+      showToast('error', 'Defect API servisine ulaşılamadı.');
+    } finally {
+      setIsDefectCreating(false);
+    }
+  };
+
 
   // ── Filtreleme ───────────────────────────────────────────────
   const filtered = useMemo(() =>
@@ -604,24 +631,30 @@ const TestPlans = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right relative">
-                      {(can('test_plans.edit') || can('test_plans.delete')) && (
-                        <button onClick={e => { e.stopPropagation(); setActiveDropdown(activeDropdown === plan.id ? null : plan.id); }}
-                          className="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                          <MoreVertical size={17}/>
-                        </button>
-                      )}
+                      <button onClick={e => { e.stopPropagation(); setActiveDropdown(activeDropdown === plan.id ? null : plan.id); }}
+                        className="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                        <MoreVertical size={17}/>
+                      </button>
                       {activeDropdown === plan.id && (
                         <div className="absolute right-8 top-10 w-44 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                          
+                          {/* 🚀 KOŞUM BAŞLAT KISAYOLU */}
+                          {can('test_runs.create') && (
+                            <button onClick={(e) => { e.stopPropagation(); navigate('/test-runs'); }} 
+                              className="w-full px-4 py-2.5 text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 flex items-center gap-2 transition-colors border-b border-slate-100 dark:border-slate-700">
+                              <PlayCircle size={14}/> Koşum Başlat
+                            </button>
+                          )}
+
                           {can('test_plans.edit') && (
                             <button onClick={e => { e.stopPropagation(); openEditPanel(plan); }}
                               className="w-full px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 transition-colors">
                               <Pencil size={14}/> Düzenle
                             </button>
                           )}
-                          {can('test_plans.edit') && can('test_plans.delete') && <div className="h-px bg-slate-100 dark:bg-slate-700"/>}
                           {can('test_plans.delete') && (
                             <button onClick={e => { e.stopPropagation(); setDeleteConfirm(plan.id); setActiveDropdown(null); }}
-                              className="w-full px-4 py-2.5 text-sm font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors">
+                              className="w-full px-4 py-2.5 text-sm font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors border-t border-slate-100 dark:border-slate-700">
                               <Trash2 size={14}/> Sil
                             </button>
                           )}
@@ -732,7 +765,7 @@ const TestPlans = () => {
                 </button>
               </div>
 
-              {/* Scrollable İçerik Alanı - Flex 1 ve taşma kontrolleri kusursuz */}
+              {/* Scrollable İçerik Alanı */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-12">
 
                 {/* İlerleme özeti */}
@@ -833,9 +866,9 @@ const TestPlans = () => {
                             ))}
                           </div>
 
-                          {/* Başarısız Not Alanı */}
+                          {/* Başarısız Not Alanı & DEFECT ENTEGRASYONU */}
                           {item.run_status === 'Başarısız' && can('test_runs.execute') && (
-                            <div className="mt-3 animate-in fade-in slide-in-from-top-2 duration-300 bg-rose-50/50 dark:bg-rose-900/10 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
+                            <div className="mt-4 animate-in fade-in slide-in-from-top-2 duration-300 bg-rose-50/50 dark:bg-rose-900/10 p-4 rounded-xl border border-rose-100 dark:border-rose-900/30">
                               <label className="text-xs font-bold text-rose-500 flex items-center gap-1.5 mb-2">
                                 <MessageSquare size={13}/> Hata Notu / Bulgular
                               </label>
@@ -847,7 +880,7 @@ const TestPlans = () => {
                                   className="flex-1 text-sm bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-rose-400 dark:text-white transition-colors placeholder:text-slate-400"/>
                                 <button onClick={() => handleUpdateItemStatus(item.id, 'Başarısız', itemNotes[item.id] ?? item.note)}
                                   className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors shadow-sm">
-                                  Kaydet
+                                  Notu Kaydet
                                 </button>
                               </div>
                               {item.note && !itemNotes[item.id] && (
@@ -855,6 +888,17 @@ const TestPlans = () => {
                                   <CheckCircle2 size={12} className="text-emerald-500"/> Kayıtlı Not: <span className="font-medium text-slate-700 dark:text-slate-300">{item.note}</span>
                                 </p>
                               )}
+
+                              {/* 🕷️ DEFECT BUTONU */}
+                              <div className="mt-3 pt-3 border-t border-rose-100 dark:border-rose-900/50">
+                                <button 
+                                  onClick={() => handleCreateDefect(item.test_case_id, item.test_case_title, itemNotes[item.id] ?? item.note, runPlan.project_id)}
+                                  disabled={isDefectCreating}
+                                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-rose-600/20 disabled:opacity-50">
+                                  {isDefectCreating ? <Loader2 size={14} className="animate-spin"/> : <Bug size={14}/>}
+                                  Defect (Hata) Raporla
+                                </button>
+                              </div>
                             </div>
                           )}
 
@@ -888,7 +932,6 @@ const TestPlans = () => {
                         {addTcSearch ? 'Arama kriterinize uygun test bulunamadı.' : 'Bu projeye ait mevcut tüm testler zaten plana eklenmiş.'}
                       </p>
                     ) : (
-                      // DÜZELTİLDİ: Scroll sınırları esnek yapıldı ve taşma engellendi
                       <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
                         {availableTCs.map(tc => (
                           <button key={tc.id} onClick={() => handleAddTestCase(tc.id)}

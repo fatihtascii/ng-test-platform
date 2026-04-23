@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
-import PermissionGuard from '../components/PermissionGuard';
 import {
   Users as UsersIcon, Search, Shield, MoreVertical, X,
-  AlertCircle, CheckCircle2, UserX, Trash2, Mail,
+  AlertCircle, CheckCircle2, UserX, Trash2,
   Pencil, Loader2, Lock, RefreshCw, UserPlus,
   Crown, KeyRound, Eye, EyeOff, Hash, ExternalLink,
-  UserCheck, UserMinus, CheckSquare, Square, ChevronDown
-} from 'lucide-react';
+  UserCheck, CheckSquare, Square
+} from 'lucide-react'; // KULLANILMAYAN İKONLAR TEMİZLENDİ
 
 // ── Sabitler ──────────────────────────────────────────────────
 const AVATAR_COLORS = [
@@ -130,15 +129,20 @@ const Users = () => {
   const [pwForm,     setPwForm]     = useState({ newPassword: '', confirm: '' });
   const [pwShow,     setPwShow]     = useState({ new: false, confirm: false });
 
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   const fetchData = useCallback(async () => {
     setError(null);
     try {
+      // ✅ Domino Etkisi Çözüldü: Users de kalkanlı
       const [usersRes, rolesRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/users'),
-        fetch('http://127.0.0.1:8000/roles').catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/users`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/roles`).catch(() => ({ ok: false })),
       ]);
+      
       if (usersRes.ok) setUsers(await usersRes.json());
-      else setError('Kullanıcılar yüklenemedi.');
+      else setError('Kullanıcılar yüklenemedi. Sunucu bağlantınızı kontrol edin.');
 
       if (rolesRes.ok) {
         setRoles(await rolesRes.json());
@@ -152,7 +156,7 @@ const Users = () => {
       }
     } catch { setError('Sunucuya bağlanılamadı.'); }
     finally   { setLoading(false); }
-  }, []);
+  }, [API_BASE]);
 
   useEffect(() => {
     fetchData();
@@ -214,7 +218,7 @@ const Users = () => {
     if (err) { setPanelError(err); return; }
     setIsSaving(true);
     try {
-      const res = await fetch('http://127.0.0.1:8000/users', {
+      const res = await fetch(`${API_BASE}/users`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createForm),
       });
@@ -235,7 +239,7 @@ const Users = () => {
     if (!editForm.full_name.trim()) { setPanelError('Ad Soyad boş olamaz.'); return; }
     setIsSaving(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/users/${panelUser.id}`, {
+      const res = await fetch(`${API_BASE}/users/${panelUser.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_name: editForm.full_name, email: editForm.email || null, role: editForm.role }),
       });
@@ -257,7 +261,7 @@ const Users = () => {
     if (err) { setPanelError(err); return; }
     setIsSaving(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/users/${panelUser.id}/password`, {
+      const res = await fetch(`${API_BASE}/users/${panelUser.id}/password`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pwForm.newPassword }),
       });
@@ -278,13 +282,13 @@ const Users = () => {
       if (id === 'bulk') {
         const ids = [...selected];
         await Promise.all(ids.map(uid =>
-          fetch(`http://127.0.0.1:8000/users/${uid}`, { method: 'DELETE' })
+          fetch(`${API_BASE}/users/${uid}`, { method: 'DELETE' })
         ));
         setUsers(prev => prev.filter(u => !ids.includes(u.id)));
         setSelected(new Set());
         showToast('success', `${ids.length} kullanıcı silindi.`);
       } else {
-        const res = await fetch(`http://127.0.0.1:8000/users/${id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE' });
         if (res.ok) {
           setUsers(prev => prev.filter(u => u.id !== id));
           showToast('success', 'Kullanıcı silindi.');
@@ -299,7 +303,7 @@ const Users = () => {
 
   const handleQuickRoleChange = async (userId, newRole) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/users/${userId}/role`, {
+      const res = await fetch(`${API_BASE}/users/${userId}/role`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       });
@@ -318,7 +322,7 @@ const Users = () => {
     setIsBulkSaving(true);
     try {
       await Promise.all([...selected].map(uid =>
-        fetch(`http://127.0.0.1:8000/users/${uid}/role`, {
+        fetch(`${API_BASE}/users/${uid}/role`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ role: bulkRole }),
         })
@@ -540,7 +544,6 @@ const Users = () => {
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
-          {/* YENİ: Yorum satırı div'in içine alındı */}
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs uppercase text-slate-400 font-semibold tracking-wide">

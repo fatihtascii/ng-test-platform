@@ -1,36 +1,39 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePermission } from '../hooks/usePermission';
+import api from '../api';
 import {
   Server, Database, Key, Globe, Plus, Search, MoreVertical,
   X, Pencil, Trash2, AlertCircle, CheckCircle2, Eye, EyeOff,
   Copy, Shield, FileText, Folder, Loader2, RefreshCw,
-  Wifi, WifiOff, Filter, ChevronRight, Check, Lock,
-  ExternalLink, Zap
+  Wifi, WifiOff, Filter, Check, Lock, ExternalLink, Zap
 } from 'lucide-react';
 
-// ── Sabitler ──────────────────────────────────────────────────
-// ✅ Düzeltildi: backend'deki gerçek izin isimleri kullanılıyor
+// ── İzinler ───────────────────────────────────────────────────
 const PERM = {
-  envView:    'environments.view',
-  envManage:  'environments.manage',
-  varView:    'environments.view',   // variables için ayrı izin yok
-  varManage:  'environments.manage',
+  envManage: 'environments.manage',
 };
 
-// KEY validation — boşluk ve özel karakter kabul etme
+// ── URL Validation ────────────────────────────────────────────
+const isValidUrl = (url) => {
+  try { const u = new URL(url); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch { return false; }
+};
+
+// ── Sabit form şablonları ─────────────────────────────────────
+const DEFAULT_ENV_FORM = { id: '', name: '', project_id: '', url: '', description: '' };
+const DEFAULT_VAR_FORM = { id: '', key: '', value: '', project_id: '', env_id: '', is_secret: false };
 const KEY_RE = /^[A-Z0-9_]+$/;
 
 const Skeleton = ({ className }) => (
   <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`}/>
 );
 
-// ── URL Durum Renkleri ────────────────────────────────────────
-const getPingStatusStyle = (status) => ({
-  online:  { dot: 'bg-emerald-400', text: 'text-emerald-600 dark:text-emerald-400', label: 'Erişilebilir' },
-  offline: { dot: 'bg-rose-400',    text: 'text-rose-600 dark:text-rose-400',       label: 'Erişilemiyor' },
-  unknown: { dot: 'bg-slate-300 dark:bg-slate-600', text: 'text-slate-400',         label: 'Test edilmedi' },
-  testing: { dot: 'bg-amber-400 animate-pulse',      text: 'text-amber-500',        label: 'Test ediliyor...' },
-}[status] || { dot: 'bg-slate-300', text: 'text-slate-400', label: '—' });
+const getPingStyle = (status) => ({
+  online:  { dot: 'bg-emerald-400', btn: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800', label: 'Erişilebilir' },
+  offline: { dot: 'bg-rose-400',    btn: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800',                   label: 'Erişilemiyor' },
+  testing: { dot: 'bg-amber-400 animate-pulse', btn: 'bg-amber-50 text-amber-500 border-amber-200',                                                                 label: 'Test ediliyor...' },
+  unknown: { dot: 'bg-slate-300 dark:bg-slate-600', btn: 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600', label: 'Test Et' },
+}[status] || { dot: 'bg-slate-300', btn: 'bg-slate-50 text-slate-500 border-slate-200', label: 'Test Et' });
 
 // ── Ana Bileşen ────────────────────────────────────────────────
 const Environments = () => {
@@ -42,28 +45,26 @@ const Environments = () => {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState(null);
 
-  const [activeTab,      setActiveTab]      = useState('environments');
-  const [searchTerm,     setSearchTerm]     = useState('');
-  const [projectFilter,  setProjectFilter]  = useState('All');
-  const [envFilter,      setEnvFilter]      = useState('All'); // değişkenler için
-  const [typeFilter,     setTypeFilter]     = useState('All'); // secret / normal
+  const [activeTab,     setActiveTab]     = useState('environments');
+  const [searchTerm,    setSearchTerm]    = useState('');
+  const [projectFilter, setProjectFilter] = useState('All');
+  const [envFilter,     setEnvFilter]     = useState('All');
+  const [typeFilter,    setTypeFilter]    = useState('All');
 
-  // ✅ Ping durumları — her ortam kartı için
-  const [pingStatus, setPingStatus] = useState({}); // { envId: 'online'|'offline'|'testing'|'unknown' }
-
-  // Sır göster/gizle
-  const [revealed, setRevealed] = useState(new Set());
-
+  const [pingStatus,  setPingStatus]  = useState({});
+  const [revealed,    setRevealed]    = useState(new Set());
   const [activeDropdown, setActiveDropdown] = useState(null);
 
-  // Panel — tek state, iki ayrı boolean yerine
-  const [panel, setPanel] = useState(null); // { type: 'env'|'var', mode: 'create'|'edit', data? }
-
+  const [panel,        setPanel]        = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelError,   setPanelError]   = useState('');
 
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // { type, id, name }
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [isDeleting,    setIsDeleting]    = useState(false);
+
+  const [envForm,      setEnvForm]      = useState(DEFAULT_ENV_FORM);
+  const [varForm,      setVarForm]      = useState(DEFAULT_VAR_FORM);
+  const [showVarValue, setShowVarValue] = useState(false);
 
   const [toast, setToast] = useState(null);
   const showToast = useCallback((type, message) => {
@@ -71,29 +72,21 @@ const Environments = () => {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  // Form state'leri
-  const defaultEnvForm = { id: '', name: '', project_id: '', url: '', description: '' };
-  const defaultVarForm = { id: '', key: '', value: '', project_id: '', env_id: '', is_secret: false };
-  const [envForm, setEnvForm] = useState(defaultEnvForm);
-  const [varForm, setVarForm] = useState(defaultVarForm);
-  const [showVarValue, setShowVarValue] = useState(false);
-
   // ── Veri Çekme ──────────────────────────────────────────────
-  // ✅ Düzeltildi: useCallback ile sarıldı
   const fetchData = useCallback(async () => {
     setError(null);
     try {
       const [projRes, envRes, varRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/projects').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/environments').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/variables').catch(() => ({ ok: false })),
+        api.get('/projects').catch(() => null),
+        api.get('/environments').catch(() => null),
+        api.get('/variables').catch(() => null),
       ]);
-      if (projRes.ok) setProjects(await projRes.json());
-      if (envRes.ok)  setEnvironments(await envRes.json()); else setEnvironments([]);
-      if (varRes.ok)  setVariables(await varRes.json());    else setVariables([]);
-      if (!projRes.ok) setError('Projeler yüklenemedi.');
-    } catch {
-      setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
+      if (projRes) setProjects(projRes.data);
+      if (envRes)  setEnvironments(envRes.data);  else setEnvironments([]);
+      if (varRes)  setVariables(varRes.data);     else setVariables([]);
+      if (!projRes) setError('Projeler yüklenemedi.');
+    } catch (err) {
+      setError(err.message || 'Sunucuya bağlanılamadı.');
     } finally {
       setLoading(false);
     }
@@ -106,119 +99,107 @@ const Environments = () => {
     return () => document.removeEventListener('click', close);
   }, [fetchData]);
 
-  // ✅ Tab değişince arama sıfırla
   useEffect(() => { setSearchTerm(''); setEnvFilter('All'); setTypeFilter('All'); }, [activeTab]);
 
-  // ── URL Ping Testi ────────────────────────────────────────────
+  // ── URL Ping ─────────────────────────────────────────────────
   const pingUrl = useCallback(async (envId, url) => {
     if (!url) { showToast('error', 'Test edilecek URL yok.'); return; }
     setPingStatus(prev => ({ ...prev, [envId]: 'testing' }));
     try {
-      // Tarayıcı CORS kısıtlaması nedeniyle direkt fetch çalışmayabilir
-      // no-cors mode ile sadece erişilebilirlik kontrolü yapıyoruz
-      const res = await fetch(url, { method: 'HEAD', mode: 'no-cors', signal: AbortSignal.timeout(5000) });
-      // no-cors'ta response.type === 'opaque' — hata yoksa online kabul et
+      await fetch(url, { method: 'HEAD', mode: 'no-cors', signal: AbortSignal.timeout(6000) });
       setPingStatus(prev => ({ ...prev, [envId]: 'online' }));
-      showToast('success', `${url} erişilebilir!`);
+      showToast('success', `${url} — ağ bağlantısı erişilebilir.`);
     } catch (err) {
-      const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
       setPingStatus(prev => ({ ...prev, [envId]: 'offline' }));
-      showToast('error', isTimeout ? 'Zaman aşımı — URL yanıt vermiyor.' : 'URL\'e erişilemiyor.');
+      showToast('error', err.name === 'TimeoutError' || err.name === 'AbortError'
+        ? 'Zaman aşımı — sunucu yanıt vermiyor.'
+        : 'Bağlantı kurulamadı.');
     }
   }, [showToast]);
 
   // ── Kopyalama ────────────────────────────────────────────────
   const copyToClipboard = useCallback((text, label = '') => {
     if (!text) return;
-    const exec = () => {
+    const doToast = () => showToast('success', label ? `${label} kopyalandı!` : 'Kopyalandı!');
+    navigator.clipboard?.writeText(text).then(doToast).catch(() => {
       const ta = document.createElement('textarea');
       ta.value = text; ta.style.position = 'fixed';
       document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); showToast('success', label ? `${label} kopyalandı!` : 'Kopyalandı!'); }
-      catch { showToast('error', 'Kopyalama başarısız.'); }
+      try { document.execCommand('copy'); doToast(); } catch { showToast('error', 'Kopyalama başarısız.'); }
       document.body.removeChild(ta);
-    };
-    navigator.clipboard?.writeText(text)
-      .then(() => showToast('success', label ? `${label} kopyalandı!` : 'Kopyalandı!'))
-      .catch(exec);
+    });
   }, [showToast]);
 
-  const toggleReveal = (id) => setRevealed(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleReveal = (id) => setRevealed(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
 
   // ── Yardımcılar ──────────────────────────────────────────────
-  const getProjectName = (id) => projects.find(p => String(p.id) === String(id))?.name || '—';
-  const getEnvName     = (id) => id ? (environments.find(e => String(e.id) === String(id))?.name || 'Bilinmiyor') : 'Tüm Ortamlar';
+  const getProjectName = useCallback((id) =>
+    projects.find(p => String(p.id) === String(id))?.name || '—'
+  , [projects]);
+
+  const getEnvName = useCallback((id) =>
+    id ? (environments.find(e => String(e.id) === String(id))?.name || 'Bilinmiyor') : 'Global (Proje Geneli)'
+  , [environments]);
 
   // ── Panel açma / kapama ──────────────────────────────────────
   const openEnvPanel = useCallback((env = null) => {
     setPanelError(''); setShowVarValue(false);
-    if (env) {
-      setEnvForm({ id: env.id, name: env.name, project_id: env.project_id, url: env.url, description: env.description || '' });
-      setPanel({ type: 'env', mode: 'edit' });
-    } else {
-      setEnvForm({ ...defaultEnvForm, project_id: '' });
-      setPanel({ type: 'env', mode: 'create' });
-    }
+    setEnvForm(env
+      ? { id: env.id, name: env.name, project_id: env.project_id, url: env.url, description: env.description || '' }
+      : { ...DEFAULT_ENV_FORM }
+    );
+    setPanel({ type: 'env', mode: env ? 'edit' : 'create' });
     setActiveDropdown(null);
   }, []);
 
   const openVarPanel = useCallback((variable = null) => {
     setPanelError(''); setShowVarValue(false);
-    if (variable) {
-      setVarForm({ id: variable.id, key: variable.key, value: variable.value, project_id: variable.project_id || '', env_id: variable.env_id || '', is_secret: variable.is_secret });
-      setPanel({ type: 'var', mode: 'edit' });
-    } else {
-      setVarForm({ ...defaultVarForm, project_id: '' });
-      setPanel({ type: 'var', mode: 'create' });
-    }
+    setVarForm(variable
+      ? { id: variable.id, key: variable.key, value: variable.value, project_id: variable.project_id || '', env_id: variable.env_id || '', is_secret: variable.is_secret }
+      : { ...DEFAULT_VAR_FORM }
+    );
+    setPanel({ type: 'var', mode: variable ? 'edit' : 'create' });
     setActiveDropdown(null);
   }, []);
 
-  const closePanel = () => { setPanel(null); setPanelError(''); };
+  const closePanel = useCallback(() => { setPanel(null); setPanelError(''); }, []);
 
   // ── Ortam CRUD ───────────────────────────────────────────────
   const handleEnvSubmit = async () => {
     setPanelError('');
-    if (!envForm.name.trim())  { setPanelError('Ortam adı boş olamaz.'); return; }
-    if (!envForm.project_id)   { setPanelError('Proje seçiniz.'); return; }
-    if (!envForm.url.trim())   { setPanelError('URL boş olamaz.'); return; }
-    if (!/^https?:\/\/.+/.test(envForm.url.trim())) { setPanelError('Geçerli bir URL girin (http:// veya https://).'); return; }
+    if (!envForm.name.trim())        { setPanelError('Ortam adı boş olamaz.'); return; }
+    if (!envForm.project_id)         { setPanelError('Proje seçiniz.'); return; }
+    if (!envForm.url.trim())         { setPanelError('URL boş olamaz.'); return; }
+    if (!isValidUrl(envForm.url.trim())) { setPanelError('Geçerli bir URL girin (örn: https://api.example.com).'); return; }
 
     setIsSubmitting(true);
     try {
-      const url    = panel?.mode === 'create' ? 'http://127.0.0.1:8000/environments' : `http://127.0.0.1:8000/environments/${envForm.id}`;
-      const method = panel?.mode === 'create' ? 'POST' : 'PUT';
-      const res = await fetch(url, {
-        method, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: envForm.name.trim(), project_id: parseInt(envForm.project_id), url: envForm.url.trim(), description: envForm.description || null }),
+      const endpoint = panel?.mode === 'create' ? '/environments' : `/environments/${envForm.id}`;
+      const method   = panel?.mode === 'create' ? 'post' : 'put';
+      const res = await api[method](endpoint, {
+        name: envForm.name.trim(), project_id: parseInt(envForm.project_id),
+        url: envForm.url.trim(), description: envForm.description || null,
       });
-      if (res.ok) {
-        const saved = await res.json();
-        // ✅ Optimistic update
-        if (panel?.mode === 'create') {
-          setEnvironments(prev => [saved, ...prev]);
-        } else {
-          setEnvironments(prev => prev.map(e => e.id === saved.id ? saved : e));
-        }
-        closePanel();
-        showToast('success', panel?.mode === 'create' ? 'Ortam oluşturuldu.' : 'Ortam güncellendi.');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setPanelError(data.detail || 'Kaydedilemedi.');
-      }
-    } catch { setPanelError('Sunucuya ulaşılamadı.'); }
-    finally  { setIsSubmitting(false); }
+      const saved = res.data;
+      setEnvironments(prev =>
+        panel?.mode === 'create' ? [saved, ...prev] : prev.map(e => e.id === saved.id ? saved : e)
+      );
+      closePanel();
+      showToast('success', panel?.mode === 'create' ? 'Ortam oluşturuldu.' : 'Ortam güncellendi.');
+    } catch (err) { setPanelError(err.message || 'Kaydedilemedi.'); }
+    finally       { setIsSubmitting(false); }
   };
 
   // ── Değişken CRUD ─────────────────────────────────────────────
   const handleVarSubmit = async () => {
     setPanelError('');
     const key = varForm.key.trim().toUpperCase().replace(/\s+/g, '_');
-    if (!key)                    { setPanelError('Key boş olamaz.'); return; }
-    if (!KEY_RE.test(key))       { setPanelError('Key yalnızca büyük harf, rakam ve alt çizgi içerebilir.'); return; }
-    if (!varForm.value.trim())   { setPanelError('Değer boş olamaz.'); return; }
+    if (!key)             { setPanelError('Key boş olamaz.'); return; }
+    if (!KEY_RE.test(key)){ setPanelError('Key yalnızca büyük harf, rakam ve alt çizgi içerebilir.'); return; }
+    if (!varForm.value.trim()) { setPanelError('Değer boş olamaz.'); return; }
 
-    // ✅ Aynı key var mı kontrol et (edit dışında)
     if (panel?.mode === 'create') {
       const exists = variables.some(v =>
         v.key === key &&
@@ -230,33 +211,22 @@ const Environments = () => {
 
     setIsSubmitting(true);
     try {
-      const url    = panel?.mode === 'create' ? 'http://127.0.0.1:8000/variables' : `http://127.0.0.1:8000/variables/${varForm.id}`;
-      const method = panel?.mode === 'create' ? 'POST' : 'PUT';
-      const res = await fetch(url, {
-        method, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key, value: varForm.value,
-          project_id: varForm.project_id ? parseInt(varForm.project_id) : null,
-          env_id:     varForm.env_id     ? parseInt(varForm.env_id)     : null,
-          is_secret:  varForm.is_secret,
-        }),
+      const endpoint = panel?.mode === 'create' ? '/variables' : `/variables/${varForm.id}`;
+      const method   = panel?.mode === 'create' ? 'post' : 'put';
+      const res = await api[method](endpoint, {
+        key, value: varForm.value,
+        project_id: varForm.project_id ? parseInt(varForm.project_id) : null,
+        env_id:     varForm.env_id     ? parseInt(varForm.env_id)     : null,
+        is_secret:  varForm.is_secret,
       });
-      if (res.ok) {
-        const saved = await res.json();
-        // ✅ Optimistic update
-        if (panel?.mode === 'create') {
-          setVariables(prev => [saved, ...prev]);
-        } else {
-          setVariables(prev => prev.map(v => v.id === saved.id ? saved : v));
-        }
-        closePanel();
-        showToast('success', panel?.mode === 'create' ? 'Değişken oluşturuldu.' : 'Değişken güncellendi.');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setPanelError(data.detail || 'Kaydedilemedi.');
-      }
-    } catch { setPanelError('Sunucuya ulaşılamadı.'); }
-    finally  { setIsSubmitting(false); }
+      const saved = res.data;
+      setVariables(prev =>
+        panel?.mode === 'create' ? [saved, ...prev] : prev.map(v => v.id === saved.id ? saved : v)
+      );
+      closePanel();
+      showToast('success', panel?.mode === 'create' ? 'Değişken oluşturuldu.' : 'Değişken güncellendi.');
+    } catch (err) { setPanelError(err.message || 'Kaydedilemedi.'); }
+    finally       { setIsSubmitting(false); }
   };
 
   // ── Silme ────────────────────────────────────────────────────
@@ -265,21 +235,21 @@ const Environments = () => {
     setIsDeleting(true);
     const { type, id } = deleteConfirm;
     try {
-      const url = type === 'env' ? `http://127.0.0.1:8000/environments/${id}` : `http://127.0.0.1:8000/variables/${id}`;
-      const res = await fetch(url, { method: 'DELETE' });
-      if (res.ok) {
-        // ✅ Optimistic update
-        if (type === 'env')   setEnvironments(prev => prev.filter(e => e.id !== id));
-        else                  setVariables(prev => prev.filter(v => v.id !== id));
-        showToast('success', type === 'env' ? 'Ortam silindi.' : 'Değişken silindi.');
+      await api.delete(type === 'env' ? `/environments/${id}` : `/variables/${id}`);
+      if (type === 'env') {
+        setEnvironments(prev => prev.filter(e => e.id !== id));
+        // 🚀 FIX: Ortam silinince ona bağlı değişkenleri de arayüzden anında temizle!
+        setVariables(prev => prev.filter(v => String(v.env_id) !== String(id)));
       } else {
-        showToast('error', 'Silinemedi.');
+        setVariables(prev => prev.filter(v => v.id !== id));
+        setRevealed(prev => { const n = new Set(prev); n.delete(id); return n; });
       }
-    } catch { showToast('error', 'Sunucuya ulaşılamadı.'); }
-    finally  { setIsDeleting(false); setDeleteConfirm(null); }
+      showToast('success', type === 'env' ? 'Ortam silindi.' : 'Değişken silindi.');
+    } catch (err) { showToast('error', err.message || 'Silinemedi.'); }
+    finally       { setIsDeleting(false); setDeleteConfirm(null); }
   };
 
-  // ── Filtreleme (useMemo) ─────────────────────────────────────
+  // ── Filtreler ────────────────────────────────────────────────
   const filteredEnvironments = useMemo(() => environments.filter(env => {
     const q = searchTerm.toLowerCase();
     return (
@@ -291,23 +261,29 @@ const Environments = () => {
   const filteredVariables = useMemo(() => variables.filter(v => {
     const q = searchTerm.toLowerCase();
     return (
-      (!q || v.key?.toLowerCase().includes(q)) &&
+      (!q || v.key?.toLowerCase().includes(q) || (!v.is_secret && v.value?.toLowerCase().includes(q))) &&
       (projectFilter === 'All' || String(v.project_id) === String(projectFilter)) &&
       (envFilter     === 'All' || String(v.env_id || '') === String(envFilter)) &&
       (typeFilter    === 'All' || (typeFilter === 'secret' ? v.is_secret : !v.is_secret))
     );
   }), [variables, searchTerm, projectFilter, envFilter, typeFilter]);
 
-  // Değişkenleri ortama göre grupla
   const groupedVariables = useMemo(() => {
     const groups = {};
     filteredVariables.forEach(v => {
-      const key = v.env_id ? `env:${v.env_id}` : 'global';
-      if (!groups[key]) groups[key] = { label: getEnvName(v.env_id), items: [] };
-      groups[key].items.push(v);
+      const gKey = v.env_id ? `env:${v.env_id}` : 'global';
+      if (!groups[gKey]) groups[gKey] = { label: getEnvName(v.env_id), items: [], isGlobal: !v.env_id };
+      groups[gKey].items.push(v);
     });
-    return Object.values(groups).sort((a, b) => a.label.localeCompare(b.label, 'tr'));
-  }, [filteredVariables, environments]);
+    return Object.values(groups).sort((a, b) => {
+      if (a.isGlobal) return 1; 
+      if (b.isGlobal) return -1;
+      return a.label.localeCompare(b.label, 'tr');
+    });
+  }, [filteredVariables, getEnvName]);
+
+  const hasFilter = searchTerm || projectFilter !== 'All' || envFilter !== 'All' || typeFilter !== 'All';
+  const clearFilters = () => { setSearchTerm(''); setProjectFilter('All'); setEnvFilter('All'); setTypeFilter('All'); };
 
   // ── Render ───────────────────────────────────────────────────
   return (
@@ -325,7 +301,7 @@ const Environments = () => {
         </div>
       )}
 
-      {/* HEADER + TABS */}
+      {/* HEADER */}
       <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
@@ -333,8 +309,8 @@ const Environments = () => {
           </h1>
           <div className="flex items-center gap-6">
             {[
-              { id: 'environments', label: 'Ortamlar',              icon: <Globe size={15}/>,    count: environments.length },
-              { id: 'variables',    label: 'Değişkenler & Sırlar',  icon: <Database size={15}/>, count: variables.length },
+              { id: 'environments', label: 'Ortamlar',             icon: <Globe size={15}/>,    count: environments.length },
+              { id: 'variables',    label: 'Değişkenler & Sırlar', icon: <Database size={15}/>, count: variables.length },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
@@ -351,11 +327,10 @@ const Environments = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Yenile */}
-          <button onClick={fetchData} className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors" title="Yenile">
+          <button onClick={fetchData} title="Yenile"
+            className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors">
             <RefreshCw size={16}/>
           </button>
-          {/* ✅ Düzeltildi: environments.manage izni */}
           {can(PERM.envManage) && (
             <button
               onClick={activeTab === 'environments' ? () => openEnvPanel() : () => openVarPanel()}
@@ -390,7 +365,6 @@ const Environments = () => {
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
-        {/* Değişkenler için ek filtreler */}
         {activeTab === 'variables' && (
           <>
             <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded-xl">
@@ -410,8 +384,8 @@ const Environments = () => {
             </div>
           </>
         )}
-        {(searchTerm || projectFilter !== 'All' || envFilter !== 'All' || typeFilter !== 'All') && (
-          <button onClick={() => { setSearchTerm(''); setProjectFilter('All'); setEnvFilter('All'); setTypeFilter('All'); }}
+        {hasFilter && (
+          <button onClick={clearFilters}
             className="text-xs text-slate-500 hover:text-indigo-600 font-medium flex items-center gap-1 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 bg-white dark:bg-slate-900 hover:border-indigo-300 transition-all">
             <X size={12}/> Temizle
           </button>
@@ -431,26 +405,30 @@ const Environments = () => {
           <div className="text-center py-20 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl">
             <Globe size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4"/>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">
-              {searchTerm || projectFilter !== 'All' ? 'Ortam Bulunamadı' : 'Henüz Ortam Yok'}
+              {hasFilter ? 'Ortam Bulunamadı' : 'Henüz Ortam Yok'}
             </h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
-              {searchTerm || projectFilter !== 'All' ? 'Filtre kriterlerine uyan ortam yok.' : 'Test, staging ve production ortamlarını buraya ekleyin.'}
+              {hasFilter ? 'Filtre kriterlerine uyan ortam yok.' : 'Test, staging ve production ortamlarını ekleyin.'}
             </p>
-            {!(searchTerm || projectFilter !== 'All') && can(PERM.envManage) && (
-              <button onClick={() => openEnvPanel()} className="text-indigo-600 font-medium hover:underline text-sm">Ortam Ekle</button>
-            )}
+            {hasFilter
+              ? <button onClick={clearFilters} className="text-indigo-600 font-medium hover:underline text-sm">Filtreyi Temizle</button>
+              : can(PERM.envManage) && <button onClick={() => openEnvPanel()} className="text-indigo-600 font-medium hover:underline text-sm">Ortam Ekle</button>
+            }
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            <div className="md:col-span-2 xl:col-span-3 flex items-center gap-2 bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2.5 rounded-xl text-xs font-medium">
+              <AlertCircle size={13} className="shrink-0"/>
+              Ping testi tarayıcıdan yapılır. CORS kısıtlaması olan URL'lerde sonuç yanıltıcı olabilir — gerçek erişim için backend loglarını kontrol edin.
+            </div>
             {filteredEnvironments.map(env => {
-              const ping    = pingStatus[env.id] || 'unknown';
-              const pingSty = getPingStatusStyle(ping);
+              const ping     = pingStatus[env.id] || 'unknown';
+              const pingSty  = getPingStyle(ping);
               const varCount = variables.filter(v => String(v.env_id) === String(env.id)).length;
               const secretCount = variables.filter(v => String(v.env_id) === String(env.id) && v.is_secret).length;
               return (
                 <div key={env.id}
                   className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm hover:border-indigo-200 dark:hover:border-indigo-800 hover:shadow-md transition-all group relative">
-                  {/* Header */}
                   <div className="flex justify-between items-start mb-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1">
@@ -468,16 +446,19 @@ const Environments = () => {
                           <MoreVertical size={15}/>
                         </button>
                         {activeDropdown === `env-${env.id}` && (
-                          <div className="absolute right-0 top-8 w-40 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                          <div className="absolute right-0 top-8 w-44 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                             <button onClick={() => openEnvPanel(env)} className="w-full px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors">
                               <Pencil size={13}/> Düzenle
                             </button>
-                            <button onClick={() => {
-                              setActiveTab('variables');
-                              setEnvFilter(String(env.id));
-                              setActiveDropdown(null);
-                            }} className="w-full px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors">
-                              <Key size={13}/> Değişkenler
+                            {/* 🚀 FIX: Değişkenleri Göre basınca proje filtresi de güncellenir ki liste boş gelmesin */}
+                            <button onClick={() => { 
+                                setActiveTab('variables'); 
+                                setProjectFilter(String(env.project_id));
+                                setEnvFilter(String(env.id)); 
+                                setActiveDropdown(null); 
+                              }}
+                              className="w-full px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors">
+                              <Key size={13}/> Değişkenleri Gör
                             </button>
                             <div className="h-px bg-slate-100 dark:bg-slate-700"/>
                             <button onClick={() => { setDeleteConfirm({ type: 'env', id: env.id, name: env.name }); setActiveDropdown(null); }}
@@ -490,18 +471,19 @@ const Environments = () => {
                     )}
                   </div>
 
-                  {/* URL + Kopyala */}
+                  {/* URL */}
                   <div className="bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 mb-3">
                     <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate">{env.url || '—'}</span>
                     <div className="flex gap-1 shrink-0">
                       {env.url && (
                         <>
-                          <button onClick={() => copyToClipboard(env.url, env.name)} title="URL Kopyala"
+                          <button onClick={() => copyToClipboard(env.url, env.name)} title="Kopyala"
                             className="p-1 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
                             <Copy size={13}/>
                           </button>
                           <a href={env.url} target="_blank" rel="noopener noreferrer" title="Yeni sekmede aç"
-                            className="p-1 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors" onClick={e => e.stopPropagation()}>
+                            onClick={e => e.stopPropagation()}
+                            className="p-1 text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
                             <ExternalLink size={13}/>
                           </a>
                         </>
@@ -513,28 +495,14 @@ const Environments = () => {
                     <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 line-clamp-2 leading-relaxed">{env.description}</p>
                   )}
 
-                  {/* Footer: İstatistik + Ping */}
                   <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-3 text-xs text-slate-400">
-                      {varCount > 0 && (
-                        <button onClick={() => { setActiveTab('variables'); setEnvFilter(String(env.id)); }}
-                          className="flex items-center gap-1 hover:text-indigo-500 transition-colors">
-                          <Key size={11}/> {varCount} değişken
-                          {secretCount > 0 && <span className="text-rose-400">({secretCount} sır)</span>}
-                        </button>
-                      )}
-                      {varCount === 0 && <span className="flex items-center gap-1"><Key size={11}/> Değişken yok</span>}
-                    </div>
-                    {/* ✅ Yeni: Ping/Test butonu */}
-                    <button
-                      onClick={() => pingUrl(env.id, env.url)}
-                      disabled={ping === 'testing'}
-                      className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-all border ${
-                        ping === 'online'  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' :
-                        ping === 'offline' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800' :
-                        ping === 'testing' ? 'bg-amber-50 text-amber-500 border-amber-200' :
-                        'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600'
-                      }`}>
+                    <button onClick={() => { setActiveTab('variables'); setProjectFilter(String(env.project_id)); setEnvFilter(String(env.id)); }}
+                      className="text-xs text-slate-400 hover:text-indigo-500 transition-colors flex items-center gap-1">
+                      <Key size={11}/> {varCount} değişken
+                      {secretCount > 0 && <span className="text-rose-400 ml-0.5">({secretCount} sır)</span>}
+                    </button>
+                    <button onClick={() => pingUrl(env.id, env.url)} disabled={ping === 'testing'}
+                      className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-all disabled:cursor-not-allowed ${pingSty.btn}`}>
                       {ping === 'online'  ? <><Wifi size={12}/> Açık</> :
                        ping === 'offline' ? <><WifiOff size={12}/> Kapalı</> :
                        ping === 'testing' ? <><Loader2 size={12} className="animate-spin"/> Test...</> :
@@ -564,111 +532,119 @@ const Environments = () => {
           <div className="text-center py-20 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl">
             <Key size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4"/>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">
-              {searchTerm || projectFilter !== 'All' || envFilter !== 'All' ? 'Değişken Bulunamadı' : 'Henüz Değişken Yok'}
+              {hasFilter ? 'Değişken Bulunamadı' : 'Henüz Değişken Yok'}
             </h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-3">
-              {searchTerm || envFilter !== 'All' ? 'Filtre kriterlerine uyan değişken yok.' : 'API Key, şifre veya token ekleyin.'}
+              {hasFilter ? 'Filtre kriterlerine uyan değişken yok.' : 'API Key, şifre veya token ekleyin.'}
             </p>
-            {can(PERM.envManage) && (
-              <button onClick={() => openVarPanel()} className="text-indigo-600 font-medium hover:underline text-sm">Değişken Ekle</button>
-            )}
+            {hasFilter
+              ? <button onClick={clearFilters} className="text-indigo-600 font-medium hover:underline text-sm">Filtreyi Temizle</button>
+              : can(PERM.envManage) && <button onClick={() => openVarPanel()} className="text-indigo-600 font-medium hover:underline text-sm">Değişken Ekle</button>
+            }
           </div>
         ) : (
-          // ✅ Ortama göre gruplandırılmış liste
           <div className="space-y-4">
             {groupedVariables.map(group => (
               <div key={group.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                {/* Grup başlığı */}
                 <div className="px-6 py-3 bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
-                  <Globe size={13} className="text-slate-400"/>
+                  {group.isGlobal
+                    ? <Globe size={13} className="text-indigo-400"/>
+                    : <Globe size={13} className="text-slate-400"/>
+                  }
                   <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{group.label}</span>
                   <span className="text-xs bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-md ml-auto">{group.items.length} kayıt</span>
                 </div>
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="text-xs uppercase text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">
-                      <th className="px-6 py-3">Anahtar (Key)</th>
+                      <th className="px-6 py-3">Key</th>
                       <th className="px-6 py-3">Değer</th>
                       <th className="px-6 py-3 hidden sm:table-cell">Proje</th>
                       <th className="px-6 py-3">Tür</th>
-                      {can(PERM.envManage) && <th className="px-6 py-3 text-right">Aksiyon</th>}
+                      {can(PERM.envManage) && <th className="px-6 py-3 text-right">İşlem</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {group.items.map(v => (
-                      <tr key={v.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors group">
-                        <td className="px-6 py-3.5">
-                          <div className="flex items-center gap-2">
-                            {v.is_secret && <Lock size={11} className="text-rose-400 shrink-0"/>}
-                            <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-md">
-                              {v.key}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-mono text-slate-700 dark:text-slate-300 truncate max-w-[200px]">
-                              {v.is_secret && !revealed.has(v.id) ? '•'.repeat(12) : (v.value || '—')}
-                            </span>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity">
-                              {v.is_secret && (
-                                <button onClick={() => toggleReveal(v.id)}
-                                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title={revealed.has(v.id) ? 'Gizle' : 'Göster'}>
-                                  {revealed.has(v.id) ? <EyeOff size={13}/> : <Eye size={13}/>}
-                                </button>
-                              )}
-                              {/* ✅ Düzeltildi: secret için kopyalama sadece görünür haldeyken */}
-                              {(!v.is_secret || revealed.has(v.id)) ? (
-                                <button onClick={() => copyToClipboard(v.value, v.key)}
-                                  className="p-1 text-slate-400 hover:text-indigo-500 transition-colors" title="Kopyala">
-                                  <Copy size={13}/>
-                                </button>
-                              ) : (
-                                <button className="p-1 text-slate-200 dark:text-slate-700 cursor-not-allowed" title="Göster butonu ile önce ortaya çıkarın">
-                                  <Lock size={13}/>
-                                </button>
-                              )}
+                    {group.items.map((v, index) => {
+                      // 🚀 FIX: Tablonun son elemanlarında dropdown aşağı taşarsa kesilmesin diye yön kontrolü eklendi
+                      const isNearBottom = group.items.length > 3 && index >= group.items.length - 2;
+                      
+                      return (
+                        <tr key={v.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors group">
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-2">
+                              {v.is_secret && <Lock size={11} className="text-rose-400 shrink-0"/>}
+                              <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-md">
+                                {v.key}
+                              </span>
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-3.5 hidden sm:table-cell">
-                          <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                            <Folder size={10}/> {getProjectName(v.project_id)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3.5">
-                          {v.is_secret ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-semibold border border-rose-200 dark:border-rose-800">
-                              <Shield size={11}/> Sır
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg text-xs font-semibold">
-                              <Key size={11}/> Değişken
-                            </span>
-                          )}
-                        </td>
-                        {can(PERM.envManage) && (
-                          <td className="px-6 py-3.5 text-right relative">
-                            <button onClick={e => { e.stopPropagation(); setActiveDropdown(activeDropdown === `var-${v.id}` ? null : `var-${v.id}`); }}
-                              className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                              <MoreVertical size={15}/>
-                            </button>
-                            {activeDropdown === `var-${v.id}` && (
-                              <div className="absolute right-8 top-8 w-36 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                                <button onClick={() => openVarPanel(v)} className="w-full px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors">
-                                  <Pencil size={13}/> Düzenle
-                                </button>
-                                <div className="h-px bg-slate-100 dark:bg-slate-700"/>
-                                <button onClick={() => { setDeleteConfirm({ type: 'var', id: v.id, name: v.key }); setActiveDropdown(null); }}
-                                  className="w-full px-4 py-2.5 text-sm font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors">
-                                  <Trash2 size={13}/> Sil
-                                </button>
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-mono text-slate-700 dark:text-slate-300 truncate max-w-[200px]"
+                                title={!v.is_secret || revealed.has(v.id) ? v.value : undefined}>
+                                {v.is_secret && !revealed.has(v.id) ? '•'.repeat(12) : (v.value || '—')}
+                              </span>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity shrink-0">
+                                {v.is_secret && (
+                                  <button onClick={() => toggleReveal(v.id)} title={revealed.has(v.id) ? 'Gizle' : 'Göster'}
+                                    className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+                                    {revealed.has(v.id) ? <EyeOff size={13}/> : <Eye size={13}/>}
+                                  </button>
+                                )}
+                                {(!v.is_secret || revealed.has(v.id)) ? (
+                                  <button onClick={() => copyToClipboard(v.value, v.key)} title="Kopyala"
+                                    className="p-1 text-slate-400 hover:text-indigo-500 transition-colors">
+                                    <Copy size={13}/>
+                                  </button>
+                                ) : (
+                                  <button title="Önce göster butonuna basın" className="p-1 text-slate-200 dark:text-slate-700 cursor-not-allowed">
+                                    <Lock size={13}/>
+                                  </button>
+                                )}
                               </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3.5 hidden sm:table-cell">
+                            <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                              <Folder size={10}/> {getProjectName(v.project_id)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3.5">
+                            {v.is_secret ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-semibold border border-rose-200 dark:border-rose-800">
+                                <Shield size={11}/> Sır
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg text-xs font-semibold">
+                                <Key size={11}/> Değişken
+                              </span>
                             )}
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                          {can(PERM.envManage) && (
+                            <td className="px-6 py-3.5 text-right relative">
+                              <button onClick={e => { e.stopPropagation(); setActiveDropdown(activeDropdown === `var-${v.id}` ? null : `var-${v.id}`); }}
+                                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                                <MoreVertical size={15}/>
+                              </button>
+                              {activeDropdown === `var-${v.id}` && (
+                                // 🚀 FIX: isNearBottom logic ile menüyü yukarı doğru açıyoruz
+                                <div className={`absolute right-8 ${isNearBottom ? 'bottom-8 mb-1' : 'top-8 mt-1'} w-36 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150`}>
+                                  <button onClick={() => openVarPanel(v)} className="w-full px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors">
+                                    <Pencil size={13}/> Düzenle
+                                  </button>
+                                  <div className="h-px bg-slate-100 dark:bg-slate-700"/>
+                                  <button onClick={() => { setDeleteConfirm({ type: 'var', id: v.id, name: v.key }); setActiveDropdown(null); }}
+                                    className="w-full px-4 py-2.5 text-sm font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors">
+                                    <Trash2 size={13}/> Sil
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -759,12 +735,11 @@ const Environments = () => {
           )}
           <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 p-4 rounded-xl text-sm flex items-start gap-3">
             <Shield size={16} className="shrink-0 mt-0.5"/>
-            <p>Değişkenleri otomasyon testlerinizde <code className="font-mono bg-blue-100 dark:bg-blue-800/30 px-1 rounded">{'{{KEY}}'}</code> formatında kullanabilirsiniz.</p>
+            <p>Değişkenleri testlerinizde <code className="font-mono bg-blue-100 dark:bg-blue-800/30 px-1 rounded">{'{{KEY}}'}</code> formatında kullanabilirsiniz.</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-              Anahtar (Key)
-              <span className="text-xs text-slate-400 font-normal ml-1">— Büyük harf, rakam, alt çizgi</span>
+              Anahtar (Key) <span className="text-xs text-slate-400 font-normal">— Büyük harf, rakam, alt çizgi</span>
             </label>
             <input type="text" value={varForm.key}
               onChange={e => setVarForm({...varForm, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_')})}
@@ -839,7 +814,6 @@ const Environments = () => {
               <span className="font-semibold text-slate-700 dark:text-slate-300">"{deleteConfirm.name}"</span> silinecek.
             </p>
             <p className="text-xs text-slate-400 dark:text-slate-500 text-center mb-5">
-              {/* ✅ Düzeltildi: doğru bilgi */}
               {deleteConfirm.type === 'env'
                 ? 'Bu ortama bağlı tüm değişkenler de silinecek. Bu işlem geri alınamaz.'
                 : 'Bu işlem geri alınamaz.'}

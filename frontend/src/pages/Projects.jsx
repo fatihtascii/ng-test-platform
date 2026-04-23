@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
 import {
-  Plus, Search, Folder, MoreVertical, Activity, X,
+  Plus, Search, Folder, MoreVertical, X,
   Pencil, Trash2, Filter, AlertCircle, CheckCircle2,
-  Beaker, Loader2, ArrowUpDown, LayoutGrid, List, ChevronRight
-} from 'lucide-react';
+  Loader2, ArrowUpDown, LayoutGrid, List, ChevronRight
+} from 'lucide-react'; // ✅ KULLANILMAYAN İKONLAR (Activity, Beaker) TEMİZLENDİ
 
 // ── Yardımcı Stiller ──────────────────────────────────────────
 const getStatusStyle = (status) => {
@@ -48,6 +48,9 @@ const Projects = () => {
 
   const [toast, setToast] = useState(null);
   
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   const showToast = useCallback((type, message) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 3000);
@@ -60,8 +63,8 @@ const Projects = () => {
     setError(null);
     try {
       const [projRes, tcRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/projects').catch(() => ({ ok: false })),
-        fetch('http://127.0.0.1:8000/test-cases').catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
+        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
       ]);
 
       if (projRes.ok) setProjects(await projRes.json());
@@ -73,7 +76,7 @@ const Projects = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [API_BASE]);
 
   useEffect(() => {
     fetchAll();
@@ -114,7 +117,7 @@ const Projects = () => {
     } else if (sortBy === 'name_desc') {
       result.sort((a, b) => b.name.localeCompare(a.name));
     } else {
-      // Varsayılan: Yeniden Eskiye (ID bazlı varsayım)
+      // Varsayılan: Yeniden Eskiye
       result.sort((a, b) => b.id - a.id);
     }
 
@@ -131,7 +134,7 @@ const Projects = () => {
     
     try {
       const isCreate = modalMode === 'create';
-      const url = isCreate ? 'http://127.0.0.1:8000/projects' : `http://127.0.0.1:8000/projects/${currentProject.id}`;
+      const url = isCreate ? `${API_BASE}/projects` : `${API_BASE}/projects/${currentProject.id}`;
       const method = isCreate ? 'POST' : 'PUT';
       
       const res = await fetch(url, {
@@ -165,7 +168,7 @@ const Projects = () => {
   const handleDelete = async (id) => {
     setIsDeleting(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/projects/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setProjects(prev => prev.filter(p => p.id !== id));
         showToast('success', 'Proje sistemden kalıcı olarak silindi.');

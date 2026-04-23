@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePermission } from '../hooks/usePermission';
-import PermissionGuard from '../components/PermissionGuard';
 import {
   Shield, Users, Plus, Pencil, Trash2, X, Check,
   AlertCircle, CheckCircle2, Loader2, Lock, ChevronDown,
-  ChevronRight, Info, Crown, Eye, Settings, Zap,
+  ChevronRight, Info, Crown, Eye, Zap,
   FolderKanban, Beaker, PlayCircle, ClipboardList,
-  Bug, TrendingUp, Cpu, Globe, Hash, RefreshCw
-} from 'lucide-react';
+  Bug, TrendingUp, Cpu, Globe, RefreshCw
+} from 'lucide-react'; // KULLANILMAYAN İKONLAR VE BİLEŞENLER TEMİZLENDİ
 
 // ── Sabitler ────────────────────────────────────────────────
 const MODULES = [
@@ -98,7 +97,6 @@ const PermCheckbox = ({ checked, onChange, disabled }) => (
 
 // ── Ana Bileşen ──────────────────────────────────────────────
 const RoleManagement = () => {
-  // HOOK BURAYA TAŞINDI!
   const { can } = usePermission();
 
   const [roles, setRoles]               = useState([]);
@@ -133,14 +131,17 @@ const RoleManagement = () => {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
+
   // ── Veri Çekme ─────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [rolesRes, permsRes, usersRes] = await Promise.all([
-        fetch('http://127.0.0.1:8000/roles').catch(() => null),
-        fetch('http://127.0.0.1:8000/permissions').catch(() => null),
-        fetch('http://127.0.0.1:8000/users').catch(() => null),
+        fetch(`${API_BASE}/roles`).catch(() => null),
+        fetch(`${API_BASE}/permissions`).catch(() => null),
+        fetch(`${API_BASE}/users`).catch(() => null),
       ]);
 
       const beOk = rolesRes?.ok && permsRes?.ok;
@@ -163,7 +164,7 @@ const RoleManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [API_BASE]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -219,7 +220,7 @@ const RoleManagement = () => {
     try {
       if (backendAvailable) {
         // Gerçek API
-        const url    = panel === 'create' ? 'http://127.0.0.1:8000/roles' : `http://127.0.0.1:8000/roles/${panelRole.id}`;
+        const url    = panel === 'create' ? `${API_BASE}/roles` : `${API_BASE}/roles/${panelRole.id}`;
         const method = panel === 'create' ? 'POST' : 'PUT';
         const res = await fetch(url, {
           method, headers: { 'Content-Type': 'application/json' },
@@ -227,8 +228,9 @@ const RoleManagement = () => {
         });
         if (!res.ok) { const d = await res.json().catch(() => ({})); setFormError(d.detail || 'Kaydedilemedi.'); return; }
         const savedRole = await res.json();
+        
         // İzinleri güncelle
-        await fetch(`http://127.0.0.1:8000/roles/${savedRole.id}/permissions`, {
+        await fetch(`${API_BASE}/roles/${savedRole.id}/permissions`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ permission_ids: selectedPermIds }),
         });
@@ -257,7 +259,7 @@ const RoleManagement = () => {
     setIsDeleting(true);
     try {
       if (backendAvailable) {
-        const res = await fetch(`http://127.0.0.1:8000/roles/${id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/roles/${id}`, { method: 'DELETE' });
         if (!res.ok) { const d = await res.json().catch(() => ({})); showToast('error', d.detail || 'Silinemedi.'); return; }
         await fetchData();
       } else {
@@ -276,7 +278,7 @@ const RoleManagement = () => {
     setSavingUserId(userId);
     try {
       if (backendAvailable) {
-        await fetch(`http://127.0.0.1:8000/users/${userId}/role`, {
+        await fetch(`${API_BASE}/users/${userId}/role`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ role: newRole }),
         });

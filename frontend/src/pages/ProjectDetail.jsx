@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
@@ -57,11 +57,14 @@ const ProjectDetail = () => {
   const [activeTab, setActiveTab]   = useState('Genel Bakış');
   const [copied, setCopied]         = useState(false);
 
-  // Test case filtresi (detay sekmesinde)
+  // Test case filtresi
   const [tcSearch, setTcSearch]         = useState('');
   const [tcStatusFilter, setTcStatusFilter] = useState('All');
 
   const tabsRef = useRef(null);
+
+  // ✅ Dinamik API Base URL
+  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const goToTab = (tab) => {
     setActiveTab(tab);
@@ -79,7 +82,7 @@ const ProjectDetail = () => {
     const fetchProject = async () => {
       setError(null);
       try {
-        const res = await fetch(`http://127.0.0.1:8000/projects/${id}`);
+        const res = await fetch(`${API_BASE}/projects/${id}`);
         if (res.status === 404) setError('404');
         else if (res.ok) setProject(await res.json());
         else setError('Proje detayları yüklenemedi.');
@@ -87,7 +90,7 @@ const ProjectDetail = () => {
       finally { setLoading(false); }
     };
     fetchProject();
-  }, [id]);
+  }, [id, API_BASE]);
 
   // 2. Test senaryoları
   useEffect(() => {
@@ -95,39 +98,44 @@ const ProjectDetail = () => {
     const fetchTCs = async () => {
       setTcLoading(true);
       try {
-        const res = await fetch('http://127.0.0.1:8000/test-cases');
+        const res = await fetch(`${API_BASE}/test-cases`);
         if (res.ok) {
           const all = await res.json();
-          // Opsiyonel zincirleme (?. ve || []) ile güvenli filtreleme
           setTestCases((all || []).filter(tc => String(tc.project_id) === String(id)));
         }
       } catch { console.error('Test senaryoları çekilemedi.'); }
       finally { setTcLoading(false); }
     };
     fetchTCs();
-  }, [project, id]);
+  }, [project, id, API_BASE]);
 
-  // ── Hesaplamalar ──────────────────────────────────────────────
-  const stats = {
+  // ── Hesaplamalar (✅ useMemo ile Optimize Edildi) ──────────────
+  const stats = useMemo(() => ({
     total:    testCases.length,
     passed:   testCases.filter(tc => tc.status === 'Başarılı' || tc.status === 'Passed').length,
     failed:   testCases.filter(tc => tc.status === 'Başarısız' || tc.status === 'Failed').length,
     draft:    testCases.filter(tc => tc.status === 'Taslak' || tc.status === 'Draft').length,
     untested: testCases.filter(tc => tc.status === 'Test Edilmedi' || tc.status === 'Untested').length,
-  };
+  }), [testCases]);
   
-  const successRate = stats.total > 0 ? Math.round((stats.passed / stats.total) * 100) : null;
+  const successRate = useMemo(() => 
+    stats.total > 0 ? Math.round((stats.passed / stats.total) * 100) : null
+  , [stats]);
 
-  const priorityDist = ['Kritik', 'Yüksek', 'Orta', 'Düşük']
-    .map(p => ({ label: p, count: testCases.filter(tc => tc.priority === p).length }))
-    .filter(p => p.count > 0);
+  const priorityDist = useMemo(() => 
+    ['Kritik', 'Yüksek', 'Orta', 'Düşük']
+      .map(p => ({ label: p, count: testCases.filter(tc => tc.priority === p).length }))
+      .filter(p => p.count > 0)
+  , [testCases]);
 
-  const filteredTCs = testCases.filter(tc => {
-    const q = tcSearch.toLowerCase();
-    const matchSearch = tc.title?.toLowerCase().includes(q) || String(tc.id).includes(q);
-    const matchStatus = tcStatusFilter === 'All' || tc.status === tcStatusFilter;
-    return matchSearch && matchStatus;
-  });
+  const filteredTCs = useMemo(() => 
+    testCases.filter(tc => {
+      const q = tcSearch.toLowerCase();
+      const matchSearch = tc.title?.toLowerCase().includes(q) || String(tc.id).includes(q);
+      const matchStatus = tcStatusFilter === 'All' || tc.status === tcStatusFilter;
+      return matchSearch && matchStatus;
+    })
+  , [testCases, tcSearch, tcStatusFilter]);
 
   // ── Render: Loading ──────────────────────────────────────────
   if (loading) return (

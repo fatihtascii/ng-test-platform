@@ -8,7 +8,7 @@ import {
   Bug, Cpu, Globe, Blocks, Shield, ChevronDown
 } from 'lucide-react';
 
-// ── Menü Grupları (RENKLER EKLENDİ) ───────────────────────────
+// ── Menü Grupları ─────────────────────────────────────────────
 const NAV_GROUPS = [
   {
     label: null,
@@ -83,8 +83,10 @@ const Sidebar = () => {
   const location = useLocation();
   const { can }  = usePermission();
 
-  let user = null;
-  try { user = JSON.parse(localStorage.getItem('user')); } catch {}
+  // ✅ Performans Sızıntısı Kapatıldı: Sadece ilk render'da çalışır
+  const [user] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
+  });
 
   const [logoError, setLogoError] = useState(false);
 
@@ -96,7 +98,8 @@ const Sidebar = () => {
   const handleLogout = () => {
     localStorage.removeItem('user');
     try { clearPermissionCache(); } catch {}
-    window.location.href = '/login';
+    // ✅ Sayfayı tamamen yenileyerek SPA state kalıntılarını temizler (Güvenli Çıkış)
+    window.location.replace('/login'); 
   };
 
   const roleCls   = ROLE_STYLES[user?.role] || ROLE_STYLES.viewer;
@@ -106,7 +109,7 @@ const Sidebar = () => {
   return (
     <aside className="w-64 h-screen bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 fixed left-0 top-0 z-50 flex flex-col transition-colors duration-300">
       
-      {/* Logo Alanı - BÜYÜTÜLDÜ (w-full ve max-h-24) */}
+      {/* Logo Alanı */}
       <div className="py-5 px-4 flex items-center justify-center border-b border-slate-100 dark:border-slate-800/60 shrink-0">
         <Link to="/" className="w-full outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg transition-transform hover:scale-[1.02]">
           {!logoError ? (
@@ -147,7 +150,7 @@ const Sidebar = () => {
         </button>
       </div>
 
-      {/* Navigasyon - İKONLAR RENKLENDİRİLDİ */}
+      {/* Navigasyon */}
       <nav aria-label="Ana Menü" className="flex-1 overflow-y-auto px-4 py-2 space-y-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {NAV_GROUPS.map((group, gi) => {
           const visibleItems = group.items.filter(item => !item.requiredPerm || can(item.requiredPerm));
@@ -178,7 +181,6 @@ const Sidebar = () => {
                         {active && (
                           <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-600 dark:bg-indigo-500 rounded-r-md" />
                         )}
-                        {/* İkonlara kendi özel rengi verildi ve hover animasyonu eklendi */}
                         <span className={`shrink-0 transition-transform duration-300 group-hover:scale-110 ${item.color}`}>
                           {item.icon}
                         </span>
