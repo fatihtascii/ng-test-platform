@@ -87,11 +87,7 @@ const Skeleton = ({ className }) => (
 // ── İzin Checkbox Grid Satırı ────────────────────────────────
 const PermCheckbox = ({ checked, onChange, disabled }) => (
   <button onClick={() => !disabled && onChange(!checked)} disabled={disabled}
-    className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
-      disabled   ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed' :
-      checked    ? 'bg-indigo-500 border-indigo-500 text-white hover:bg-indigo-600' :
-                   'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 hover:border-indigo-400'
-    }`}>
+    className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${ disabled ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-not-allowed' : checked ? 'bg-indigo-500 border-indigo-500 text-white hover:bg-indigo-600' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 hover:border-indigo-400' }`}>
     {checked && <Check size={12} strokeWidth={3}/>}
   </button>
 );
@@ -301,9 +297,7 @@ const RoleManagement = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16}/> : <AlertCircle size={16}/>}
           {toast.message}
         </div>
@@ -312,8 +306,7 @@ const RoleManagement = () => {
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Shield size={24} className="text-indigo-500"/> Rol ve İzin Yönetimi
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Roller ve izinler
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Hangi rolün neye erişeceğini ve kullanıcılara hangi rolün atanacağını yönetin.</p>
         </div>
@@ -366,9 +359,7 @@ const RoleManagement = () => {
           { id: 'users', label: 'Kullanıcı Rolleri', icon: <Users size={15}/> },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-            }`}>
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${ activeTab === tab.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }`}>
             {tab.icon} {tab.label}
           </button>
         ))}
@@ -387,11 +378,7 @@ const RoleManagement = () => {
                 // İçinde Düzenle/Sil butonları olduğu için dış kapsayıcı <button> olamaz (geçersiz HTML)
                 <div key={role.id} role="button" tabIndex={0} onClick={() => setSelectedRole(role)}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedRole(role); } }}
-                  className={`w-full p-4 rounded-2xl border text-left transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                    isSelected
-                      ? 'bg-white dark:bg-slate-900 border-indigo-200 dark:border-indigo-800 shadow-sm ring-1 ring-indigo-500/20'
-                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                  }`}>
+                  className={`w-full p-4 rounded-2xl border text-left transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${ isSelected ? 'bg-white dark:bg-slate-900 border-indigo-200 dark:border-indigo-800 shadow-sm ring-1 ring-indigo-500/20' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700' }`}>
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3 min-w-0">
                       <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm shrink-0 ${c.badge} border`}>
@@ -493,11 +480,7 @@ const RoleManagement = () => {
                               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{mod.label}</span>
                             </div>
                             <div className="flex items-center gap-3">
-                              <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
-                                allGranted ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
-                                grantedCount > 0 ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-                                'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                              }`}>
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${ allGranted ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : grantedCount > 0 ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400' }`}>
                                 {grantedCount}/{modPerms.length}
                               </span>
                               {isExpanded ? <ChevronDown size={15} className="text-slate-400"/> : <ChevronRight size={15} className="text-slate-400"/>}
@@ -513,9 +496,7 @@ const RoleManagement = () => {
                                       <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{perm.name}</p>
                                       {perm.description && <p className="text-xs text-slate-400 mt-0.5">{perm.description}</p>}
                                     </div>
-                                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border ${
-                                      granted ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
-                                    }`}>
+                                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border ${ granted ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700' }`}>
                                       {granted ? <><Check size={11}/> İzinli</> : <><X size={11}/> İzinsiz</>}
                                     </span>
                                   </div>
@@ -538,7 +519,7 @@ const RoleManagement = () => {
       {activeTab === 'users' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">
               Kullanıcılara Rol Ata
             </h3>
             <span className="text-xs text-slate-400">{users.length} kullanıcı</span>
@@ -551,7 +532,7 @@ const RoleManagement = () => {
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-800 text-xs uppercase text-slate-400 font-semibold">
+                <tr className="border-b border-slate-100 dark:border-slate-800 text-xs text-slate-400 font-semibold">
                   <th className="px-6 py-3.5">Kullanıcı</th>
                   <th className="px-6 py-3.5">Mevcut Rol</th>
                   <th className="px-6 py-3.5">Rol Değiştir</th>
@@ -640,7 +621,7 @@ const RoleManagement = () => {
 
           {/* Temel bilgiler */}
           <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 space-y-4">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Temel Bilgiler</p>
+            <p className="text-xs font-medium text-slate-400">Temel Bilgiler</p>
             {panel === 'create' && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
@@ -677,7 +658,7 @@ const RoleManagement = () => {
           {/* İzin seçimi — modül bazlı */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">İzinler</p>
+              <p className="text-xs font-medium text-slate-400">İzinler</p>
               <span className="text-xs text-slate-400">
                 {Object.values(editPerms).filter(Boolean).length} / {permissions.length} seçili
               </span>
@@ -697,11 +678,7 @@ const RoleManagement = () => {
                     onClick={() => setExpandedModules(p => ({...p, [`panel_${mod.key}`]: !isOpen}))}>
                     <div className="flex items-center gap-3">
                       <button type="button" onClick={e => { e.stopPropagation(); toggleModule_perms(mod.key, !allChecked); }}
-                        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
-                          allChecked  ? 'bg-indigo-500 border-indigo-500 text-white' :
-                          someChecked ? 'bg-indigo-200 border-indigo-400 dark:bg-indigo-500/30 dark:border-indigo-500' :
-                          'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'
-                        }`}>
+                        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${ allChecked ? 'bg-indigo-500 border-indigo-500 text-white' : someChecked ? 'bg-indigo-200 border-indigo-400 dark:bg-indigo-500/30 dark:border-indigo-500' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600' }`}>
                         {allChecked ? <Check size={12} strokeWidth={3}/> : someChecked ? <span className="w-2 h-0.5 bg-indigo-500 dark:bg-indigo-400 rounded"/> : null}
                       </button>
                       <span className="text-slate-500 dark:text-slate-400">{mod.icon}</span>

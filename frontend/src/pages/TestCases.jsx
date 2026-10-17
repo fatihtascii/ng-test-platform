@@ -22,16 +22,16 @@ const GLOBAL_TEST_TYPES = [
 ];
 
 const GHERKIN_SUGGESTIONS = [
-  { label: '🔐 Giriş', text: 'Feature: Kullanıcı Girişi\n\nScenario: Başarılı giriş\n  Given Kullanıcı login sayfasındadır\n  When Kullanıcı geçerli e-posta ve şifre girer\n  And Giriş butonuna tıklar\n  Then Dashboard sayfasına yönlendirilmelidir' },
-  { label: '🛒 Sepet',  text: 'Feature: Sepet Yönetimi\n\nScenario: Ürünü sepete ekle\n  Given Kullanıcı ürün detay sayfasındadır\n  When Kullanıcı \'Sepete Ekle\' butonuna tıklar\n  Then Sepet sayacı 1 artmalıdır\n  And Başarı bildirimi gösterilmelidir' },
-  { label: '🔍 Arama',  text: 'Feature: Ürün Arama\n\nScenario: Geçerli sorgu ile arama\n  Given Kullanıcı anasayfadadır\n  When Arama kutusuna \'laptop\' yazar\n  And Arama butonuna basar\n  Then En az 1 sonuç görünmelidir' },
+  { label: 'Giriş', text: 'Feature: Kullanıcı Girişi\n\nScenario: Başarılı giriş\n  Given Kullanıcı login sayfasındadır\n  When Kullanıcı geçerli e-posta ve şifre girer\n  And Giriş butonuna tıklar\n  Then Dashboard sayfasına yönlendirilmelidir' },
+  { label: 'Sepet',  text: 'Feature: Sepet Yönetimi\n\nScenario: Ürünü sepete ekle\n  Given Kullanıcı ürün detay sayfasındadır\n  When Kullanıcı \'Sepete Ekle\' butonuna tıklar\n  Then Sepet sayacı 1 artmalıdır\n  And Başarı bildirimi gösterilmelidir' },
+  { label: 'Arama',  text: 'Feature: Ürün Arama\n\nScenario: Geçerli sorgu ile arama\n  Given Kullanıcı anasayfadadır\n  When Arama kutusuna \'laptop\' yazar\n  And Arama butonuna basar\n  Then En az 1 sonuç görünmelidir' },
 ];
 
 const PROMPT_SUGGESTIONS = [
-  { label: '🔐 Kullanıcı Girişi', text: 'Kullanıcının e-posta ve şifre ile sisteme giriş yapması senaryosunu test et.' },
-  { label: '📝 Kayıt Formu',      text: 'Yeni kullanıcı kayıt formunun validasyon ve başarılı kayıt akışını test et.' },
-  { label: '🛒 Sepete Ekle',      text: 'E-ticaret sitesinde ürünü sepete ekleme ve güncelleme işlemini test et.' },
-  { label: '🔍 Arama',            text: 'Arama kutusuna sorgu girince filtrelenmiş sonuçların gelmesini test et.' },
+  { label: 'Kullanıcı Girişi', text: 'Kullanıcının e-posta ve şifre ile sisteme giriş yapması senaryosunu test et.' },
+  { label: 'Kayıt Formu',      text: 'Yeni kullanıcı kayıt formunun validasyon ve başarılı kayıt akışını test et.' },
+  { label: 'Sepete Ekle',      text: 'E-ticaret sitesinde ürünü sepete ekleme ve güncelleme işlemini test et.' },
+  { label: 'Arama',            text: 'Arama kutusuna sorgu girince filtrelenmiş sonuçların gelmesini test et.' },
 ];
 
 const PLAYWRIGHT_TEMPLATE = `import pytest
@@ -79,6 +79,14 @@ const safeParseDesc = (desc) => {
   return { steps: desc ? [{ id: 0, action: desc, expectedResult: '', image: null }] : [], type: 'Functional', execution_type: 'Manual' };
 };
 
+// Yürütme tipi için asıl kaynak veritabanındaki execution_type kolonu; açıklama JSON'undaki
+// alan eski kayıtlar içindir. (Önceden yalnızca JSON okunduğu için API/otomasyondan gelen
+// case'ler "Manuel" görünüyor ve otomasyona gönderilemiyordu.)
+const parseCase = (tc) => {
+  const p = safeParseDesc(tc.description);
+  return { ...p, execution_type: tc.execution_type || p.execution_type };
+};
+
 const formatDate = (iso) => {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -103,20 +111,20 @@ const StepCard = ({ step, index }) => (
     </div>
     <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 rounded-xl p-4 space-y-3">
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Aksiyon</p>
+        <p className="text-[11px] font-medium text-slate-400 mb-1">Aksiyon</p>
         <p className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed">
           {step.action || <span className="italic text-slate-400">Belirtilmemiş</span>}
         </p>
       </div>
       {step.expectedResult && (
         <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500 mb-1">Beklenen Sonuç</p>
+          <p className="text-[11px] font-medium text-emerald-500 mb-1">Beklenen Sonuç</p>
           <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{step.expectedResult}</p>
         </div>
       )}
       {step.image && (
         <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500 mb-2">Görsel (Önizleme)</p>
+          <p className="text-[11px] font-medium text-indigo-500 mb-2">Görsel (Önizleme)</p>
           <img
             src={step.image}
             alt={`Adım ${index + 1} görseli`}
@@ -216,10 +224,10 @@ const AIModal = ({ onClose, onImport }) => {
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[88vh] animate-in zoom-in-95 duration-200">
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-rose-500 rounded-t-3xl"/>
+        <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-600 rounded-t-3xl"/>
         <div className="px-6 pt-6 pb-4 flex justify-between items-start shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
               <Wand2 size={20} className="text-white"/>
             </div>
             <div>
@@ -266,7 +274,7 @@ const AIModal = ({ onClose, onImport }) => {
                 ))}
               </div>
               <button onClick={handleGenerate} disabled={!prompt.trim() || !apiKey.trim()}
-                className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-indigo-500/20 transition-all disabled:opacity-40 text-sm">
+                className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-indigo-500/20 transition-all disabled:opacity-40 text-sm">
                 <Sparkles size={17}/> Yapay Zeka ile Üret
               </button>
             </div>
@@ -287,7 +295,7 @@ const AIModal = ({ onClose, onImport }) => {
           {state === 'success' && result && (
             <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300">
               <div className="bg-slate-900 rounded-2xl p-5 border border-slate-700 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-indigo-500 to-fuchsia-500 rounded-l-2xl"/>
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-indigo-600 rounded-l-2xl"/>
                 <div className="flex flex-wrap gap-2 mb-3">
                   <span className="text-xs font-bold px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">{result.type}</span>
                   <span className={`text-xs font-bold px-2 py-1 rounded-lg border ${result.priority === 'Kritik' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'}`}>{result.priority}</span>
@@ -316,7 +324,7 @@ const AIModal = ({ onClose, onImport }) => {
                   <RefreshCw size={14}/> Yeniden Üret
                 </button>
                 <button onClick={() => { onImport(result); onClose(); }}
-                  className="flex-[2] py-2.5 bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all">
+                  className="flex-[2] py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all">
                   <Plus size={16}/> Forma Aktar
                 </button>
               </div>
@@ -417,12 +425,12 @@ const MobileRunModal = ({ tc, onClose }) => {
       <div className="relative bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
 
         {/* Renk çizgisi */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-500 rounded-t-3xl"/>
+        <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-600 rounded-t-3xl"/>
 
         {/* Başlık */}
         <div className="px-6 pt-6 pb-4 flex justify-between items-start shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
               <Smartphone size={20} className="text-white"/>
             </div>
             <div>
@@ -442,7 +450,7 @@ const MobileRunModal = ({ tc, onClose }) => {
           {runState === 'idle' || runState === 'error' ? (
             <>
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Cihaz Seç</p>
+                <p className="text-xs font-medium text-slate-400 mb-2">Cihaz Seç</p>
                 {loadingDev ? (
                   <div className="flex items-center gap-2 text-sm text-slate-400 py-3">
                     <Loader2 size={14} className="animate-spin"/> Cihazlar taranıyor…
@@ -461,17 +469,9 @@ const MobileRunModal = ({ tc, onClose }) => {
                   <div className="space-y-2">
                     {devices.map(d => (
                       <button key={d.id} onClick={() => setSelectedDev(d)}
-                        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
-                          selectedDev?.id === d.id
-                            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 dark:border-indigo-600'
-                            : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
-                        }`}>
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${
-                          d.platform === 'ios'
-                            ? 'bg-blue-50 dark:bg-blue-900/20'
-                            : 'bg-green-50 dark:bg-green-900/20'
-                        }`}>
-                          {d.platform === 'ios' ? '' : '🤖'}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${ selectedDev?.id === d.id ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 dark:border-indigo-600' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600' }`}>
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${ d.platform === 'ios' ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-green-50 dark:bg-green-900/20' }`}>
+                          
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{d.name}</p>
@@ -543,18 +543,14 @@ const MobileRunModal = ({ tc, onClose }) => {
               )}
 
               <button onClick={handleRun} disabled={!selectedDev || !appPath.trim() || loadingDev}
-                className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20">
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20">
                 <Play size={15}/> Testi Başlat
               </button>
             </>
           ) : (
             // Çalışıyor / Tamamlandı ekranı
             <div className="space-y-4">
-              <div className={`flex items-center gap-3 p-3 rounded-xl border ${
-                runState === 'done'
-                  ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
-                  : 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800'
-              }`}>
+              <div className={`flex items-center gap-3 p-3 rounded-xl border ${ runState === 'done' ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800' : 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800' }`}>
                 {runState === 'running' ? (
                   <Loader2 size={16} className="animate-spin text-blue-500 shrink-0"/>
                 ) : (
@@ -570,7 +566,7 @@ const MobileRunModal = ({ tc, onClose }) => {
 
               {/* Canlı Log */}
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1.5">
                   <Terminal size={11}/>
                   {runState === 'running' ? <span className="text-blue-500 animate-pulse">Canlı Log</span> : 'Log'}
                 </p>
@@ -714,14 +710,14 @@ const TestCases = () => {
   };
 
   const openView = (tc) => {
-    const parsed = safeParseDesc(tc.description);
+    const parsed = parseCase(tc);
     setPanel({ mode: 'view', tc: { ...tc, ...parsed } });
     setActiveDropdown(null);
   };
 
   const openEdit = (tc) => {
     setFormError(''); setGeneratedCode('');
-    const parsed = safeParseDesc(tc.description);
+    const parsed = parseCase(tc);
     let initialTab = 'manual';
     if (parsed.execution_type === 'Automated' && tc.automation_script) initialTab = 'automated';
     else if (tc.gherkin_scenario) initialTab = 'bdd';
@@ -883,7 +879,7 @@ const TestCases = () => {
     const automatedIds = [...selected].filter(id => {
       const tc = testCases.find(t => t.id === id);
       if (!tc) return false;
-      const parsed = safeParseDesc(tc.description);
+      const parsed = parseCase(tc);
       return parsed.execution_type === 'Automated' && Boolean(tc.automation_script?.trim());
     });
     if (automatedIds.length === 0) {
@@ -905,7 +901,7 @@ const TestCases = () => {
   const handleExportCSV = () => {
     const rows = [['ID','Başlık','Proje','Durum','Öncelik','Tür','Yürütme','BDD','Script']];
     sortedAndFilteredData.forEach(tc => {
-      const parsed = safeParseDesc(tc.description);
+      const parsed = parseCase(tc);
       const safeTitle = String(tc.title).replace(/"/g, '""');
       rows.push([tc.id, `"${safeTitle}"`, getProjectName(tc.project_id), tc.status, tc.priority, parsed.type, parsed.execution_type, tc.gherkin_scenario ? 'Evet' : 'Hayır', tc.automation_script ? 'Evet' : 'Hayır']);
     });
@@ -936,7 +932,7 @@ const TestCases = () => {
   const sortedAndFilteredData = useMemo(() => {
     let result = testCases.filter(tc => {
       const q      = trLower(searchTerm);
-      const parsed = safeParseDesc(tc.description);
+      const parsed = parseCase(tc);
       return (
         (!q || trLower(tc.title).includes(q) || String(tc.id).includes(q)) &&
         (statusFilter   === 'All' || tc.status   === statusFilter) &&
@@ -969,7 +965,7 @@ const TestCases = () => {
   const selectedAutomatedCount = useMemo(() =>
     [...selected].filter(id => {
       const tc = testCases.find(t => t.id === id);
-      return tc && safeParseDesc(tc.description).execution_type === 'Automated' && Boolean(tc.automation_script?.trim());
+      return tc && parseCase(tc).execution_type === 'Automated' && Boolean(tc.automation_script?.trim());
     }).length,
   [selected, testCases]);
 
@@ -995,11 +991,7 @@ const TestCases = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16}/> : <AlertCircle size={16}/>}
           {toast.message}
         </div>
@@ -1008,10 +1000,9 @@ const TestCases = () => {
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Beaker size={24} className="text-indigo-500"/> Test Senaryoları
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Test case'ler
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Kurumsal standartlarda test yönetimi.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Adımları, beklenen sonuçları ve otomasyon kodlarıyla tüm test case'ler.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={fetchData}
@@ -1027,7 +1018,7 @@ const TestCases = () => {
           )}
           <PermissionGuard permission="test_cases.create">
             <button onClick={() => setShowAIModal(true)}
-              className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all flex items-center gap-2 text-sm whitespace-nowrap">
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-indigo-500/25 transition-all flex items-center gap-2 text-sm whitespace-nowrap">
               <Sparkles size={15}/> AI ile Üret
             </button>
           </PermissionGuard>
@@ -1140,7 +1131,7 @@ const TestCases = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
           <table className="w-full text-left border-collapse whitespace-nowrap md:whitespace-normal">
             <thead>
-              <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs uppercase text-slate-500 font-semibold tracking-wide select-none">
+              <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs text-slate-500 font-semibold select-none">
                 {can('test_cases.delete') && (
                   <th className="px-4 py-3.5 w-10">
                     <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600 transition-colors">
@@ -1186,7 +1177,7 @@ const TestCases = () => {
                 const statConf   = getStatusConfig(tc.status);
                 const tcType     = getType(tc.description);
                 const isSelected = selected.has(tc.id);
-                const parsed     = safeParseDesc(tc.description);
+                const parsed     = parseCase(tc);
                 const isNearBottom = currentItems.length > 3 && index >= currentItems.length - 2;
 
                 return (
@@ -1229,11 +1220,7 @@ const TestCases = () => {
                         : <span className="text-slate-300 dark:text-slate-600">—</span>}
                     </td>
                     <td className="px-6 py-4 hidden lg:table-cell">
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold border ${
-                        parsed.execution_type === 'Automated'
-                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
-                          : 'text-slate-600 bg-slate-100 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
-                      }`}>
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold border ${ parsed.execution_type === 'Automated' ? 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800' : 'text-slate-600 bg-slate-100 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700' }`}>
                         {parsed.execution_type === 'Automated' ? <><Code2 size={12}/> Otomasyon</> : <><Square size={12}/> Manuel</>}
                       </span>
                     </td>
@@ -1353,9 +1340,7 @@ const TestCases = () => {
       {isPanelOpen && <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60]" onClick={closePanel}/>}
 
       {/* SIDE PANEL */}
-      <div className={`fixed top-0 right-0 h-screen bg-white dark:bg-slate-900 shadow-2xl z-[70] transform transition-transform duration-300 flex flex-col
-        ${panel?.mode === 'view' ? 'w-full sm:w-[720px]' : 'w-full sm:w-[660px]'}
-        ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed top-0 right-0 h-screen bg-white dark:bg-slate-900 shadow-2xl z-[70] transform transition-transform duration-300 flex flex-col ${panel?.mode === 'view' ? 'w-full sm:w-[720px]' : 'w-full sm:w-[660px]'} ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}>
 
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0 bg-white dark:bg-slate-900">
           <div className="flex items-center gap-3 min-w-0">
@@ -1386,7 +1371,7 @@ const TestCases = () => {
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <Code2 size={16} className="text-emerald-500"/>
-                      <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Playwright Kodu</h3>
+                      <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">Playwright Kodu</h3>
                       {can('automation.execute') && (
                         <button onClick={() => navigate(`/automation?cases=${viewTC.id}&project=${viewTC.project_id}`)}
                           className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors">
@@ -1401,7 +1386,7 @@ const TestCases = () => {
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <Terminal size={16} className="text-fuchsia-500"/>
-                      <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">BDD Senaryosu</h3>
+                      <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">BDD Senaryosu</h3>
                     </div>
                     <CodeBlock code={viewTC.gherkin_scenario} language="gherkin"/>
                   </div>
@@ -1409,7 +1394,7 @@ const TestCases = () => {
                 <div>
                   <div className="flex items-center gap-2 mb-5">
                     <PlayCircle size={17} className="text-indigo-500"/>
-                    <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Test Adımları</h3>
+                    <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">Test Adımları</h3>
                     <span className="ml-auto text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded-md">{viewTC.steps?.length || 0} adım</span>
                   </div>
                   {viewTC.steps?.length > 0
@@ -1419,7 +1404,7 @@ const TestCases = () => {
               </div>
 
               <div className="p-6 bg-slate-50 dark:bg-slate-800/30 space-y-1 overflow-y-auto">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Detaylar</p>
+                <p className="text-xs font-medium text-slate-400 mb-3">Detaylar</p>
                 <MetaRow icon={<Hash size={12}/>} label="ID">
                   <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">#{viewTC.id}</span>
                 </MetaRow>
@@ -1471,7 +1456,7 @@ const TestCases = () => {
                   {/* ── YENİ: View panel Mobil Koş butonu ── */}
                   <button
                     onClick={() => { setMobileRunTc(viewTC); setPanel(null); }}
-                    className="w-full py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                     <Smartphone size={14}/> Mobil Test Koş
                   </button>
                   {can('automation.execute') && viewTC.execution_type === 'Automated' && viewTC.automation_script && (
@@ -1508,7 +1493,7 @@ const TestCases = () => {
                 </div>
               )}
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 space-y-4">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Temel Bilgiler</p>
+                <p className="text-xs font-medium text-slate-400">Temel Bilgiler</p>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Test Başlığı</label>
                   <input type="text" value={form.title} onChange={e => setForm(p => ({...p, title: e.target.value}))}
@@ -1525,7 +1510,7 @@ const TestCases = () => {
                 </div>
               </div>
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 space-y-4">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sınıflandırma</p>
+                <p className="text-xs font-medium text-slate-400">Sınıflandırma</p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Test Türü</label>
@@ -1585,7 +1570,7 @@ const TestCases = () => {
               {activeTab === 'manual' && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-left-2 duration-200">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Test Adımları</p>
+                    <p className="text-xs font-medium text-slate-400">Test Adımları</p>
                     <span className="text-xs text-slate-400">{form.steps.length} adım</span>
                   </div>
                   {form.steps.map((step, index) => (
@@ -1633,7 +1618,7 @@ const TestCases = () => {
               {activeTab === 'bdd' && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-200">
                   <div className="bg-fuchsia-50 dark:bg-fuchsia-500/5 border border-fuchsia-100 dark:border-fuchsia-500/20 rounded-2xl p-5">
-                    <label className="text-xs font-bold text-fuchsia-600 dark:text-fuchsia-400 uppercase tracking-widest flex items-center gap-2 mb-2">
+                    <label className="text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 flex items-center gap-2 mb-2">
                       <Terminal size={13}/> Gherkin Senaryosu
                     </label>
                     <p className="text-xs text-slate-400 mb-3">Given/When/Then formatında BDD senaryonuzu yazın.</p>
@@ -1657,7 +1642,7 @@ const TestCases = () => {
                   {generatedCode && (
                     <div className="animate-in zoom-in-95 duration-300">
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Üretilen Pytest-BDD Kodu</p>
+                        <p className="text-xs font-medium text-slate-500">Üretilen Pytest-BDD Kodu</p>
                         <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle2 size={12}/> Hazır</span>
                       </div>
                       <CodeBlock code={generatedCode} language="pytest-bdd"/>

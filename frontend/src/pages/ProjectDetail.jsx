@@ -126,8 +126,9 @@ const ProjectDetail = () => {
     untested: testCases.filter(tc => tc.status === 'Test Edilmedi' || tc.status === 'Untested').length,
   }), [testCases]);
   
-  const successRate = useMemo(() => 
-    stats.total > 0 ? Math.round((stats.passed / stats.total) * 100) : null
+  // Geçme oranı tüm sayfalarda aynı: geçen / koşulan (koşulmamış case'ler paydada yok)
+  const successRate = useMemo(() =>
+    stats.passed + stats.failed > 0 ? Math.round((stats.passed / (stats.passed + stats.failed)) * 100) : null
   , [stats]);
 
   const priorityDist = useMemo(() => 
@@ -147,7 +148,7 @@ const ProjectDetail = () => {
 
   // ── Render: Loading ──────────────────────────────────────────
   if (loading) return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-6xl mx-auto">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center gap-4 mb-8">
         <Skeleton className="w-12 h-12 rounded-2xl" />
         <div className="space-y-2"><Skeleton className="h-8 w-64" /><Skeleton className="h-4 w-48" /></div>
@@ -193,10 +194,10 @@ const ProjectDetail = () => {
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap mb-2">
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight truncate max-w-full">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white truncate max-w-full">
               {project.name}
             </h1>
-            <span className={`px-2.5 py-1 text-[11px] font-black uppercase tracking-wider rounded-lg border ${getProjectStatusStyle(project.status)}`}>
+            <span className={`px-2.5 py-1 text-[11px] font-medium rounded-lg border ${getProjectStatusStyle(project.status)}`}>
               {project.status || 'Aktif'}
             </span>
             <button onClick={handleCopyId}
@@ -218,11 +219,7 @@ const ProjectDetail = () => {
             const isActive = activeTab === tab;
             return (
               <button key={tab} onClick={() => goToTab(tab)}
-                className={`pb-4 pt-2 text-sm font-bold transition-all relative outline-none flex items-center gap-2 ${
-                  isActive 
-                    ? 'text-indigo-600 dark:text-indigo-400' 
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}>
+                className={`pb-4 pt-2 text-sm font-bold transition-all relative outline-none flex items-center gap-2 ${ isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200' }`}>
                 {tab}
                 {tab === 'Test Senaryoları' && testCases.length > 0 && (
                   <span className={`text-[10px] px-2 py-0.5 rounded-full ${isActive ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
@@ -255,7 +252,7 @@ const ProjectDetail = () => {
                   <div className={`w-10 h-10 rounded-2xl border ${s.bg} flex items-center justify-center shadow-inner`}>{s.icon}</div>
                   <div>
                     <p className="text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{s.value}</p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mt-1">{s.label}</p>
+                    <p className="text-xs font-medium text-slate-400 mt-1">{s.label}</p>
                   </div>
                 </div>
               ))}
@@ -288,7 +285,7 @@ const ProjectDetail = () => {
                   ].filter(item => item.count > 0).map(item => (
                     <div key={item.label} className="group">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className={`text-xs font-black uppercase tracking-wider ${item.text}`}>{item.label}</span>
+                        <span className={`text-xs font-medium ${item.text}`}>{item.label}</span>
                         <span className="text-xs font-bold text-slate-400 tabular-nums">{item.count} / {item.total}</span>
                       </div>
                       <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
@@ -302,10 +299,10 @@ const ProjectDetail = () => {
                   <div className="mt-8 pt-5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <ShieldAlert size={16} className="text-slate-400" />
-                      <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Kalite Skoru</span>
+                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Geçme oranı</span>
                     </div>
-                    <span className={`text-xl font-black tabular-nums tracking-tight ${successRate >= 80 ? 'text-emerald-500' : successRate >= 50 ? 'text-amber-500' : 'text-rose-500'}`}>
-                      %{successRate}
+                    <span className={`text-xl font-black tabular-nums tracking-tight text-slate-900 dark:text-white`}>
+                      {successRate == null ? '—' : `%${successRate}`}
                     </span>
                   </div>
                 </div>
@@ -316,17 +313,17 @@ const ProjectDetail = () => {
           {/* Sağ Kolon: Meta + Hızlı Erişim */}
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-5">Proje Künyesi</h3>
+              <h3 className="text-[11px] font-medium text-slate-400 tracking-[0.15em] mb-5">Proje Künyesi</h3>
               <div className="space-y-5">
                 <div className="flex items-start gap-3 text-sm">
                   <Folder size={16} className="text-indigo-400 mt-0.5 shrink-0" />
-                  <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Sistem ID</p><p className="font-bold text-slate-700 dark:text-slate-200">PRJ-{project.id}</p></div>
+                  <div><p className="text-[11px] font-medium text-slate-400 mb-0.5">Sistem ID</p><p className="font-bold text-slate-700 dark:text-slate-200">PRJ-{project.id}</p></div>
                 </div>
                 <div className="flex items-start gap-3 text-sm">
                   <Activity size={16} className="text-amber-400 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Anlık Durum</p>
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border ${getProjectStatusStyle(project.status)}`}>
+                    <p className="text-[11px] font-medium text-slate-400 mb-1">Anlık Durum</p>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border ${getProjectStatusStyle(project.status)}`}>
                       <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                       {project.status || 'Aktif'}
                     </span>
@@ -336,7 +333,7 @@ const ProjectDetail = () => {
                   <div className="flex items-start gap-3 text-sm">
                     <Calendar size={16} className="text-emerald-400 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Oluşturulma</p>
+                      <p className="text-[11px] font-medium text-slate-400 mb-0.5">Oluşturulma</p>
                       <p className="font-bold text-slate-700 dark:text-slate-200">
                         {new Date(project.created_at).toLocaleDateString('tr-TR', { year: 'numeric', month: 'long', day: 'numeric' })}
                       </p>
@@ -345,7 +342,7 @@ const ProjectDetail = () => {
                 )}
                 <div className="flex items-start gap-3 text-sm">
                   <Users size={16} className="text-rose-400 mt-0.5 shrink-0" />
-                  <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Erişim</p><p className="font-bold text-slate-700 dark:text-slate-200">Ekip Geneli</p></div>
+                  <div><p className="text-[11px] font-medium text-slate-400 mb-0.5">Erişim</p><p className="font-bold text-slate-700 dark:text-slate-200">Ekip Geneli</p></div>
                 </div>
               </div>
             </div>
@@ -353,7 +350,7 @@ const ProjectDetail = () => {
             {/* Öncelik Dağılımı */}
             {priorityDist.length > 0 && (
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-5">Öncelik (Priority) Dağılımı</h3>
+                <h3 className="text-[11px] font-medium text-slate-400 tracking-[0.15em] mb-5">Öncelik (Priority) Dağılımı</h3>
                 <div className="space-y-3">
                   {priorityDist.map(({ label, count }) => (
                     <div key={label} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50">
@@ -361,7 +358,7 @@ const ProjectDetail = () => {
                         <Tag size={14} className="text-slate-400" />
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{label}</span>
                       </div>
-                      <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg ${getPriorityStyle(label)}`}>
+                      <span className={`text-[11px] font-medium px-2.5 py-1 rounded-lg ${getPriorityStyle(label)}`}>
                         {count} Test
                       </span>
                     </div>
@@ -372,7 +369,7 @@ const ProjectDetail = () => {
 
             {/* Hızlı Erişim */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-4">Hızlı Kısayollar</h3>
+              <h3 className="text-[11px] font-medium text-slate-400 tracking-[0.15em] mb-4">Hızlı Kısayollar</h3>
               <div className="space-y-2">
                 <button onClick={() => goToTab('Test Senaryoları')}
                   className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-300 transition-all group">
@@ -449,7 +446,7 @@ const ProjectDetail = () => {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[700px]">
                   <thead>
-                    <tr className="bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase text-slate-400 font-black tracking-widest">
+                    <tr className="bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 font-medium">
                       <th className="px-6 py-5">Senaryo Detayı</th>
                       <th className="px-6 py-5">Öncelik</th>
                       <th className="px-6 py-5">Son Durum</th>
@@ -470,7 +467,7 @@ const ProjectDetail = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${getPriorityStyle(tc.priority)}`}>
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium ${getPriorityStyle(tc.priority)}`}>
                             {tc.priority}
                           </span>
                         </td>

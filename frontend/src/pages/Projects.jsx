@@ -8,6 +8,7 @@ import {
   Loader2, ArrowUpDown, LayoutGrid, List, ChevronRight
 } from 'lucide-react';
 import { API_BASE } from '../auth';
+import { ResultBar } from '../components/ui';
 
 // ── Yardımcı Stiller ──────────────────────────────────────────
 const getStatusStyle = (status) => {
@@ -93,11 +94,20 @@ const Projects = () => {
       if (!pid) return; // Geçersiz projeleri atla
       
       const tcs = testCases.filter(tc => tc.project_id === pid);
-      const passed = tcs.filter(tc => tc.status === 'Başarılı' || tc.status === 'Passed').length;
+      const count = (...st) => tcs.filter(tc => st.includes(tc.status)).length;
+      const passed = count('Başarılı', 'Passed');
+      const failed = count('Başarısız', 'Failed');
+      // Geçme oranı Dashboard'la aynı tanım: geçen / koşulan (henüz koşulmayanlar paydada yok)
       statsMap[pid] = {
         total: tcs.length,
         passed,
-        rate: tcs.length > 0 ? Math.round((passed / tcs.length) * 100) : null
+        rate: passed + failed > 0 ? Math.round((passed / (passed + failed)) * 100) : null,
+        segs: [
+          { label: 'Geçti',     value: passed,                  tone: 'pass' },
+          { label: 'Kaldı',     value: failed,                  tone: 'fail' },
+          { label: 'Koşulmadı', value: count('Test Edilmedi'),  tone: 'pending' },
+          { label: 'Taslak',    value: count('Taslak'),         tone: 'draft' },
+        ],
       };
     });
     return statsMap;
@@ -194,10 +204,7 @@ const Projects = () => {
       
       {/* Toast Bildirimi */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-2 px-4 py-3 rounded-lg shadow-xl border animate-in slide-in-from-bottom-5 duration-300 ${
-          toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-800 dark:text-emerald-300' 
-                                   : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/40 dark:border-rose-800 dark:text-rose-300'
-        }`}>
+        <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-2 px-4 py-3 rounded-lg shadow-xl border animate-in slide-in-from-bottom-5 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-800 dark:text-emerald-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/40 dark:border-rose-800 dark:text-rose-300' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
           <span className="text-sm font-medium">{toast.message}</span>
         </div>
@@ -208,11 +215,9 @@ const Projects = () => {
         
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2.5">
-              <Folder size={20} className="text-slate-400" />
-              Proje Yönetimi
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Projeler
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Sistemdeki tüm projeleri ve genel test durumlarını görüntüleyin.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Test case'leri ürün ya da modüle göre gruplayın; her projenin sonuç dağılımı burada.</p>
           </div>
           
           <div className="flex items-center gap-2">
@@ -229,9 +234,9 @@ const Projects = () => {
             {can('projects.create') && (
               <button 
                 onClick={() => { setModalMode('create'); setFormError(''); setCurrentProject({ name: '', description: '', status: 'Aktif' }); setIsModalOpen(true); }}
-                className="px-4 py-2 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-100 text-white dark:text-slate-900 rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
+                className="px-3 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
               >
-                <Plus size={16} /> Yeni Proje
+                <Plus size={15} /> Yeni proje
               </button>
             )}
           </div>
@@ -318,7 +323,7 @@ const Projects = () => {
                 <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 font-medium">
                   <th className="px-5 py-3.5 font-medium">Proje Adı</th>
                   <th className="px-5 py-3.5 font-medium">Durum</th>
-                  <th className="px-5 py-3.5 font-medium w-1/3">Test Kapsamı</th>
+                  <th className="px-5 py-3.5 font-medium w-1/3">Sonuçlar</th>
                   <th className="px-5 py-3.5 text-right font-medium">İşlemler</th>
                 </tr>
               </thead>
@@ -361,16 +366,9 @@ const Projects = () => {
                           <span className="text-xs text-slate-400 font-medium">Test yok</span>
                         ) : (
                           <div className="flex items-center gap-3 max-w-[200px]">
-                            <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${
-                                  stats.rate >= 80 ? 'bg-emerald-500' : stats.rate >= 50 ? 'bg-amber-500' : 'bg-rose-500'
-                                }`}
-                                style={{ width: `${stats.rate ?? 0}%` }}
-                              />
-                            </div>
+                            <ResultBar segments={stats.segs} height="h-1.5" className="flex-1" />
                             <span className="text-xs font-medium text-slate-600 dark:text-slate-400 tabular-nums w-12 text-right">
-                              %{stats.rate}
+                              {stats.rate == null ? '—' : `%${stats.rate}`}
                             </span>
                           </div>
                         )}
@@ -442,18 +440,13 @@ const Projects = () => {
                   <div className="flex items-center justify-between text-xs mb-2">
                     <span className="text-slate-500 font-medium">{stats.total} Senaryo</span>
                     {stats.total > 0 && (
-                      <span className={`font-semibold ${stats.rate >= 80 ? 'text-emerald-600' : stats.rate >= 50 ? 'text-amber-500' : 'text-rose-600'}`}>
-                        %{stats.rate}
+                      <span className={`font-semibold text-slate-700 dark:text-slate-300`}>
+                        {stats.rate == null ? '—' : `%${stats.rate}`}
                       </span>
                     )}
                   </div>
                   {stats.total > 0 ? (
-                    <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${stats.rate >= 80 ? 'bg-emerald-500' : stats.rate >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                        style={{ width: `${stats.rate ?? 0}%` }}
-                      />
-                    </div>
+                    <ResultBar segments={stats.segs} height="h-1.5" />
                   ) : (
                     <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full" />
                   )}
@@ -537,7 +530,7 @@ const Projects = () => {
                 type="submit" 
                 form="project-form"
                 disabled={isSubmitting} 
-                className="px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-medium text-sm rounded-lg hover:bg-slate-800 dark:hover:bg-slate-100 disabled:opacity-50 flex items-center justify-center min-w-[100px] transition-colors"
+                className="px-4 py-2 bg-indigo-600 text-white font-medium text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center min-w-[100px] transition-colors"
               >
                 {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Kaydet'}
               </button>

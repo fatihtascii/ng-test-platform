@@ -316,7 +316,7 @@ const TestRuns = () => {
         test_run_id:  runningTestRun.id,
         test_case_id: tcId,
       });
-      showToast('success', '🔥 Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
+      showToast('success', 'Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
     } catch (err) { showToast('error', err.message || 'Defect API servisine ulaşılamadı.'); }
     finally  { setIsDefectCreating(false); }
   }, [runningTestRun, showToast]);
@@ -394,8 +394,8 @@ const TestRuns = () => {
               <div className="flex items-start gap-4">
                 <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">{idx + 1}</div>
                 <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Aksiyon</span><p className="text-slate-700 dark:text-slate-300">{step.action}</p></div>
-                  <div><span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider block mb-1">Beklenen Sonuç</span><p className="text-slate-700 dark:text-slate-300">{step.expectedResult || '-'}</p></div>
+                  <div><span className="text-[11px] font-medium text-slate-400 block mb-1">Aksiyon</span><p className="text-slate-700 dark:text-slate-300">{step.action}</p></div>
+                  <div><span className="text-[11px] font-medium text-emerald-500 block mb-1">Beklenen Sonuç</span><p className="text-slate-700 dark:text-slate-300">{step.expectedResult || '-'}</p></div>
                 </div>
               </div>
             </div>
@@ -456,11 +456,7 @@ const TestRuns = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16}/> : <AlertCircle size={16}/>}
           {toast.message}
         </div>
@@ -469,10 +465,9 @@ const TestRuns = () => {
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <PlayCircle size={24} className="text-indigo-500"/> Test Koşumları
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Koşumlar
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Sistemin sağlığını ölçmek için test senaryolarını koşun ve raporlayın.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manuel ve otomasyon koşumlarının sonuçları; kalan her test otomatik olarak hata kaydı açar.</p>
         </div>
         {can('test_runs.create') && (
           <button onClick={openCreatePanel} type="button"
@@ -788,7 +783,7 @@ const TestRuns = () => {
                         {renderTestCaseDetails(tc.description)}
                         {(res.status === 'Failed' || res.actual_result) && (
                           <div className="mt-6 bg-rose-50/50 dark:bg-rose-900/10 p-5 rounded-2xl border border-rose-100 dark:border-rose-900/30">
-                            <label className="text-xs font-bold text-rose-600 dark:text-rose-400 mb-2 uppercase tracking-wider flex items-center gap-1.5">
+                            <label className="text-xs font-medium text-rose-600 dark:text-rose-400 mb-2 flex items-center gap-1.5">
                               <MessageSquare size={14}/> Hata Notu / Bulgular
                             </label>
                             <textarea value={res.actual_result} onChange={e => updateTestCaseNote(tc.id, e.target.value)} rows={3}
@@ -823,7 +818,7 @@ const TestRuns = () => {
                       İlerlemeyi Kaydet
                     </button>
                     <button onClick={finishTestRun} disabled={isSavingRun} type="button"
-                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-500/20 hover:shadow-xl transition-all text-sm disabled:opacity-50">
+                      className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-500/20 hover:shadow-xl transition-all text-sm disabled:opacity-50">
                       {isSavingRun ? <><Loader2 size={16} className="animate-spin"/> Bekleyin...</> : <><CheckCircle2 size={18}/> Koşumu Tamamla</>}
                     </button>
                   </>

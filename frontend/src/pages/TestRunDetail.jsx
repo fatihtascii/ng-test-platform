@@ -94,7 +94,8 @@ const TestRunDetail = () => {
     const failed   = results.filter(r => r.status === 'Failed').length;
     const skipped  = results.filter(r => r.status === 'Skipped').length;
     const pending  = total - passed - failed - skipped;
-    const rate     = total > 0 ? Math.round((passed / total) * 100) : 0;
+    // Geçme oranı tüm sayfalarla aynı tanım: geçen / koşulan
+    const rate     = passed + failed > 0 ? Math.round((passed / (passed + failed)) * 100) : null;
     
     return { total, passed, failed, skipped, pending, rate };
   }, [results]);
@@ -153,7 +154,6 @@ const TestRunDetail = () => {
     </div>
   );
 
-  const rateColor = stats.rate >= 80 ? 'text-emerald-600 dark:text-emerald-400' : stats.rate >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400';
   const statConf = getStatusConfig(run.status);
 
   // Filtre
@@ -176,7 +176,7 @@ const TestRunDetail = () => {
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{run.name}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">{run.name}</h1>
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${statConf.cls}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${statConf.dot}`}/>{run.status}
             </span>
@@ -221,11 +221,7 @@ const TestRunDetail = () => {
             <div className="flex items-center gap-2 flex-wrap">
               {filterOptions.map(f => (
                 <button key={f.key} onClick={() => setActiveFilter(f.key)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
-                    activeFilter === f.key
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-indigo-300'
-                  }`}>
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${ activeFilter === f.key ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-indigo-300' }`}>
                   {f.label}
                   <span className={`ml-1.5 px-1.5 py-0.5 rounded-md text-xs ${activeFilter === f.key ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
                     {f.count}
@@ -261,12 +257,7 @@ const TestRunDetail = () => {
                   <div key={r.index} className={`bg-white dark:bg-slate-900 border rounded-2xl p-4 transition-all ${r.status === 'Failed' ? 'border-rose-200 dark:border-rose-800/50' : 'border-slate-200 dark:border-slate-800'}`}>
                     <div className="flex items-start gap-4">
                       {/* Status ikonuu */}
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                        r.status === 'Passed'  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500' :
-                        r.status === 'Failed'  ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-500' :
-                        r.status === 'Skipped' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500' :
-                        'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                      }`}>
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${ r.status === 'Passed' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500' : r.status === 'Failed' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-500' : r.status === 'Skipped' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400' }`}>
                         {r.status === 'Passed'  ? <CheckCircle2 size={16}/> :
                          r.status === 'Failed'  ? <XCircle size={16}/> :
                          r.status === 'Skipped' ? <SkipForward size={16}/> :
@@ -287,12 +278,18 @@ const TestRunDetail = () => {
                           <p className="text-xs text-slate-400 mt-0.5">#{r.tc_id}</p>
                         )}
                         {/* Hata notu */}
-                        {r.actual_result && (
+                        {/* Geçen testin notu hata değildir; yalnızca kalan testlerde kırmızı gösterilir */}
+                        {(r.actual_result || r.error) && (r.status === 'Failed' ? (
                           <div className="mt-3 bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-800/30 rounded-xl p-3">
-                            <p className="text-xs font-bold text-rose-600 dark:text-rose-400 mb-1 uppercase tracking-wide">Hata Notu</p>
-                            <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">{r.actual_result}</p>
+                            <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mb-1">Hata notu</p>
+                            <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed whitespace-pre-line">{r.actual_result || r.error}</p>
                           </div>
-                        )}
+                        ) : (
+                          <div className="mt-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-3">
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Not</p>
+                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">{r.actual_result || r.error}</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -307,7 +304,7 @@ const TestRunDetail = () => {
 
           {/* Koşum Bilgileri */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Koşum Bilgileri</h3>
+            <h3 className="text-xs font-medium text-slate-400 mb-4">Koşum Bilgileri</h3>
             <div className="space-y-3">
               {[
                 { icon: <Hash size={13}/>,          label: 'ID',     value: `#${run.id}` },
@@ -326,12 +323,12 @@ const TestRunDetail = () => {
           {/* Başarı Oranı */}
           {stats.total > 0 && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Başarı Oranı</h3>
+              <h3 className="text-xs font-medium text-slate-400 mb-4">Geçme oranı</h3>
 
               {/* Büyük yüzde */}
               <div className="text-center mb-4">
-                <p className={`text-5xl font-bold tabular-nums ${rateColor}`}>%{stats.rate}</p>
-                <p className="text-xs text-slate-400 mt-1">{stats.passed}/{stats.total} test geçti</p>
+                <p className="text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">{stats.rate == null ? '—' : `%${stats.rate}`}</p>
+                <p className="text-xs text-slate-500 mt-1">koşulan {stats.passed + stats.failed} testten {stats.passed} tanesi geçti</p>
               </div>
 
               {/* Stacked bar */}

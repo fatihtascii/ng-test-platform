@@ -10,10 +10,10 @@ import {
 } from 'lucide-react';
 
 const STATUS_OPTIONS = [
-  { value: 'Open',        label: 'Açık',        emoji: '🔴', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' },
-  { value: 'In Progress', label: 'İnceleniyor', emoji: '🟡', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
-  { value: 'Resolved',    label: 'Çözüldü',     emoji: '🟢', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
-  { value: 'Re-test',     label: 'Tekrar Test', emoji: '🔵', cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' },
+  { value: 'Open',        label: 'Açık', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' },
+  { value: 'In Progress', label: 'İnceleniyor', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
+  { value: 'Resolved',    label: 'Çözüldü', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
+  { value: 'Re-test',     label: 'Tekrar Test', cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' },
 ];
 const SEVERITY_CONFIG = {
   'Kritik': { bg: 'bg-rose-500/10 text-rose-600',     badge: 'bg-rose-500 text-white' },
@@ -25,7 +25,7 @@ const SEVERITY_CONFIG = {
 const getSev         = (s) => SEVERITY_CONFIG[s] || SEVERITY_CONFIG['Orta'];
 const getStatusOpt   = (s) => STATUS_OPTIONS.find(o => o.value === s);
 const getStatusCls   = (s) => getStatusOpt(s)?.cls || 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200';
-const getStatusLabel = (s) => { const o = getStatusOpt(s); return o ? `${o.emoji} ${o.label}` : s; };
+const getStatusLabel = (s) => { const o = getStatusOpt(s); return o ? o.label : s; };
 
 
 const Skeleton = ({ className }) => (
@@ -117,7 +117,7 @@ const DefectDetail = () => {
   }, [defectData]);
 
   if (loading) return (
-    <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center gap-4 mb-8"><Skeleton className="w-10 h-10 rounded-xl"/><div className="space-y-2"><Skeleton className="h-7 w-48"/><Skeleton className="h-4 w-64"/></div></div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="lg:col-span-2 space-y-4"><Skeleton className="h-48 rounded-2xl"/><Skeleton className="h-64 rounded-2xl"/></div><Skeleton className="h-80 rounded-2xl"/></div>
     </div>
@@ -148,8 +148,8 @@ const DefectDetail = () => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap mb-2">
             <h1 className="text-sm font-bold text-slate-900 dark:text-white font-mono bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0">{defectData.id}</h1>
-            <span className={`text-[11px] uppercase font-black tracking-wider px-2.5 py-1 rounded-md shrink-0 ${sevConfig.badge}`}>{defectData.severity}</span>
-            <span className={`text-[11px] uppercase font-black tracking-wider px-2.5 py-1 rounded-md border shrink-0 ${getStatusCls(status)}`}>{getStatusLabel(status)}</span>
+            <span className={`text-[11px] font-medium px-2.5 py-1 rounded-md shrink-0 ${sevConfig.badge}`}>{defectData.severity}</span>
+            <span className={`text-[11px] font-medium px-2.5 py-1 rounded-md border shrink-0 ${getStatusCls(status)}`}>{getStatusLabel(status)}</span>
             <span className="text-[11px] font-bold px-2.5 py-1 rounded-md bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shrink-0">
               {defectData.failedCount} Hatalı Test
             </span>
@@ -205,7 +205,7 @@ const DefectDetail = () => {
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black shrink-0 ${is.badge}`}>{idx + 1}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                        <span className={`text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded-md shrink-0 ${is.badge}`}>{item.severity}</span>
+                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md shrink-0 ${is.badge}`}>{item.severity}</span>
                         {item.caseId && (
                           <span className="text-[10px] font-bold text-slate-400 font-mono">#{item.caseId}</span>
                         )}
@@ -248,10 +248,10 @@ const DefectDetail = () => {
                         } catch { /* düz metin */ }
                         if (steps) return (
                           <div className="p-4 space-y-2">
-                            <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Test Adımları</p>
+                            <p className="text-[11px] font-medium text-slate-400 mb-3">Test Adımları</p>
                             {steps.map((step, si) => (
                               <div key={si} className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl p-3">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Adım {si + 1}</p>
+                                <p className="text-[11px] font-medium text-slate-400 mb-2">Adım {si + 1}</p>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                                   <div><p className="text-[10px] font-bold text-slate-400 mb-1">AKSİYON</p><p className="text-slate-700 dark:text-slate-300 font-medium">{step.action || '—'}</p></div>
                                   <div><p className="text-[10px] font-bold text-slate-400 mb-1">BEKLENEN</p><p className="text-slate-700 dark:text-slate-300 font-medium">{step.expectedResult || '—'}</p></div>
@@ -288,7 +288,7 @@ const DefectDetail = () => {
 
           {/* Statü */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Target size={14} className="text-indigo-400"/> Statü</h3>
+            <h3 className="text-xs font-medium text-slate-400 mb-4 flex items-center gap-2"><Target size={14} className="text-indigo-400"/> Statü</h3>
             <div className={`px-4 py-3 rounded-xl border-2 flex items-center justify-center font-black text-sm mb-4 ${getStatusCls(status)}`}>
               {getStatusLabel(status)}
             </div>
@@ -297,7 +297,7 @@ const DefectDetail = () => {
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-1">Durumu Güncelle</label>
                 <select value={status} onChange={e => handleStatusChange(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 dark:text-white text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer">
-                  {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.emoji} {o.label}</option>)}
+                  {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 {saveMsg === 'saved' && <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5 ml-1 animate-in fade-in duration-200"><CheckCircle2 size={12}/> Kaydedildi</p>}
                 {saveMsg === 'error' && <p className="text-[11px] text-rose-500 font-medium flex items-center gap-1.5 ml-1"><AlertCircle size={12}/> Kaydedilemedi</p>}
@@ -310,7 +310,7 @@ const DefectDetail = () => {
 
           {/* Künye */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Künye</h3>
+            <h3 className="text-xs font-medium text-slate-400 mb-4">Künye</h3>
             <div className="space-y-4">
               {[
                 { icon:<Folder size={16} className="text-indigo-400"/>,     label:'Proje',         value:defectData.projectName },
@@ -319,7 +319,7 @@ const DefectDetail = () => {
                 { icon:<Bug size={16} className="text-rose-400"/>,           label:'Hatalı Test',   value:`${defectData.failedCount} test` },
               ].map(({ icon, label, value }) => (
                 <div key={label}>
-                  <span className="text-slate-500 dark:text-slate-400 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide">{icon} {label}</span>
+                  <span className="text-slate-500 dark:text-slate-400 flex items-center gap-2 text-[11px] font-medium">{icon} {label}</span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm ml-6 break-words">{value}</span>
                 </div>
               ))}
@@ -328,7 +328,7 @@ const DefectDetail = () => {
 
           {/* Aksiyonlar */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Hızlı Aksiyonlar</h3>
+            <h3 className="text-xs font-medium text-slate-400 mb-4">Hızlı Aksiyonlar</h3>
             <div className="space-y-2">
               {defectData.runId && (
               <button onClick={() => navigate(`/test-runs/${defectData.runId}`)}

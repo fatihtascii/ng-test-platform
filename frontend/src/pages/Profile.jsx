@@ -73,9 +73,7 @@ const Notice = ({ notice }) => {
   if (!notice) return null;
   const ok = notice.type === 'success';
   return (
-    <div role="status" className={`flex items-start gap-2 text-sm rounded-xl px-3.5 py-2.5 border ${
-      ok ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400'
-         : 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-800/50 text-rose-700 dark:text-rose-400'}`}>
+    <div role="status" className={`flex items-start gap-2 text-sm rounded-xl px-3.5 py-2.5 border ${ ok ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-800/50 text-rose-700 dark:text-rose-400'}`}>
       {ok ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : <AlertCircle size={16} className="mt-0.5 shrink-0" />}
       <span>{notice.message}</span>
     </div>
@@ -200,8 +198,7 @@ const Profile = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <UserCircle2 size={24} className="text-indigo-500" /> Profilim
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Profilim
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Hesap bilgilerinizi ve şifrenizi yönetin.</p>
       </div>

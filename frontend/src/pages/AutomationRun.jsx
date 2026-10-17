@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
+import { ResultBar } from '../components/ui';
 import { projectsApi, testCasesApi, testRunsApi } from '../api';
 import {
   Play, Terminal, Server, Globe, Cpu, FlaskConical,
@@ -16,10 +17,10 @@ const fmt = (s) =>
   String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 
 const PRIORITY_CLS = {
-  'Kritik': 'text-rose-400 bg-rose-500/10 border-rose-500/25',
-  'Yüksek': 'text-orange-400 bg-orange-500/10 border-orange-500/25',
-  'Orta':   'text-blue-400 bg-blue-500/10 border-blue-500/25',
-  'Düşük':  'text-slate-500 bg-slate-500/10 border-slate-500/20',
+  'Kritik': 'text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-500/10 dark:border-rose-500/25',
+  'Yüksek': 'text-amber-800 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-500/10 dark:border-amber-500/25',
+  'Orta':   'text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-500/10 dark:border-blue-500/25',
+  'Düşük':  'text-slate-600 bg-slate-50 border-slate-200 dark:text-slate-400 dark:bg-slate-500/10 dark:border-slate-500/20',
 };
 const LOG_CLS = {
   error:   'text-rose-400 font-medium',
@@ -28,17 +29,9 @@ const LOG_CLS = {
   running: 'text-sky-300',
   info:    'text-slate-300',
 };
-const SEL = 'w-full appearance-none bg-slate-950/80 border border-white/8 hover:border-white/15 text-slate-200 text-[13px] font-medium rounded-xl px-4 py-2.5 pr-9 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 disabled:opacity-40 cursor-pointer transition-all';
+const SEL = 'w-full appearance-none bg-white border border-slate-300 hover:border-slate-400 text-slate-900 text-sm rounded-lg h-9 px-3 pr-9 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-40 cursor-pointer dark:bg-slate-950 dark:border-slate-700 dark:text-slate-100';
 
-const Skel = ({ cls }) => <div className={"animate-pulse bg-slate-800/60 rounded-xl " + cls} />;
-
-const StatCard = ({ label, value, color, accent, pulse }) => (
-  <div className={"relative flex flex-col items-center justify-center py-4 px-3 rounded-2xl border overflow-hidden " + accent}>
-    {pulse && value > 0 && <span className="absolute inset-0 rounded-2xl animate-ping bg-emerald-500/5 pointer-events-none" />}
-    <span className={"text-3xl font-black tabular-nums tracking-tight " + color}>{value}</span>
-    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600 mt-1">{label}</span>
-  </div>
-);
+const Skel = ({ cls }) => <div className={"animate-pulse bg-slate-100 dark:bg-slate-800 rounded-xl " + cls} />;
 
 const AutomationRun = () => {
   const { can }  = usePermission();
@@ -209,7 +202,7 @@ const AutomationRun = () => {
             });
             addLog('↗ Sonuçlar kaydedildi.', 'info');
             const fc = details.filter(r => r.status === 'Failed').length;
-            if (fc > 0) { addLog('⚠ ' + fc + ' hata Defect listesine eklendi.', 'warn'); showToast('error', '🔥 ' + fc + ' hata tespit edildi.'); }
+            if (fc > 0) { addLog('⚠ ' + fc + ' hata Defect listesine eklendi.', 'warn'); showToast('error', '' + fc + ' hata tespit edildi.'); }
           } catch (e) { addLog('⚠ Kayıt hatası: ' + e.message, 'warn'); }
           return;
         }
@@ -275,7 +268,7 @@ const AutomationRun = () => {
   const pct   = total > 0 ? Math.round((results.passed / total) * 100) : null;
 
   if (loading) return (
-    <div className="min-h-full bg-[#06080f] -m-8 p-6 space-y-4">
+    <div className="space-y-4">
       <Skel cls="h-14 w-72" />
       <div className="grid grid-cols-4 gap-3">{[0,1,2,3].map(i => <Skel key={i} cls="h-20" />)}</div>
       <div className="grid xl:grid-cols-2 gap-4"><Skel cls="h-96" /><Skel cls="h-96" /></div>
@@ -283,7 +276,7 @@ const AutomationRun = () => {
   );
 
   return (
-    <div className="min-h-full bg-[#06080f] text-slate-100 -m-8 p-6 pb-10">
+    <div className="pb-8">
 
       {toast && (
         <div className={"fixed top-5 right-5 z-[200] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-[13px] font-semibold border backdrop-blur-xl animate-in fade-in slide-in-from-top-3 duration-300 " + (toast.type === 'success' ? 'bg-emerald-950/95 border-emerald-800/60 text-emerald-300' : 'bg-rose-950/95 border-rose-800/60 text-rose-300')}>
@@ -292,51 +285,54 @@ const AutomationRun = () => {
         </div>
       )}
 
-      {/* HEADER */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 shrink-0">
-            <MonitorPlay size={20} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-[17px] font-bold text-white tracking-tight">Otomasyon Komuta Merkezi</h1>
-            <p className="text-[11px] text-slate-600 mt-0.5 font-medium">Playwright · pytest · Gerçek Zamanlı Terminal</p>
-          </div>
+      {/* BAŞLIK */}
+      <div className="flex items-end justify-between gap-4 mb-5">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Otomasyon</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Seçtiğiniz case'lerin Playwright kodunu çalıştırın ve logları canlı izleyin.</p>
         </div>
         <div className="flex items-center gap-3">
           {isRunning && (
-            <div className="flex items-center gap-3 bg-slate-900/70 border border-white/8 rounded-xl px-4 py-2">
+            <div className="flex items-center gap-3 bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-800 rounded-xl px-4 py-2">
               <div className="w-28">
-                <div className="flex justify-between text-[9px] mb-1.5 font-bold uppercase tracking-widest">
-                  <span className="text-slate-600">İlerleme</span>
-                  <span className="text-indigo-400">%{progress}</span>
+                <div className="flex justify-between text-[9px] mb-1.5 font-medium">
+                  <span className="text-slate-500">İlerleme</span>
+                  <span className="text-indigo-600 dark:text-indigo-400">%{progress}</span>
                 </div>
-                <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-500" style={{ width: progress + '%' }} />
+                <div className="h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-600 rounded-full transition-all duration-500" style={{ width: progress + '%' }} />
                 </div>
               </div>
-              <Loader2 size={13} className="text-indigo-400 animate-spin shrink-0" />
+              <Loader2 size={13} className="text-indigo-600 dark:text-indigo-400 animate-spin shrink-0" />
             </div>
           )}
-          <div className="flex items-center gap-2 bg-slate-900/60 border border-white/8 rounded-xl px-3.5 py-2">
-            <Clock size={12} className="text-slate-600" />
-            <span className="font-mono text-[13px] font-bold text-slate-300 tabular-nums">{fmt(elapsedSeconds)}</span>
+          <div className="flex items-center gap-2 bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-800 rounded-xl px-3.5 py-2">
+            <Clock size={12} className="text-slate-500" />
+            <span className="font-mono text-[13px] font-bold text-slate-900 dark:text-slate-100 tabular-nums">{fmt(elapsedSeconds)}</span>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-900/60 text-rose-400 px-4 py-3 rounded-xl text-[13px] mb-5 font-medium">
+        <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 dark:bg-rose-950/60 dark:border-rose-900/60 dark:text-rose-400 px-4 py-3 rounded-xl text-[13px] mb-5 font-medium">
           <AlertCircle size={14} />{error}
         </div>
       )}
 
-      {/* STAT KARTLARI */}
-      <div className="grid grid-cols-4 gap-3 mb-5">
-        <StatCard label="Seçilen"   value={selectedCases.length} color="text-slate-200"   accent="border-white/6 bg-slate-900/40" />
-        <StatCard label="Geçen"     value={results.passed}       color="text-emerald-400" accent="border-emerald-900/40 bg-emerald-950/30" pulse={isRunning} />
-        <StatCard label="Başarısız" value={results.failed}       color="text-rose-400"    accent="border-rose-900/40 bg-rose-950/30" />
-        <StatCard label="Atlanan"   value={results.skipped}      color="text-amber-400"   accent="border-amber-900/30 bg-amber-950/20" />
+      {/* SONUÇ ŞERİDİ */}
+      <div className="mb-5 rounded-2xl border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
+        <ResultBar height="h-2.5" segments={[
+          { label: 'Geçti',    value: results.passed,  tone: 'pass' },
+          { label: 'Kaldı',    value: results.failed,  tone: 'fail' },
+          { label: 'Atlandı',  value: results.skipped, tone: 'blocked' },
+          { label: 'Bekliyor', value: Math.max(0, selectedCases.length - results.passed - results.failed - results.skipped), tone: 'pending' },
+        ]} />
+        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <span className="text-slate-500 dark:text-slate-400">Seçilen <span className="font-semibold text-slate-900 dark:text-white">{selectedCases.length}</span></span>
+          <span className="text-slate-500 dark:text-slate-400">Geçti <span className="font-semibold text-emerald-700 dark:text-emerald-400">{results.passed}</span></span>
+          <span className="text-slate-500 dark:text-slate-400">Kaldı <span className="font-semibold text-rose-700 dark:text-rose-400">{results.failed}</span></span>
+          <span className="text-slate-500 dark:text-slate-400">Atlandı <span className="font-semibold text-amber-700 dark:text-amber-400">{results.skipped}</span></span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-4">
@@ -345,50 +341,50 @@ const AutomationRun = () => {
         <div className="space-y-4">
 
           {/* Konfigürasyon */}
-          <div className="bg-slate-900/50 border border-white/6 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-white/5 flex items-center gap-2.5">
-              <Settings2 size={14} className="text-indigo-400" />
-              <span className="text-[13px] font-semibold text-slate-300">Konfigürasyon</span>
+          <div className="bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-800 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2.5">
+              <Settings2 size={14} className="text-indigo-600 dark:text-indigo-400" />
+              <span className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">Konfigürasyon</span>
             </div>
             <div className="p-4 space-y-3.5">
               <div>
-                <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600 mb-1.5"><Server size={9} className="opacity-60" />Hedef Proje</label>
+                <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 mb-1.5"><Server size={9} className="opacity-60" />Hedef Proje</label>
                 <div className="relative">
                   <select value={selectedProject} onChange={e => { setSelectedProject(e.target.value); setSelectedCases([]); }} disabled={isRunning} className={SEL}>
                     <option value="" disabled>Proje Seçin</option>
                     {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
-                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
+                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600 block mb-1.5">Ortam</label>
+                  <label className="text-[11px] font-medium text-slate-500 block mb-1.5">Ortam</label>
                   <div className="relative">
                     <select value={environment} onChange={e => setEnvironment(e.target.value)} disabled={isRunning} className={SEL}>
                       <option value="QA">QA (Test)</option><option value="Staging">Staging</option><option value="Prod">Production</option>
                     </select>
-                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
+                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600 block mb-1.5">Tarayıcı</label>
+                  <label className="text-[11px] font-medium text-slate-500 block mb-1.5">Tarayıcı</label>
                   <div className="relative">
                     <select value={browser} onChange={e => setBrowser(e.target.value)} disabled={isRunning} className={SEL}>
                       <option>Chrome</option><option>Firefox</option><option>Edge</option><option>Safari</option>
                     </select>
-                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
+                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                   </div>
                 </div>
               </div>
               <div onClick={() => !isRunning && setHeadless(h => !h)}
-                className={"flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none " + (headless ? 'bg-indigo-500/8 border-indigo-500/20 hover:border-indigo-500/35' : 'bg-white/3 border-white/8 hover:border-white/15') + (isRunning ? ' opacity-40 pointer-events-none' : '')}>
+                className={"flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none " + (headless ? 'bg-indigo-500/8 border-indigo-500/20 hover:border-indigo-500/35' : 'bg-slate-50 border-slate-200 hover:border-slate-300 dark:bg-white/[0.03] dark:border-white/10') + (isRunning ? ' opacity-40 pointer-events-none' : '')}>
                 <div>
-                  <p className="text-[13px] font-semibold text-slate-200">Headless Mod</p>
-                  <p className="text-[11px] text-slate-600 mt-0.5">Tarayıcı arka planda çalışır</p>
+                  <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">Headless Mod</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Tarayıcı arka planda çalışır</p>
                 </div>
                 <div className="relative shrink-0" style={{ width: '38px', height: '21px' }}>
-                  <div className={"absolute inset-0 rounded-full transition-colors " + (headless ? 'bg-indigo-500' : 'bg-slate-700')} />
+                  <div className={"absolute inset-0 rounded-full transition-colors " + (headless ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700')} />
                   <div className={"absolute top-[2px] w-[17px] h-[17px] rounded-full bg-white shadow-md transition-all " + (headless ? 'left-[19px]' : 'left-[2px]')} />
                 </div>
               </div>
@@ -396,64 +392,64 @@ const AutomationRun = () => {
           </div>
 
           {/* Test Listesi */}
-          <div className="bg-slate-900/50 border border-white/6 rounded-2xl overflow-hidden flex flex-col" style={{ maxHeight: '400px' }}>
-            <div className="px-5 py-3.5 border-b border-white/5 flex items-center justify-between shrink-0">
+          <div className="bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-800 rounded-2xl overflow-hidden flex flex-col" style={{ maxHeight: '400px' }}>
+            <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
-                <FlaskConical size={14} className="text-violet-400" />
-                <span className="text-[13px] font-semibold text-slate-300">Otomatik Testler</span>
+                <FlaskConical size={14} className="text-slate-400" />
+                <span className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">Otomatik Testler</span>
                 {projectCases.length > 0 && (
-                  <span className="text-[10px] font-bold bg-violet-500/15 text-violet-400 border border-violet-500/20 px-2 py-0.5 rounded-lg">{selectedCases.length}/{projectCases.length}</span>
+                  <span className="text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 px-2 py-0.5 rounded-lg">{selectedCases.length}/{projectCases.length}</span>
                 )}
               </div>
               <button onClick={selectAll} disabled={!selectedProject || isRunning || !projectCases.length}
-                className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 disabled:opacity-30 transition-colors">
+                className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-300 disabled:opacity-30 transition-colors">
                 {projectCases.length > 0 && projectCases.every(tc => selectedCases.includes(tc.id)) ? 'Seçimi Kaldır' : 'Tümünü Seç'}
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {!selectedProject ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Server size={28} className="text-slate-800 mb-3" /><p className="text-[12px] text-slate-700 font-medium">Proje seçin</p>
+                  <Server size={28} className="text-slate-900 dark:text-slate-100 dark:text-slate-700 mb-3" /><p className="text-[12px] text-slate-400 dark:text-slate-500 font-medium">Proje seçin</p>
                 </div>
               ) : projectCases.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Cpu size={28} className="text-slate-800 mb-3" /><p className="text-[12px] text-slate-700 font-medium">Otomatik test bulunamadı</p>
+                  <Cpu size={28} className="text-slate-900 dark:text-slate-100 dark:text-slate-700 mb-3" /><p className="text-[12px] text-slate-400 dark:text-slate-500 font-medium">Otomatik test bulunamadı</p>
                 </div>
               ) : projectCases.map(tc => {
                 const sel = selectedCases.includes(tc.id);
                 return (
                   <div key={tc.id} onClick={() => toggleCase(tc.id)}
-                    className={"flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 cursor-pointer transition-all border " + (sel ? 'bg-indigo-500/10 border-indigo-500/25' : 'border-transparent hover:bg-white/4') + (isRunning ? ' opacity-50 cursor-not-allowed' : '')}>
-                    <div className={"flex items-center justify-center rounded-md border transition-all shrink-0 " + (sel ? 'bg-indigo-500 border-indigo-500' : 'border-slate-700')} style={{ width: '17px', height: '17px' }}>
+                    className={"flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 cursor-pointer transition-all border " + (sel ? 'bg-indigo-500/10 border-indigo-500/25' : 'border-transparent hover:bg-slate-50 dark:hover:bg-white/5') + (isRunning ? ' opacity-50 cursor-not-allowed' : '')}>
+                    <div className={"flex items-center justify-center rounded-md border transition-all shrink-0 " + (sel ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300 dark:border-slate-700')} style={{ width: '17px', height: '17px' }}>
                       {sel && <CheckSquare size={10} strokeWidth={3} className="text-white" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[12px] font-medium text-slate-200 truncate">{tc.title}</p>
+                      <p className="text-[12px] font-medium text-slate-800 dark:text-slate-200 truncate">{tc.title}</p>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-slate-700">#{tc.id}</span>
-                        {tc.priority && <span className={"text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md border " + (PRIORITY_CLS[tc.priority] || PRIORITY_CLS['Orta'])}>{tc.priority}</span>}
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500">#{tc.id}</span>
+                        {tc.priority && <span className={"text-[11px] font-medium px-1.5 py-0.5 rounded-md border " + (PRIORITY_CLS[tc.priority] || PRIORITY_CLS['Orta'])}>{tc.priority}</span>}
                       </div>
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div className="p-3 border-t border-white/5 space-y-2 shrink-0">
+            <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 shrink-0">
               {can('automation.execute') ? (
                 <>
                   <button onClick={handleRun} disabled={isRunning || !selectedCases.length || !selectedProject}
-                    className="w-full py-3 rounded-xl font-bold text-[13px] disabled:opacity-40 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 shadow-lg shadow-emerald-600/20 text-white transition-all">
+                    className="w-full py-3 rounded-xl font-bold text-[13px] disabled:opacity-40 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 text-white transition-all">
                     {isRunning ? <><Loader2 size={14} className="animate-spin" />Koşuluyor...</> : <><Play size={14} className="fill-white" />{selectedCases.length} Testi Başlat<ArrowRight size={13} /></>}
                   </button>
                   {isRunning && (
                     <button onClick={handleStop}
-                      className="w-full py-2.5 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 bg-rose-950/50 hover:bg-rose-950/80 border border-rose-800/40 text-rose-400 transition-all">
+                      className="w-full py-2.5 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 dark:bg-rose-950/50 dark:hover:bg-rose-950/80 dark:border-rose-800/40 dark:text-rose-400 transition-all">
                       <StopCircle size={13} />Durdur
                     </button>
                   )}
                 </>
               ) : (
-                <div className="text-center text-[11px] text-slate-700 py-2.5 border border-slate-800 bg-slate-900/40 rounded-xl">
+                <div className="text-center text-[11px] text-slate-500 py-2.5 border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40 rounded-xl">
                   <Shield size={11} className="inline mr-1.5" />Yetki gerekli
                 </div>
               )}
@@ -515,7 +511,7 @@ const AutomationRun = () => {
 
           <div className="bg-[#0c1018] border border-t-0 border-white/6 rounded-b-2xl px-5 py-2.5 flex items-center gap-4 shrink-0">
             <div className="flex-1 h-0.5 bg-slate-900 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-indigo-600 to-violet-600 rounded-full transition-all duration-500" style={{ width: progress + '%' }} />
+              <div className="h-full bg-indigo-600 rounded-full transition-all duration-500" style={{ width: progress + '%' }} />
             </div>
             <div className="flex items-center gap-4 text-[11px] font-mono shrink-0">
               <span className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={10} />{results.passed} geçti</span>

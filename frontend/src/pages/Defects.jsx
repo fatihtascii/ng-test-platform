@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import { defectsApi, projectsApi } from '../api';
+import { ResultBar } from '../components/ui';
+import { TONES } from '../components/ui/tokens';
 import {
   Bug, Search, Filter, AlertCircle, CheckCircle2,
   Clock, ArrowRightCircle, Folder, X,
@@ -12,18 +14,25 @@ import {
 } from 'lucide-react';
 
 // ── Sabitler ──────────────────────────────────────────────────
+// Statü dağılım şeridinin sırası ve tonları (tasarım sistemiyle aynı anlam)
+const STATUS_SEGMENTS = [
+  { value: 'Open',        key: 'open',       label: 'Açık',        tone: 'fail' },
+  { value: 'In Progress', key: 'inProgress', label: 'İnceleniyor', tone: 'blocked' },
+  { value: 'Re-test',     key: 'retest',     label: 'Tekrar test', tone: 'info' },
+  { value: 'Resolved',    key: 'resolved',   label: 'Çözüldü',     tone: 'pass' },
+];
 const STATUS_OPTIONS = [
-  { value: 'Open',        label: 'Açık',        emoji: '🔴', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' },
-  { value: 'In Progress', label: 'İnceleniyor', emoji: '🟡', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
-  { value: 'Resolved',    label: 'Çözüldü',     emoji: '🟢', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
-  { value: 'Re-test',     label: 'Tekrar Test', emoji: '🔵', cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' },
+  { value: 'Open',        label: 'Açık', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' },
+  { value: 'In Progress', label: 'İnceleniyor', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
+  { value: 'Resolved',    label: 'Çözüldü', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
+  { value: 'Re-test',     label: 'Tekrar Test', cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' },
 ];
 const SEVERITY_OPTIONS = ['Kritik', 'Yüksek', 'Orta', 'Düşük'];
 const SEVERITY_CONFIG  = {
-  'Kritik': { bg: 'bg-rose-500/10 text-rose-500',     badge: 'bg-rose-500 text-white' },
-  'Yüksek': { bg: 'bg-orange-500/10 text-orange-500', badge: 'bg-orange-500 text-white' },
-  'Orta':   { bg: 'bg-amber-500/10 text-amber-500',   badge: 'bg-amber-500 text-white' },
-  'Düşük':  { bg: 'bg-blue-500/10 text-blue-500',     badge: 'bg-blue-400 text-white' },
+  'Kritik': { bg: 'bg-rose-500/10 text-rose-600',     badge: 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30' },
+  'Yüksek': { bg: 'bg-amber-500/10 text-amber-600',   badge: 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30' },
+  'Orta':   { bg: 'bg-slate-500/10 text-slate-600',   badge: 'bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700' },
+  'Düşük':  { bg: 'bg-slate-500/10 text-slate-500',   badge: 'bg-white text-slate-500 ring-1 ring-inset ring-slate-200 dark:bg-transparent dark:text-slate-400 dark:ring-slate-700' },
 };
 const PAGE_SIZE  = 10;
 // Eski sürüm defect verisini tarayıcıda tutuyordu; yalnızca sunucuya taşımak için okunur
@@ -34,7 +43,7 @@ const HIDDEN_KEY = 'ng-hidden-auto-defects';
 const getSev         = (s) => SEVERITY_CONFIG[s] || SEVERITY_CONFIG['Orta'];
 const getStatusOpt   = (s) => STATUS_OPTIONS.find(o => o.value === s);
 const getStatusCls   = (s) => getStatusOpt(s)?.cls || 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700';
-const getStatusLabel = (s) => { const o = getStatusOpt(s); return o ? `${o.emoji} ${o.label}` : s; };
+const getStatusLabel = (s) => { const o = getStatusOpt(s); return o ? o.label : s; };
 
 
 // API kaydını liste/kart bileşenlerinin beklediği şekle çevirir
@@ -138,41 +147,41 @@ const DefectModal = ({ mode, defect, projects, onClose, onSave }) => {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
           <h2 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Bug size={18} className="text-rose-500"/>
-            {mode === 'create' ? 'Yeni Defect Ekle' : 'Defect Düzenle'}
+            {mode === 'create' ? 'Hata kaydı ekle' : 'Hata kaydını düzenle'}
           </h2>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"><X size={18}/></button>
         </div>
         <div className="px-6 py-5 space-y-4">
           {err && <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 px-3 py-2.5 rounded-xl text-sm font-medium"><AlertCircle size={15}/> {err}</div>}
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Başlık *</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Başlık *</label>
             <input value={form.title} onChange={f('title')} placeholder="Hatanın kısa açıklaması..."
               className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-rose-500"/>
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Açıklama / Hata Detayı</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Açıklama / Hata Detayı</label>
             <textarea value={form.description} onChange={f('description')} rows={4} placeholder="Hata nasıl oluştu? Adımlar, beklenen/gerçekleşen durum..."
               className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-rose-500 resize-none"/>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Proje *</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Proje *</label>
               <select value={form.projectId} onChange={f('projectId')} className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer">
                 <option value="">Proje Seç</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Öncelik</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Öncelik</label>
               <select value={form.severity} onChange={f('severity')} className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer">
                 {SEVERITY_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Statü</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Statü</label>
             <select value={form.status} onChange={f('status')} className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer">
-              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.emoji} {o.label}</option>)}
+              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
         </div>
@@ -388,10 +397,7 @@ const Defects = () => {
 
       {/* ✅ YENİ: Toast Bildirimi */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-[200] flex items-center gap-2 px-4 py-3 rounded-lg shadow-xl border animate-in slide-in-from-bottom-5 duration-300 ${
-          toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-800 dark:text-emerald-300' 
-                                   : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/40 dark:border-rose-800 dark:text-rose-300'
-        }`}>
+        <div className={`fixed bottom-6 right-6 z-[200] flex items-center gap-2 px-4 py-3 rounded-lg shadow-xl border animate-in slide-in-from-bottom-5 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-800 dark:text-emerald-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/40 dark:border-rose-800 dark:text-rose-300' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
           <span className="text-sm font-medium">{toast.message}</span>
         </div>
@@ -403,14 +409,14 @@ const Defects = () => {
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><Bug size={24} className="text-rose-500"/> Hata Takip</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Başarısız test koşumlarından çıkan hatalar ve takipleri.</p>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Hatalar</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Koşumlarda kalan testlerden açılan ve elle eklenen hata kayıtları.</p>
         </div>
         <div className="flex items-center gap-2">
           {can('defects.manage') && (
             <button onClick={() => setModal({ mode: 'create' })}
-              className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm transition-colors shadow-sm shadow-rose-600/20">
-              <Plus size={16}/> Defect Ekle
+              className="flex items-center gap-2 px-3 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition-colors">
+              <Plus size={15}/> Hata kaydı ekle
             </button>
           )}
           <button onClick={handleCopyReport} disabled={!filtered.length}
@@ -429,21 +435,23 @@ const Defects = () => {
         </div>
       )}
 
-      {/* STAT KARTLARI */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {[
-          { label:'Toplam',      value:stats.total,     fv:'All',         icon:<TrendingDown size={18}/>, bg:'bg-slate-100 dark:bg-slate-800',  text:'text-slate-600 dark:text-slate-400',     border:'border-slate-200 dark:border-slate-700' },
-          { label:'Açık',        value:stats.open,       fv:'Open',        icon:<AlertCircle size={18}/>,  bg:'bg-rose-500/10',                  text:'text-rose-600 dark:text-rose-400',       border:'border-rose-500/20' },
-          { label:'İnceleniyor', value:stats.inProgress, fv:'In Progress', icon:<Clock size={18}/>,        bg:'bg-amber-500/10',                 text:'text-amber-600 dark:text-amber-400',     border:'border-amber-500/20' },
-          { label:'Tekrar Test', value:stats.retest,     fv:'Re-test',     icon:<Zap size={18}/>,          bg:'bg-blue-500/10',                  text:'text-blue-600 dark:text-blue-400',       border:'border-blue-500/20' },
-          { label:'Çözüldü',     value:stats.resolved,   fv:'Resolved',    icon:<CheckCircle2 size={18}/>, bg:'bg-emerald-500/10',               text:'text-emerald-600 dark:text-emerald-400', border:'border-emerald-500/20' },
-        ].map(s => (
-          <button key={s.label} onClick={() => setFilterStatus(filterStatus === s.fv && s.fv !== 'All' ? 'All' : s.fv)}
-            className={`p-4 rounded-2xl border shadow-sm flex items-center gap-3 text-left transition-all w-full outline-none ${filterStatus === s.fv && s.fv !== 'All' ? `${s.bg} ${s.border} ring-2 ring-offset-1 scale-[1.02]` : `bg-white dark:bg-slate-900 ${s.border} hover:shadow-md`}`}>
-            <div className={`p-2.5 ${s.bg} rounded-xl ${s.text} shrink-0`}>{s.icon}</div>
-            <div><p className={`text-xs font-semibold ${s.text}`}>{s.label}</p><p className="text-xl font-bold text-slate-900 dark:text-white tabular-nums leading-tight mt-0.5">{s.value}</p></div>
-          </button>
-        ))}
+      {/* STATÜ DAĞILIMI — bölümlere tıklayınca liste o statüye filtrelenir */}
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
+        <ResultBar height="h-2.5" segments={STATUS_SEGMENTS.map(x => ({ label: x.label, value: stats[x.key], tone: x.tone }))} />
+        <div className="mt-3 flex flex-wrap items-center gap-1">
+          <span className="mr-3 text-sm text-slate-500 dark:text-slate-400">Toplam <span className="font-semibold text-slate-900 dark:text-white">{stats.total}</span></span>
+          {STATUS_SEGMENTS.map(x => {
+            const active = filterStatus === x.value;
+            return (
+              <button key={x.value} onClick={() => setFilterStatus(active ? 'All' : x.value)} aria-pressed={active}
+                className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors ${active ? 'bg-slate-100 dark:bg-slate-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}>
+                <span className={`h-2 w-2 rounded-full ${TONES[x.tone].dot}`} aria-hidden />
+                <span className="text-slate-500 dark:text-slate-400">{x.label}</span>
+                <span className="font-semibold text-slate-900 dark:text-white">{stats[x.key]}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* TOPLU AKSİYON */}
@@ -454,7 +462,7 @@ const Defects = () => {
             <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}
               className="text-xs font-semibold bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-700 text-slate-700 dark:text-slate-200 rounded-lg px-3 py-2 outline-none cursor-pointer">
               <option value="">Toplu Statü Ata...</option>
-              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.emoji} {o.label}</option>)}
+              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <button onClick={handleBulkStatus} disabled={!bulkStatus || isBulkSaving}
               className="px-3 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-1.5 transition-colors">
@@ -477,7 +485,7 @@ const Defects = () => {
           {[
             { icon:<Folder size={14}/>, value:filterProject,  onChange:setFilterProject,  options:[['All','Tüm Projeler'], ...(rawData.projects||[]).map(p=>[p.id,p.name])] },
             { icon:<Bug size={14}/>,    value:filterSeverity, onChange:setFilterSeverity, options:[['All','Tüm Öncelikler'],['Kritik','Kritik'],['Yüksek','Yüksek'],['Orta','Orta'],['Düşük','Düşük']] },
-            { icon:<Filter size={14}/>, value:filterStatus,   onChange:setFilterStatus,   options:[['All','Tüm Statüler'],...STATUS_OPTIONS.map(o=>[o.value,`${o.emoji} ${o.label}`])] },
+            { icon:<Filter size={14}/>, value:filterStatus,   onChange:setFilterStatus,   options:[['All','Tüm Statüler'],...STATUS_OPTIONS.map(o=>[o.value,o.label])] },
           ].map((f,i) => (
             <div key={i} className="flex flex-1 md:flex-none items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded-xl">
               <span className="text-slate-400 shrink-0">{f.icon}</span>
@@ -495,7 +503,7 @@ const Defects = () => {
         {allDefects.length === 0 ? (
           <div className="text-center py-24 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl">
             <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-5"><CheckCircle2 size={32} className="text-emerald-600 dark:text-emerald-400"/></div>
-            <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">Sıfır Hata! 🎉</h3>
+            <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">Sıfır Hata! </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">Başarısız test koşumu bulunmuyor.</p>
           </div>
         ) : filtered.length === 0 ? (
@@ -508,12 +516,12 @@ const Defects = () => {
           <>
             <div className="flex items-center gap-3 px-4 pb-1">
               {can('defects.manage') && (
-                <button onClick={toggleSelectAll} className="text-slate-500 hover:text-rose-600 transition-colors flex items-center gap-2 text-xs font-bold uppercase tracking-wider">
+                <button onClick={toggleSelectAll} className="text-slate-500 hover:text-rose-600 transition-colors flex items-center gap-2 text-xs font-medium">
                   {selected.size > 0 && selected.size === paginated.length ? <><CheckSquare size={16} className="text-rose-500"/> Seçimi Kaldır</> : <><Square size={16}/> Tümünü Seç</>}
                 </button>
               )}
               <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800"/>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{filtered.length} Hata · Sayfa {page}/{totalPages}</span>
+              <span className="text-[11px] font-medium text-slate-400">{filtered.length} Hata · Sayfa {page}/{totalPages}</span>
             </div>
 
             {paginated.map(bug => {
@@ -541,7 +549,7 @@ const Defects = () => {
                       <div className="flex-1 min-w-0 w-full">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                           <span className="text-xs font-bold font-mono bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-md shrink-0">{bug.id}</span>
-                          <span className={`text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded-md shrink-0 ${sev.badge}`}>{bug.severity}</span>
+                          <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md shrink-0 ${sev.badge}`}>{bug.severity}</span>
                           {bug.type === 'manual' && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30 shrink-0">Manuel</span>
                           )}
@@ -580,7 +588,7 @@ const Defects = () => {
                         {can('defects.manage') && (
                           <select value={bug.status} onChange={e => saveStatus(bug.id, e.target.value)}
                             className={`px-2.5 py-2 rounded-xl text-xs font-bold outline-none cursor-pointer border-2 transition-all focus:ring-2 focus:ring-rose-400 ${getStatusCls(bug.status)}`}>
-                            {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.emoji} {o.label}</option>)}
+                            {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                           </select>
                         )}
                         {can('defects.manage') && bug.type === 'manual' && (
@@ -613,7 +621,7 @@ const Defects = () => {
                     {/* Expand: Hatalı adımlar */}
                     {isExpanded && bug.failedDetails?.length > 0 && (
                       <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4 space-y-2 animate-in fade-in duration-200">
-                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Hatalı Test Adımları</p>
+                        <p className="text-[11px] font-medium text-slate-400 mb-3">Hatalı Test Adımları</p>
                         {bug.failedDetails.map((item, idx) => {
                           const is = getSev(item.severity);
                           return (

@@ -53,13 +53,9 @@ const Toggle = ({ enabled, onChange, disabled = false }) => (
     type="button"
     aria-checked={enabled}
     role="switch"
-    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 disabled:opacity-40 disabled:cursor-not-allowed ${
-      enabled ? 'bg-sky-500' : 'bg-slate-200 dark:bg-slate-700'
-    }`}
+    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 disabled:opacity-40 disabled:cursor-not-allowed ${ enabled ? 'bg-sky-500' : 'bg-slate-200 dark:bg-slate-700' }`}
   >
-    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-      enabled ? 'translate-x-6' : 'translate-x-1'
-    }`}/>
+    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${ enabled ? 'translate-x-6' : 'translate-x-1' }`}/>
   </button>
 );
 
@@ -70,7 +66,7 @@ const SecretInput = ({ label, name, placeholder, value, onChange, disabled }) =>
 
   return (
     <div className="space-y-1.5">
-      <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">
         {label}
       </label>
       <div className="relative">
@@ -82,13 +78,7 @@ const SecretInput = ({ label, name, placeholder, value, onChange, disabled }) =>
           onChange={onChange}
           disabled={disabled}
           autoComplete="off"
-          className={`w-full px-4 py-2.5 pr-10 bg-slate-50 dark:bg-slate-950 border rounded-xl text-sm outline-none transition-all font-mono ${
-            disabled
-              ? 'opacity-50 cursor-not-allowed text-slate-400 border-slate-200 dark:border-slate-800'
-              : value
-                ? 'border-sky-300 dark:border-sky-700 focus:ring-2 focus:ring-sky-500/20 text-slate-900 dark:text-white'
-                : 'border-slate-200 dark:border-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 text-slate-900 dark:text-white'
-          }`}
+          className={`w-full px-4 py-2.5 pr-10 bg-slate-50 dark:bg-slate-950 border rounded-xl text-sm outline-none transition-all font-mono ${ disabled ? 'opacity-50 cursor-not-allowed text-slate-400 border-slate-200 dark:border-slate-800' : value ? 'border-sky-300 dark:border-sky-700 focus:ring-2 focus:ring-sky-500/20 text-slate-900 dark:text-white' : 'border-slate-200 dark:border-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 text-slate-900 dark:text-white' }`}
         />
         {!disabled && (
           <button
@@ -107,7 +97,7 @@ const SecretInput = ({ label, name, placeholder, value, onChange, disabled }) =>
 
 const InputField = ({ label, name, placeholder, value, onChange, disabled, hint }) => (
   <div className="space-y-1.5">
-    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">
       {label}
     </label>
     <input
@@ -117,11 +107,7 @@ const InputField = ({ label, name, placeholder, value, onChange, disabled, hint 
       value={value || ''} 
       onChange={onChange}
       disabled={disabled}
-      className={`w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm outline-none transition-all ${
-        disabled
-          ? 'opacity-50 cursor-not-allowed text-slate-400'
-          : 'focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 text-slate-900 dark:text-white'
-      }`}
+      className={`w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm outline-none transition-all ${ disabled ? 'opacity-50 cursor-not-allowed text-slate-400' : 'focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 text-slate-900 dark:text-white' }`}
     />
     {hint && <p className="text-xs text-slate-400">{hint}</p>}
   </div>
@@ -150,9 +136,7 @@ const TestButton = ({ status, onClick, disabled }) => {
 };
 
 const IntegrationCard = ({ active, children, className = '' }) => (
-  <div className={`bg-white dark:bg-slate-900 border rounded-2xl transition-all duration-300 flex flex-col ${
-    active ? 'border-sky-300 dark:border-sky-700 shadow-md shadow-sky-500/5' : 'border-slate-200 dark:border-slate-800'
-  } ${className}`}>
+  <div className={`bg-white dark:bg-slate-900 border rounded-2xl transition-all duration-300 flex flex-col ${ active ? 'border-sky-300 dark:border-sky-700 shadow-md shadow-sky-500/5' : 'border-slate-200 dark:border-slate-800' } ${className}`}>
     {children}
   </div>
 );
@@ -328,15 +312,11 @@ const Integrations = () => {
   );
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20 max-w-5xl mx-auto relative">
+    <div className="space-y-6 animate-in fade-in duration-500 pb-20 relative">
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16}/> : <AlertCircle size={16}/>}
           {toast.message}
         </div>
@@ -345,8 +325,7 @@ const Integrations = () => {
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Blocks size={24} className="text-sky-500"/> Entegrasyonlar
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Entegrasyonlar
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
             Platformu diğer araçlara bağlayın ve iş akışlarını otomatikleştirin.

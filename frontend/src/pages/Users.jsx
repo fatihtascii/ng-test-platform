@@ -311,11 +311,7 @@ const Users = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16}/> : <AlertCircle size={16}/>}
           {toast.message}
         </div>
@@ -324,10 +320,9 @@ const Users = () => {
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <UsersIcon size={24} className="text-indigo-500"/> Kullanıcılar
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Kullanıcılar
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Platforma kayıtlı tüm kullanıcıları yönetin.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Kullanıcıları ekleyin, rollerini değiştirin ya da şifrelerini sıfırlayın.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={fetchData}
@@ -483,7 +478,7 @@ const Users = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs uppercase text-slate-400 font-semibold tracking-wide">
+              <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs text-slate-400 font-semibold">
                 {can('users.manage') && (
                   <th className="px-4 py-3.5 w-10 rounded-tl-2xl">
                     <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600 transition-colors">
@@ -617,11 +612,7 @@ const Users = () => {
         {/* Panel Header */}
         <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-              panel === 'password' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500' :
-              panel === 'create'   ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500' :
-              'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500'
-            }`}>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${ panel === 'password' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500' : panel === 'create' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500' : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500' }`}>
               {panel === 'password' ? <KeyRound size={16}/> : panel === 'create' ? <UserPlus size={16}/> : <Pencil size={16}/>}
             </div>
             <h2 className="text-base font-bold dark:text-white">
@@ -806,13 +797,7 @@ const Users = () => {
                   <input type={pwShow.confirm ? 'text' : 'password'} value={pwForm.confirm}
                     onChange={e => setPwForm(p => ({...p, confirm: e.target.value}))}
                     placeholder="Şifreyi tekrar girin"
-                    className={`w-full px-4 py-2.5 pr-10 rounded-xl border dark:bg-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono ${
-                      pwForm.confirm && pwForm.confirm !== pwForm.newPassword
-                        ? 'border-rose-300 dark:border-rose-700 focus:ring-rose-500'
-                        : pwForm.confirm && pwForm.confirm === pwForm.newPassword
-                        ? 'border-emerald-300 dark:border-emerald-700'
-                        : 'border-slate-200 dark:border-slate-700'
-                    }`}/>
+                    className={`w-full px-4 py-2.5 pr-10 rounded-xl border dark:bg-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono ${ pwForm.confirm && pwForm.confirm !== pwForm.newPassword ? 'border-rose-300 dark:border-rose-700 focus:ring-rose-500' : pwForm.confirm && pwForm.confirm === pwForm.newPassword ? 'border-emerald-300 dark:border-emerald-700' : 'border-slate-200 dark:border-slate-700' }`}/>
                   <button type="button" onClick={() => setPwShow(p => ({...p, confirm: !p.confirm}))}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
                     {pwShow.confirm ? <EyeOff size={15}/> : <Eye size={15}/>}

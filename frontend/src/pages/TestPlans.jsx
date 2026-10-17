@@ -355,7 +355,7 @@ const TestPlans = () => {
         project_id:   projectId,
         test_case_id: tcId,
       });
-      showToast('success', '🔥 Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
+      showToast('success', 'Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
     } catch (err) {
       showToast('error', err.message || 'Defect oluşturulamadı.');
     } finally {
@@ -389,11 +389,7 @@ const TestPlans = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16}/> : <AlertCircle size={16}/>}
           {toast.message}
         </div>
@@ -402,10 +398,9 @@ const TestPlans = () => {
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <ClipboardList size={24} className="text-indigo-500"/> Test Planları
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Test planları
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Test koşumlarını planlayın ve yönetin.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Bir sürüm ya da sprint için koşulacak case'leri seçin, sonuçları madde madde işaretleyin.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={fetchAll} className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors" title="Yenile">
@@ -497,7 +492,7 @@ const TestPlans = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs uppercase text-slate-500 font-semibold tracking-wide">
+              <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs text-slate-500 font-semibold">
                 <th className="px-6 py-4">Plan</th>
                 <th className="px-6 py-4">Proje</th>
                 <th className="px-6 py-4">Tarih Aralığı</th>
@@ -750,7 +745,7 @@ const TestPlans = () => {
 
                 {/* Test Adımları */}
                 <div>
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Plana Ekli Testler</h3>
+                  <h3 className="text-xs font-medium text-slate-400 mb-3">Plana Ekli Testler</h3>
                   {stats.total === 0 ? (
                     <div className="text-center py-10 text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800/30">
                       <CircleDot size={28} className="mx-auto mb-2 opacity-30"/>
@@ -760,11 +755,7 @@ const TestPlans = () => {
                   ) : (
                     <div className="space-y-3">
                       {runPlan.items.map(item => (
-                        <div key={item.id} className={`border rounded-xl p-4 transition-all shadow-sm ${
-                          item.run_status === 'Başarılı'  ? 'bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-100 dark:border-emerald-900/30' :
-                          item.run_status === 'Başarısız' ? 'bg-rose-50/50 dark:bg-rose-500/5 border-rose-100 dark:border-rose-900/30' :
-                          'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
-                        }`}>
+                        <div key={item.id} className={`border rounded-xl p-4 transition-all shadow-sm ${ item.run_status === 'Başarılı' ? 'bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-100 dark:border-emerald-900/30' : item.run_status === 'Başarısız' ? 'bg-rose-50/50 dark:bg-rose-500/5 border-rose-100 dark:border-rose-900/30' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700' }`}>
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{item.test_case_title}</p>
@@ -788,11 +779,7 @@ const TestPlans = () => {
                             {RUN_STATUSES.map(s => (
                               <button key={s} onClick={() => handleUpdateItemStatus(item.id, s)}
                                 disabled={updatingItem === item.id || !can('test_runs.execute')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                  item.run_status === s
-                                    ? getRunStatusStyle(s) + ' shadow-sm'
-                                    : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                } disabled:opacity-50 disabled:cursor-not-allowed`}>
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${ item.run_status === s ? getRunStatusStyle(s) + ' shadow-sm' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800' } disabled:opacity-50 disabled:cursor-not-allowed`}>
                                 {updatingItem === item.id && item.run_status === s ? <Loader2 size={12} className="animate-spin inline mr-1"/> : null}
                                 {s}
                               </button>
@@ -851,7 +838,7 @@ const TestPlans = () => {
                 {/* Test Case Ekleme Arama ve Listesi */}
                 {can('test_plans.edit') && (
                   <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Plana Yeni Test Ekle</h3>
+                    <h3 className="text-xs font-medium text-slate-400 mb-3">Plana Yeni Test Ekle</h3>
                     <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl mb-3 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-all shadow-inner">
                       <Search size={16} className="text-slate-400 shrink-0"/>
                       <input type="text" placeholder="Projedeki test senaryolarında ara..." value={addTcSearch}

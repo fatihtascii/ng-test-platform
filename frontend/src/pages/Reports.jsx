@@ -140,10 +140,10 @@ const Reports = () => {
 
     // Test case durum dağılımı
     const tcStatusDist = [
-      { name: 'Başarılı',     value: rawData.testCases.filter(tc => tc.status === 'Başarılı').length,     fill: '#10b981' },
-      { name: 'Başarısız',    value: rawData.testCases.filter(tc => tc.status === 'Başarısız').length,    fill: '#f43f5e' },
-      { name: 'Taslak',       value: rawData.testCases.filter(tc => tc.status === 'Taslak').length,       fill: '#94a3b8' },
-      { name: 'Test Edilmedi',value: rawData.testCases.filter(tc => tc.status === 'Test Edilmedi').length, fill: '#a78bfa' },
+      { name: 'Başarılı',     value: rawData.testCases.filter(tc => tc.status === 'Başarılı').length,     fill: '#1f9458' },
+      { name: 'Başarısız',    value: rawData.testCases.filter(tc => tc.status === 'Başarısız').length,    fill: '#cc3e3e' },
+      { name: 'Taslak',       value: rawData.testCases.filter(tc => tc.status === 'Taslak').length,       fill: '#9aa2af' },
+      { name: 'Test Edilmedi',value: rawData.testCases.filter(tc => tc.status === 'Test Edilmedi').length, fill: '#a9b3c3' },
     ].filter(d => d.value > 0);
 
     // Test planı metrikleri
@@ -190,7 +190,7 @@ const Reports = () => {
       const { toPng }   = await import('html-to-image');
       const { jsPDF }   = await import('jspdf');
       const el          = reportRef.current;
-      const dataUrl     = await toPng(el, { quality: 0.95, backgroundColor: '#0f172a', pixelRatio: 2 });
+      const dataUrl     = await toPng(el, { quality: 0.95, backgroundColor: '#181c23', pixelRatio: 2 });
       const pdf         = new jsPDF('p', 'mm', 'a4');
       const pdfWidth    = pdf.internal.pageSize.getWidth();
       const pdfHeight   = (el.offsetHeight * pdfWidth) / el.offsetWidth;
@@ -294,11 +294,7 @@ const Reports = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
           {toast.message}
         </div>
@@ -314,11 +310,11 @@ const Reports = () => {
             </button>
           )}
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-              {selectedProject ? `${selectedProject.name} — Detay Analizi` : 'Sistem Raporları'}
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
+              {selectedProject ? `${selectedProject.name} raporu` : 'Raporlar'}
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-              {selectedProject ? 'Projeye ait koşum verileri' : 'Platform geneli test metrikleri'}
+              {selectedProject ? 'Projeye ait koşum verileri' : 'Koşum trendleri, statü dağılımı ve proje bazlı sonuçlar; PDF ya da Excel olarak indirilebilir.'}
             </p>
           </div>
         </div>
@@ -330,12 +326,12 @@ const Reports = () => {
             <RefreshCw size={18} />
           </button>
           <button onClick={handleDownloadPDF} disabled={isExportingPdf}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50 shadow-lg shadow-rose-600/20">
-            {isExportingPdf ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} PDF İndir
+            className="px-3 h-8 bg-white hover:bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-800 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-50">
+            {isExportingPdf ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} PDF indir
           </button>
           <button onClick={handleDownloadExcel}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-emerald-600/20">
-            <FileSpreadsheet size={15} /> Excel İndir
+            className="px-3 h-8 bg-white hover:bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-800 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+            <FileSpreadsheet size={15} /> Excel indir
           </button>
         </div>
       </div>
@@ -378,12 +374,12 @@ const Reports = () => {
         {!selectedProject && rawData.testPlans.length > 0 && (
           <div className="grid grid-cols-3 gap-4">
             {[
-              { label: 'Toplam Plan',    value: globalMetrics.planStats.total,     color: 'text-indigo-600 dark:text-indigo-400',  bg: 'bg-indigo-50 dark:bg-indigo-500/10' },
-              { label: 'Aktif Plan',     value: globalMetrics.planStats.active,    color: 'text-amber-600  dark:text-amber-400',   bg: 'bg-amber-50  dark:bg-amber-500/10' },
-              { label: 'Tamamlanan Plan',value: globalMetrics.planStats.completed, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10' },
+              { label: 'Toplam Plan',    value: globalMetrics.planStats.total,     color: 'text-slate-900 dark:text-white', bg: 'bg-white dark:bg-slate-900' },
+              { label: 'Aktif Plan',     value: globalMetrics.planStats.active,    color: 'text-slate-900 dark:text-white', bg: 'bg-white dark:bg-slate-900' },
+              { label: 'Tamamlanan Plan',value: globalMetrics.planStats.completed, color: 'text-slate-900 dark:text-white', bg: 'bg-white dark:bg-slate-900' },
             ].map(({ label, value, color, bg }) => (
               <div key={label} className={`${bg} border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center gap-4`}>
-                <ClipboardList size={20} className={color} />
+                <ClipboardList size={18} className="text-slate-400" />
                 <div>
                   <p className={`text-xl font-bold ${color}`}>{value}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
@@ -410,17 +406,17 @@ const Reports = () => {
                   <AreaChart data={selectedProject ? detailData : globalMetrics.trend} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
                     <defs>
                       <linearGradient id="gP" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor="#10b981" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}   />
+                        <stop offset="5%"  stopColor="#1f9458" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#1f9458" stopOpacity={0}   />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e5ea" className="dark:stroke-slate-800" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="Geçti"   stroke="#10b981" fill="url(#gP)" strokeWidth={2.5} />
-                    <Area type="monotone" dataKey="Kaldı"   stroke="#f43f5e" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" />
-                    <Area type="monotone" dataKey="Atlandı" stroke="#f59e0b" fillOpacity={0} strokeWidth={1.5} strokeDasharray="3 3" />
+                    <Area type="monotone" dataKey="Geçti"   stroke="#1f9458" fill="url(#gP)" strokeWidth={2.5} />
+                    <Area type="monotone" dataKey="Kaldı"   stroke="#cc3e3e" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" />
+                    <Area type="monotone" dataKey="Atlandı" stroke="#c1861c" fillOpacity={0} strokeWidth={1.5} strokeDasharray="3 3" />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -444,14 +440,14 @@ const Reports = () => {
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={detailData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e5ea" className="dark:stroke-slate-800" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
                     <Tooltip content={<CustomTooltip />} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />
-                    <Bar dataKey="Geçti"   fill="#10b981" radius={[4,4,0,0]} />
-                    <Bar dataKey="Kaldı"   fill="#f43f5e" radius={[4,4,0,0]} />
-                    <Bar dataKey="Atlandı" fill="#f59e0b" radius={[4,4,0,0]} />
+                    <Bar dataKey="Geçti"   fill="#1f9458" radius={[4,4,0,0]} />
+                    <Bar dataKey="Kaldı"   fill="#cc3e3e" radius={[4,4,0,0]} />
+                    <Bar dataKey="Atlandı" fill="#c1861c" radius={[4,4,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -558,7 +554,7 @@ const Reports = () => {
               </div>
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-950/50 text-xs uppercase text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800">
+                  <tr className="bg-slate-50 dark:bg-slate-950/50 text-xs text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800">
                     <th className="px-6 py-3">Başlık</th>
                     <th className="px-6 py-3">Öncelik</th>
                     <th className="px-6 py-3">Durum</th>
@@ -569,19 +565,10 @@ const Reports = () => {
                     <tr key={tc.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                       <td className="px-6 py-3 text-sm text-slate-800 dark:text-slate-200 font-medium">{tc.title}</td>
                       <td className="px-6 py-3">
-                        <span className={`text-xs font-bold ${
-                          tc.priority === 'Kritik' ? 'text-rose-600' :
-                          tc.priority === 'Yüksek' ? 'text-orange-500' :
-                          tc.priority === 'Orta'   ? 'text-indigo-500' : 'text-slate-400'
-                        }`}>{tc.priority}</span>
+                        <span className={`text-xs font-bold ${ tc.priority === 'Kritik' ? 'text-rose-600' : tc.priority === 'Yüksek' ? 'text-orange-500' : tc.priority === 'Orta' ? 'text-indigo-500' : 'text-slate-400' }`}>{tc.priority}</span>
                       </td>
                       <td className="px-6 py-3">
-                        <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                          tc.status === 'Başarılı'     ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' :
-                          tc.status === 'Başarısız'    ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-400' :
-                          tc.status === 'Test Edilmedi'? 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400' :
-                          'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                        }`}>{tc.status}</span>
+                        <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${ tc.status === 'Başarılı' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : tc.status === 'Başarısız' ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-400' : tc.status === 'Test Edilmedi'? 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' }`}>{tc.status}</span>
                       </td>
                     </tr>
                   ))}

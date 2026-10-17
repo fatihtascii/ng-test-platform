@@ -341,11 +341,7 @@ const Environments = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
+        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
           {toast.type === 'success' ? <CheckCircle2 size={16}/> : <AlertCircle size={16}/>}
           {toast.message}
         </div>
@@ -354,8 +350,7 @@ const Environments = () => {
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-4">
-            <Server size={24} className="text-indigo-500"/> Ortam ve Veri Yönetimi
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white mb-4">Ortamlar ve değişkenler
           </h1>
           <div className="flex items-center gap-6">
             {[
@@ -363,11 +358,7 @@ const Environments = () => {
               { id: 'variables',    label: 'Değişkenler & Sırlar', icon: <Database size={15}/>, count: variables.length },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} type="button"
-                className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
-                  activeTab === tab.id
-                    ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                    : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                }`}>
+                className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${ activeTab === tab.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200' }`}>
                 {tab.icon} {tab.label}
                 {tab.count > 0 && (
                   <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-md font-medium">{tab.count}</span>
@@ -605,12 +596,12 @@ const Environments = () => {
               <div key={group.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
                 <div className="px-6 py-3 bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
                   <Globe size={13} className={group.isGlobal ? 'text-indigo-400' : 'text-slate-400'}/>
-                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{group.label}</span>
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{group.label}</span>
                   <span className="text-xs bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-md ml-auto">{group.items.length} kayıt</span>
                 </div>
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="text-xs uppercase text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">
+                    <tr className="text-xs text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">
                       <th className="px-6 py-3">Key</th>
                       <th className="px-6 py-3">Değer</th>
                       <th className="px-6 py-3 hidden sm:table-cell">Proje</th>
