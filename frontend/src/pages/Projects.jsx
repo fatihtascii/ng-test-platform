@@ -7,6 +7,7 @@ import {
   Pencil, Trash2, Filter, AlertCircle, CheckCircle2,
   Loader2, ArrowUpDown, LayoutGrid, List, ChevronRight
 } from 'lucide-react';
+import { API_BASE } from '../auth';
 
 // ── Yardımcı Stiller ──────────────────────────────────────────
 const getStatusStyle = (status) => {
@@ -48,8 +49,6 @@ const Projects = () => {
 
   const [toast, setToast] = useState(null);
   
-  // API Base URL
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const showToast = useCallback((type, message) => {
     setToast({ type, message });
@@ -76,7 +75,7 @@ const Projects = () => {
     } finally {
       setLoading(false);
     }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => {
     fetchAll();

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { usePermission } from '../hooks/usePermission';
 import { testRunsApi, testCasesApi, projectsApi, testPlansApi } from '../api';
 import PermissionGuard from '../components/PermissionGuard';
 import {
@@ -60,7 +59,6 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 // ── Ana Bileşen ────────────────────────────────────────────────
 const Reports = () => {
-  const { can } = usePermission();
 
   const [rawData, setRawData]         = useState({ testRuns: [], testCases: [], projects: [], testPlans: [] });
   const [loading, setLoading]         = useState(true);

@@ -121,7 +121,7 @@ const Topbar = () => {
 
   const handleLogout = useCallback(() => {
     clearSession();
-    try { clearPermissionCache(); } catch {}
+    try { clearPermissionCache(); } catch { /* önbellek temizlenemezse sorun değil */ }
     window.location.href = '/login';
   }, []);
 

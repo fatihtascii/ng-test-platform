@@ -166,7 +166,7 @@ const RoleManagement = () => {
   // İlk yüklemede ilk rolü seç
   useEffect(() => {
     if (roles.length > 0 && !selectedRole) setSelectedRole(roles[0]);
-  }, [roles]);
+  }, [roles, selectedRole]);
 
   // ── Modül accordion ─────────────────────────────────────────
   const toggleModule = (key) => setExpandedModules(p => ({ ...p, [key]: !p[key] }));
@@ -279,7 +279,6 @@ const RoleManagement = () => {
   const getModulePerms   = (moduleKey) => permissions.filter(p => p.module === moduleKey);
   const getRolePermIds   = (role) => new Set((role?.permissions || []).map(p => p.id || p));
   const getUserCount     = (roleName) => users.filter(u => u.role === roleName).length;
-  const getRoleName      = (roleName) => roles.find(r => r.name === roleName)?.display_name || roleName;
   const allModuleChecked = (moduleKey) => getModulePerms(moduleKey).every(p => editPerms[p.id]);
   const someModuleChecked= (moduleKey) => getModulePerms(moduleKey).some(p => editPerms[p.id]);
 
@@ -385,8 +384,10 @@ const RoleManagement = () => {
               const c = getRoleColor(role.color);
               const isSelected = selectedRole?.id === role.id;
               return (
-                <button key={role.id} onClick={() => setSelectedRole(role)}
-                  className={`w-full p-4 rounded-2xl border text-left transition-all ${
+                // İçinde Düzenle/Sil butonları olduğu için dış kapsayıcı <button> olamaz (geçersiz HTML)
+                <div key={role.id} role="button" tabIndex={0} onClick={() => setSelectedRole(role)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedRole(role); } }}
+                  className={`w-full p-4 rounded-2xl border text-left transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                     isSelected
                       ? 'bg-white dark:bg-slate-900 border-indigo-200 dark:border-indigo-800 shadow-sm ring-1 ring-indigo-500/20'
                       : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -429,7 +430,7 @@ const RoleManagement = () => {
                     </div>
                     <span className="text-xs text-slate-400 tabular-nums shrink-0">{role.permissions?.length || 0}/{permissions.length}</span>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -622,7 +623,7 @@ const RoleManagement = () => {
               <Shield size={16} className="text-indigo-500"/>
             </div>
             <h2 className="text-base font-bold dark:text-white">
-              {panel === 'create' ? 'Yeni Rol Oluştur' : `"${panelRole?.display_name}" Rolünü Düzenle`}
+              {panel === 'create' ? 'Yeni Rol Oluştur' : `"${panelRole?.display_name ?? ''}" Rolünü Düzenle`}
             </h2>
           </div>
           <button onClick={closePanel} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">

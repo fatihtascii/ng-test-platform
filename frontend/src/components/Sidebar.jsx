@@ -104,7 +104,7 @@ const Sidebar = () => {
 
   const handleLogout = () => {
     clearSession();
-    try { clearPermissionCache(); } catch {}
+    try { clearPermissionCache(); } catch { /* önbellek temizlenemezse sorun değil */ }
     // ✅ Sayfayı tamamen yenileyerek SPA state kalıntılarını temizler (Güvenli Çıkış)
     window.location.replace('/login'); 
   };

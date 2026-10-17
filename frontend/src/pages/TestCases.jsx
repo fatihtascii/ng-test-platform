@@ -11,11 +11,11 @@ import {
 } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
-import { testCasesApi, projectsApi, testPlansApi, testRunsApi } from '../api';
-import { withToken } from '../auth';
+import { testCasesApi, projectsApi } from '../api';
+import { withToken, API_BASE } from '../auth';
 
 // ── Sabitler ──────────────────────────────────────────────────
-export const GLOBAL_TEST_TYPES = [
+const GLOBAL_TEST_TYPES = [
   'Functional','Smoke','Sanity','Regression','Integration',
   'End-to-End (E2E)','API','UI/Design','Usability','Performance',
   'Security','Acceptance (UAT)','Accessibility','Compatibility','Exploratory',
@@ -75,7 +75,7 @@ const safeParseDesc = (desc) => {
         execution_type: p.execution_type || 'Manual',
       };
     }
-  } catch {}
+  } catch { /* bozuk JSON → varsayılan */ }
   return { steps: desc ? [{ id: 0, action: desc, expectedResult: '', image: null }] : [], type: 'Functional', execution_type: 'Manual' };
 };
 
@@ -329,8 +329,8 @@ const AIModal = ({ onClose, onImport }) => {
 };
 
 // ── Mobil Test Çalıştırma Modalı ──────────────────────────────
-const MobileRunModal = ({ tc, onClose, showToast }) => {
-  const API_BASE = import.meta.env?.VITE_API_URL ?? '';
+const MobileRunModal = ({ tc, onClose }) => {
+  // Ortak API adresi (token ekleyen fetch sarmalayıcısı bu adresi tanır)
 
   const [devices,      setDevices]      = useState([]);
   const [loadingDev,   setLoadingDev]   = useState(true);
@@ -350,8 +350,12 @@ const MobileRunModal = ({ tc, onClose, showToast }) => {
   // Cihazları yükle
   useEffect(() => {
     fetch(`${API_BASE}/api/mobile/devices`)
-      .then(r => r.json())
-      .then(data => { setDevices(data); if (data.length > 0) setSelectedDev(data[0]); })
+      .then(r => r.ok ? r.json() : [])   // 403/500 cevabı dizi değil → .map sayfayı çökertiyordu
+      .then(data => {
+        const list = Array.isArray(data) ? data : [];
+        setDevices(list);
+        if (list.length > 0) setSelectedDev(list[0]);
+      })
       .catch(() => setDevices([]))
       .finally(() => setLoadingDev(false));
   }, []);
@@ -367,7 +371,7 @@ const MobileRunModal = ({ tc, onClose, showToast }) => {
       setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50);
     };
     es.onerror = () => { es.close(); setRunState('done'); };
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => () => esRef.current?.close(), []);
 
@@ -391,7 +395,10 @@ const MobileRunModal = ({ tc, onClose, showToast }) => {
           appium_server: appiumServer,
         }),
       });
-      if (!res.ok) throw new Error('Koşu başlatılamadı.');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(typeof body.detail === 'string' ? body.detail : 'Koşu başlatılamadı.');
+      }
       const data = await res.json();
       setRunId(data.run_id);
       streamLogs(data.run_id);
@@ -858,15 +865,13 @@ const TestCases = () => {
     if (!bulkStatus || selected.size === 0) return;
     setIsBulkSaving(true);
     try {
-      await Promise.all([...selected].map(id => {
-        const tc = testCases.find(t => t.id === id);
-        if (!tc) return Promise.resolve();
-        return testCasesApi.update(id, { ...tc, status: bulkStatus });
-      }));
+      // Tek istekte toplu güncelleme (eskiden case başına ayrı PUT atılıyordu; biri
+      // başarısız olsa bile ekranda hepsi güncellenmiş görünüyordu)
+      const { data } = await testCasesApi.bulkStatus({ ids: [...selected], status: bulkStatus });
       setTestCases(prev => prev.map(tc => selected.has(tc.id) ? { ...tc, status: bulkStatus } : tc));
       setSelected(new Set());
       setBulkStatus('');
-      showToast('success', `${selected.size} test senaryosunun durumu güncellendi.`);
+      showToast('success', `${data.updated} test senaryosunun durumu güncellendi.`);
     } catch (err) {
       showToast('error', err.message || 'Toplu güncelleme tamamlanamadı.');
     } finally {
@@ -925,7 +930,7 @@ const TestCases = () => {
     reader.readAsDataURL(file);
   };
 
-  const getProjectName = (id) => projects.find(p => p.id === id)?.name || '—';
+  const getProjectName = useCallback((id) => projects.find(p => p.id === id)?.name || '—', [projects]);
   const getType        = (desc) => { try { return JSON.parse(desc)?.type || null; } catch { return null; } };
 
   const sortedAndFilteredData = useMemo(() => {
@@ -951,7 +956,7 @@ const TestCases = () => {
       return 0;
     });
     return result;
-  }, [testCases, searchTerm, statusFilter, priorityFilter, projectFilter, typeFilter, execFilter, sortConfig]);
+  }, [testCases, searchTerm, statusFilter, priorityFilter, projectFilter, typeFilter, execFilter, sortConfig, getProjectName]);
 
   const totalPages   = Math.ceil(sortedAndFilteredData.length / itemsPerPage);
   const currentItems = sortedAndFilteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);

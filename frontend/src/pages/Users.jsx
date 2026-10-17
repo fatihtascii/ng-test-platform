@@ -79,14 +79,6 @@ const Avatar = ({ user, size = 'md' }) => {
   );
 };
 
-const parseApiError = (errorData, defaultMessage) => {
-  if (!errorData || !errorData.detail) return defaultMessage;
-  if (typeof errorData.detail === 'string') return errorData.detail;
-  if (Array.isArray(errorData.detail)) {
-    return errorData.detail.map(err => err.msg).join(' | ');
-  }
-  return defaultMessage;
-};
 
 // ── Ana Bileşen ────────────────────────────────────────────────
 const Users = () => {
@@ -108,7 +100,6 @@ const Users = () => {
   const [selected, setSelected]         = useState(new Set());
   const [bulkRole, setBulkRole]         = useState('');
   const [isBulkSaving, setIsBulkSaving] = useState(false);
-  const [showBulkMenu, setShowBulkMenu] = useState(false);
 
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [deleteConfirm, setDeleteConfirm]   = useState(null);
@@ -157,10 +148,7 @@ const Users = () => {
 
   useEffect(() => {
     fetchData();
-    const close = (e) => {
-      setActiveDropdown(null);
-      setShowBulkMenu(false);
-    };
+    const close = () => setActiveDropdown(null);
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, [fetchData]);

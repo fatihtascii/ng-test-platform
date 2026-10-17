@@ -64,9 +64,9 @@ const Toggle = ({ enabled, onChange, disabled = false }) => (
 );
 
 const SecretInput = ({ label, name, placeholder, value, onChange, disabled }) => {
-  const [revealed, setRevealed] = useState(false);
-  
-  useEffect(() => { if (disabled) setRevealed(false); }, [disabled]);
+  const [revealToggle, setRevealed] = useState(false);
+  // Alan kilitliyken değer hiçbir zaman açık gösterilmez (effect içinde setState yerine türetilmiş değer)
+  const revealed = revealToggle && !disabled;
 
   return (
     <div className="space-y-1.5">

@@ -86,7 +86,7 @@ export const clearPermissionCache = () => {
 export const usePermission = () => {
   const userRef = useRef(null);
   if (!userRef.current) {
-    try { userRef.current = JSON.parse(localStorage.getItem('user')); } catch {}
+    try { userRef.current = JSON.parse(localStorage.getItem('user')); } catch { /* bozuk kayıt → viewer */ }
   }
   const role = userRef.current?.role || 'viewer';
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { usePermission } from '../hooks/usePermission';
-import { environmentsApi, variablesApi, projectsApi } from '../api';
 import api from '../api';
 import {
   Server, Database, Key, Globe, Plus, Search, MoreVertical,
@@ -114,10 +113,11 @@ const Environments = () => {
     // FIX: data-dropdown attribute ile dropdown dışı tıklamada kapat
     const close = (e) => { if (!e.target.closest('[data-dropdown]')) setActiveDropdown(null); };
     document.addEventListener('click', close);
+    const pings = pingAbortRefs.current;   // cleanup anında aynı nesneye erişmek için
     return () => {
       document.removeEventListener('click', close);
-      // FIX: Unmount'ta tüm açık ping abort controller'larını iptal et
-      Object.values(pingAbortRefs.current).forEach(ac => ac.abort());
+      // Unmount'ta açık kalan ping isteklerini iptal et
+      Object.values(pings).forEach(ac => ac.abort());
     };
   }, [fetchData]);
 
