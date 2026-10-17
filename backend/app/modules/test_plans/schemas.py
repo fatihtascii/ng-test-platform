@@ -1,6 +1,12 @@
-from pydantic import BaseModel
+from datetime import date
+
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
+
+VALID_PLAN_STATUSES = ("Aktif", "Beklemede", "Tamamlandı")
+VALID_RUN_STATUSES  = ("Bekliyor", "Başarılı", "Başarısız", "Atlandı")
+
 
 class TestPlanBase(BaseModel):
     title:       str
@@ -9,6 +15,38 @@ class TestPlanBase(BaseModel):
     project_id:  int
     start_date:  Optional[str] = None
     end_date:    Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Plan başlığı boş olamaz.")
+        return v.strip()
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v):
+        if v is not None and v not in VALID_PLAN_STATUSES:
+            raise ValueError(f"Geçersiz plan statüsü: '{v}'. Geçerli değerler: {list(VALID_PLAN_STATUSES)}")
+        return v
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _date(cls, v):
+        # Frontend boş tarih alanını "" gönderiyor → None
+        if v in (None, ""):
+            return None
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError(f"Tarih YYYY-AA-GG formatında olmalı: '{v}'")
+        return v
+
+    @model_validator(mode="after")
+    def _range(self):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("Bitiş tarihi başlangıç tarihinden önce olamaz.")
+        return self
 
 class TestPlanCreate(TestPlanBase):
     pass
@@ -33,6 +71,13 @@ class TestPlanResponse(TestPlanBase):
 class TestPlanItemUpdate(BaseModel):
     run_status: str
     note:       Optional[str] = None
+
+    @field_validator("run_status")
+    @classmethod
+    def _run_status(cls, v):
+        if v not in VALID_RUN_STATUSES:
+            raise ValueError(f"Geçersiz statü: '{v}'. Geçerli değerler: {list(VALID_RUN_STATUSES)}")
+        return v
 
 class BulkAddRequest(BaseModel):
     test_case_ids: List[int]

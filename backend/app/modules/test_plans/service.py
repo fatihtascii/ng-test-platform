@@ -9,7 +9,7 @@ DÜZELTMELER:
 - _serialize_plan: plan None gelirse None dönmek yerine 404 fırlatıyor
   (remove_item_from_plan sonrası plan silinmişse defensively handle edildi).
 """
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from fastapi import HTTPException
 from . import models, schemas
 from app.modules.projects.models import Project
@@ -50,8 +50,6 @@ def _get_plan_or_404(db: Session, plan_id: int) -> models.TestPlan:
 
 
 def create_test_plan(db: Session, plan: schemas.TestPlanCreate):
-    if not plan.title.strip():
-        raise HTTPException(status_code=400, detail="Plan başlığı boş olamaz.")
     if not db.query(Project).filter(Project.id == plan.project_id).first():
         raise HTTPException(status_code=404, detail="Proje bulunamadı.")
 
@@ -63,7 +61,12 @@ def create_test_plan(db: Session, plan: schemas.TestPlanCreate):
 
 
 def get_test_plans(db: Session):
-    return [_serialize_plan(p) for p in db.query(models.TestPlan).all()]
+    # items ve case'leri tek seferde yükle (plan başına ayrı sorgu atılmasın)
+    plans = (db.query(models.TestPlan)
+               .options(selectinload(models.TestPlan.items).selectinload(models.TestPlanItem.test_case))
+               .order_by(models.TestPlan.id.desc())
+               .all())
+    return [_serialize_plan(p) for p in plans]
 
 
 def get_test_plan_by_id(db: Session, plan_id: int):
@@ -75,6 +78,12 @@ def update_test_plan(db: Session, plan_id: int, data: schemas.TestPlanCreate):
         raise HTTPException(status_code=400, detail="Plan başlığı boş olamaz.")
 
     plan = _get_plan_or_404(db, plan_id)
+    if data.project_id != plan.project_id:
+        if not db.query(Project).filter(Project.id == data.project_id).first():
+            raise HTTPException(status_code=404, detail="Proje bulunamadı.")
+        if plan.items:
+            raise HTTPException(status_code=400,
+                detail="Plana eklenmiş test case'ler varken plan başka projeye taşınamaz.")
     for k, v in data.model_dump().items():
         setattr(plan, k, v)
     db.commit()
@@ -92,35 +101,45 @@ def delete_test_plan(db: Session, plan_id: int):
 def bulk_add_to_plan(db: Session, plan_id: int, request: schemas.BulkAddRequest):
     plan = _get_plan_or_404(db, plan_id)
 
-    # FIX: HTTPException'ı genel except yakalamıyordu, ayrı re-raise eklendi
-    added_count = 0
-    try:
-        for tc_id in request.test_case_ids:
-            existing = db.query(models.TestPlanItem).filter_by(
-                plan_id=plan_id, test_case_id=tc_id
-            ).first()
-            if not existing:
-                db.add(models.TestPlanItem(
-                    plan_id=plan_id,
-                    test_case_id=tc_id,
-                    run_status="Bekliyor",
-                ))
-                added_count += 1
-        db.commit()
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    # Tekrarlı ID'leri ayıkla (aynı istekte iki kez gelince unique ihlali → 500 oluyordu)
+    requested = list(dict.fromkeys(request.test_case_ids))
+    if not requested:
+        raise HTTPException(status_code=422, detail="En az bir test case seçilmelidir.")
 
-    return {"message": f"{added_count} adet test senaryosu plana başarıyla eklendi."}
+    cases = {c.id: c for c in db.query(TestCase).filter(TestCase.id.in_(requested)).all()}
+    missing = [i for i in requested if i not in cases]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Test case bulunamadı: {missing}")
+    other_project = [i for i in requested if cases[i].project_id != plan.project_id]
+    if other_project:
+        raise HTTPException(status_code=400,
+            detail=f"Şu test case'ler planın projesine ait değil: {other_project}")
+
+    already = {
+        row[0] for row in db.query(models.TestPlanItem.test_case_id)
+        .filter(models.TestPlanItem.plan_id == plan_id,
+                models.TestPlanItem.test_case_id.in_(requested))
+    }
+    to_add = [i for i in requested if i not in already]
+    for tc_id in to_add:
+        db.add(models.TestPlanItem(plan_id=plan_id, test_case_id=tc_id, run_status="Bekliyor"))
+    db.commit()
+
+    return {
+        "message": f"{len(to_add)} adet test senaryosu plana başarıyla eklendi.",
+        "added": len(to_add),
+        "skipped": len(already),
+    }
 
 
 def add_item_to_plan(db: Session, plan_id: int, tc_id: int):
-    _get_plan_or_404(db, plan_id)
+    plan = _get_plan_or_404(db, plan_id)
 
-    if not db.query(TestCase).filter(TestCase.id == tc_id).first():
+    tc = db.query(TestCase).filter(TestCase.id == tc_id).first()
+    if not tc:
         raise HTTPException(status_code=404, detail="Test case bulunamadı.")
+    if tc.project_id != plan.project_id:
+        raise HTTPException(status_code=400, detail="Test case planın projesine ait değil.")
     if db.query(models.TestPlanItem).filter_by(
         plan_id=plan_id, test_case_id=tc_id
     ).first():
@@ -128,8 +147,7 @@ def add_item_to_plan(db: Session, plan_id: int, tc_id: int):
 
     db.add(models.TestPlanItem(plan_id=plan_id, test_case_id=tc_id))
     db.commit()
-
-    plan = db.query(models.TestPlan).filter(models.TestPlan.id == plan_id).first()
+    db.refresh(plan)   # expire_on_commit=False olduğu için items listesini tazele
     return _serialize_plan(plan)
 
 
@@ -142,7 +160,8 @@ def remove_item_from_plan(db: Session, plan_id: int, item_id: int):
     db.delete(item)
     db.commit()
 
-    plan = db.query(models.TestPlan).filter(models.TestPlan.id == plan_id).first()
+    plan = _get_plan_or_404(db, plan_id)
+    db.refresh(plan)
     return _serialize_plan(plan)
 
 

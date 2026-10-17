@@ -242,101 +242,109 @@ def bulk_update_test_cases_status(
 
 
 # ── BDD KOD ÜRETICI ───────────────────────────────────────────────
-def generate_bdd_code(gherkin_text: str) -> dict:
-    """
-    FIX: Boş gherkin kontrolü schema'da yapılıyor — buradaki tekrar kaldırıldı.
-    FIX: to_func_name Türkçe karakterleri ASCII'ye çeviriyor —
-         orijinal versiyon 'ş','ğ','ı' gibi karakterleri '_' yapıyordu
-         ama Python fonksiyon adlarında Türkçe harf geçerli.
-         Yine de dosya adı ve decorator string'i için ASCII daha güvenli.
-    """
-    # Türkçe → ASCII harfler için çeviri tablosu
-    _TR_MAP = str.maketrans(
-        "çğıiöşüÇĞİIÖŞÜ",
-        "cgiisosCGIIOSU",
-    )
+# Türkçe → ASCII (fonksiyon/dosya adları için). Önceki tablo kaymıştı: ö→s, ş→o, ü→s.
+_TR_MAP = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
 
-    lines = [l.strip() for l in gherkin_text.strip().splitlines() if l.strip()]
+# İngilizce ve Türkçe Gherkin anahtar kelimeleri (uzun olan önce eşleşsin)
+_STEP_KEYWORDS = [
+    ("given", ("given ", "diyelim ki ", "varsayalım ki ")),
+    ("when",  ("when ", "eğer ki ", "eğer ")),
+    ("then",  ("then ", "o zaman ")),
+    ("and",   ("and ", "but ", "ve ", "fakat ", "ama ")),
+]
+_FEATURE_KEYS  = ("feature:", "özellik:")
+_SCENARIO_KEYS = ("scenario outline:", "senaryo taslağı:", "scenario:", "senaryo:")
+
+
+def _tr_lower(text: str) -> str:
+    # Python'un lower()'ı "I"yı "i" yapar; Türkçe için I→ı, İ→i olmalı
+    return text.replace("I", "ı").replace("İ", "i").lower()
+
+
+def generate_bdd_code(gherkin_text: str) -> dict:
+    """Gherkin metninden pytest-bdd feature dosyası ve step iskeleti üretir."""
+    lines = [l.strip() for l in gherkin_text.strip().splitlines() if l.strip() and not l.strip().startswith("#")]
 
     feature_name  = "Senaryo"
     scenario_name = "Test Senaryosu"
-    given_steps, when_steps, then_steps = [], [], []
-    current_keyword = None
+    steps: dict[str, list[str]] = {"given": [], "when": [], "then": []}
+    current = None
+    turkish = False
 
     for line in lines:
-        lower = line.lower()
-        if lower.startswith("feature:"):
-            feature_name = line.split(":", 1)[1].strip()
-        elif lower.startswith("scenario outline:"):
-            scenario_name = line.split(":", 1)[1].strip()
-        elif lower.startswith("scenario:"):
-            scenario_name = line.split(":", 1)[1].strip()
-        elif lower.startswith("given "):
-            current_keyword = "given"
-            given_steps.append(line[6:].strip())
-        elif lower.startswith("when "):
-            current_keyword = "when"
-            when_steps.append(line[5:].strip())
-        elif lower.startswith("then "):
-            current_keyword = "then"
-            then_steps.append(line[5:].strip())
-        elif lower.startswith("and ") or lower.startswith("but "):
-            step_text = line[4:].strip()
-            if current_keyword == "given":
-                given_steps.append(step_text)
-            elif current_keyword == "when":
-                when_steps.append(step_text)
-            elif current_keyword == "then":
-                then_steps.append(step_text)
-        # FIX: Bilinmeyen satırlar sessizce atlanıyor (orijinal davranış korundu)
+        low = _tr_lower(line)
+        if low.startswith(("özellik:", "senaryo:", "senaryo taslağı:", "diyelim ki ", "varsayalım ki ",
+                           "eğer ", "o zaman ", "ve ", "fakat ", "ama ")):
+            turkish = True
+        if low.startswith(_FEATURE_KEYS):
+            feature_name = line.split(":", 1)[1].strip() or feature_name
+            continue
+        if low.startswith(_SCENARIO_KEYS):
+            scenario_name = line.split(":", 1)[1].strip() or scenario_name
+            continue
+        for kind, prefixes in _STEP_KEYWORDS:
+            prefix = next((p for p in prefixes if low.startswith(p)), None)
+            if prefix:
+                text = line[len(prefix):].strip()
+                if kind != "and":
+                    current = kind
+                # Aynı adım metni için tek step tanımı yeterli (pytest-bdd metinle eşler)
+                if current and text not in steps[current]:
+                    steps[current].append(text)
+                break
 
-    def to_func_name(text: str) -> str:
-        # FIX: Türkçe karakterler önce ASCII'ye çevriliyor
-        ascii_text = text.translate(_TR_MAP)
-        return re.sub(r"[^a-z0-9]+", "_", ascii_text.lower())[:50].strip("_")
+    def to_slug(text: str) -> str:
+        ascii_text = _tr_lower(text).translate(_TR_MAP)
+        return re.sub(r"[^a-z0-9]+", "_", ascii_text)[:50].strip("_") or "adim"
 
-    def to_step_defs(steps: list[str], decorator: str) -> str:
+    used_names: set[str] = set()
+
+    def unique_name(base: str) -> str:
+        name, n = base, 2
+        while name in used_names:
+            name, n = f"{base}_{n}", n + 1
+        used_names.add(name)
+        return name
+
+    def to_step_defs(items: list[str], decorator: str) -> str:
         parts = []
-        for s in steps:
-            func = to_func_name(s)
-            parts.append(f'@{decorator}("{s}")')
-            parts.append(f"def step_{func}(context):")  # FIX: context parametresi eklendi
-            parts.append( "    pass  # TODO: implement")
+        for text in items:
+            func = unique_name(f"{decorator}_{to_slug(text)}")
+            parts.append(f"@{decorator}({text!r})")      # repr → tırnaklar güvenle kaçırılır
+            parts.append(f"def {func}():")
+            parts.append("    pass  # TODO: adımı uygula")
             parts.append("")
         return "\n".join(parts)
 
-    feature_slug  = to_func_name(feature_name)
-    scenario_slug = to_func_name(scenario_name)
+    feature_slug  = to_slug(feature_name)
+    scenario_slug = to_slug(scenario_name)
+    scenario_lines = [l for l in lines if not _tr_lower(l).startswith(_FEATURE_KEYS + _SCENARIO_KEYS)]
 
-    # FIX: feature dosyasındaki satırlar yeniden oluşturuluyor —
-    # orijinal versiyon "Feature:" satırını ikinci kez de dahil ediyordu.
-    scenario_lines = [
-        l for l in lines
-        if not l.lower().startswith("feature:")
-    ]
-
+    # Türkçe anahtar kelimeler pytest-bdd'de "# language: tr" başlığıyla çalışır
+    feature_kw, scenario_kw = ("Özellik", "Senaryo") if turkish else ("Feature", "Scenario")
     feature_file = (
         f"# {feature_slug}.feature\n"
-        f"Feature: {feature_name}\n\n"
-        f"  Scenario: {scenario_name}\n"
+        + ("# language: tr\n" if turkish else "")
+        + f"{feature_kw}: {feature_name}\n\n"
+        f"  {scenario_kw}: {scenario_name}\n"
         + "\n".join(f"    {l}" for l in scenario_lines)
         + "\n"
     )
 
     step_defs = (
         f"# steps/test_{scenario_slug}.py\n"
-        f"import pytest\n"
-        f"from pytest_bdd import scenario, given, when, then\n\n"
-        f'@scenario("{feature_slug}.feature", "{scenario_name}")\n'
+        "from pytest_bdd import scenario, given, when, then\n\n\n"
+        f"@scenario({feature_slug + '.feature'!r}, {scenario_name!r})\n"
         f"def test_{scenario_slug}():\n"
-        f"    pass\n\n"
-        f"{to_step_defs(given_steps, 'given')}\n"
-        f"{to_step_defs(when_steps, 'when')}\n"
-        f"{to_step_defs(then_steps, 'then')}"
+        "    pass\n\n\n"
+        + "\n".join(filter(None, (
+            to_step_defs(steps["given"], "given"),
+            to_step_defs(steps["when"], "when"),
+            to_step_defs(steps["then"], "then"),
+        )))
     )
 
-    # FIX: Hiç adım parse edilemezse uyarı logla
-    if not any([given_steps, when_steps, then_steps]):
+    if not any(steps.values()):
         logger.warning("generate_bdd_code: Hiç Given/When/Then adımı parse edilemedi.")
 
     return {"code": f"# === FEATURE FILE ===\n{feature_file}\n\n# === STEP DEFINITIONS ===\n{step_defs}"}
