@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.core.deps import get_db
+from app.core.deps import get_db, require_permission
 from . import schemas, service
 
 router = APIRouter(prefix="/test-cases", tags=["Test Cases"])
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/test-cases", tags=["Test Cases"])
 # Aksi hâlde FastAPI "bulk" kelimesini int id olarak parse etmeye çalışır → 422.
 
 @router.post(
-    "/bulk/delete",
+    "/bulk/delete", dependencies=[Depends(require_permission("test_cases.delete"))],
     status_code=status.HTTP_200_OK,
     summary="Toplu test senaryosu sil",
 )
@@ -31,7 +31,7 @@ def bulk_delete_test_cases(
 
 
 @router.patch(
-    "/bulk/status",
+    "/bulk/status", dependencies=[Depends(require_permission("test_cases.edit"))],
     status_code=status.HTTP_200_OK,
     summary="Toplu durum güncelle",
 )
@@ -52,7 +52,7 @@ def bulk_update_test_cases_status(
 # "generate-bdd-code" string'ini FastAPI int olarak okuyamaz ama yine de
 # önde tutmak best practice ve gelecekteki route çakışmalarını önler.
 @router.post(
-    "/generate-bdd-code",
+    "/generate-bdd-code", dependencies=[Depends(require_permission("test_cases.create"))],
     response_model=schemas.BDDGenerateResponse,
     status_code=status.HTTP_200_OK,
     summary="Gherkin'den Pytest-BDD kodu üret",
@@ -71,7 +71,7 @@ def generate_bdd_code(data: schemas.BDDGenerateRequest):
 # ── STANDART CRUD ─────────────────────────────────────────────────
 
 @router.get(
-    "/",
+    "/", dependencies=[Depends(require_permission("test_cases.view"))],
     response_model=list[schemas.TestCaseResponse],
     summary="Tüm test senaryolarını getir",
 )
@@ -96,7 +96,7 @@ def get_test_cases(
 
 
 @router.post(
-    "/",
+    "/", dependencies=[Depends(require_permission("test_cases.create"))],
     response_model=schemas.TestCaseResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Yeni test senaryosu oluştur",
@@ -109,7 +109,7 @@ def create_test_case(
 
 
 @router.get(
-    "/{tc_id}",
+    "/{tc_id}", dependencies=[Depends(require_permission("test_cases.view"))],
     response_model=schemas.TestCaseResponse,
     summary="Tek test senaryosu getir",
 )
@@ -125,7 +125,7 @@ def get_test_case(tc_id: int, db: Session = Depends(get_db)):
 
 
 @router.put(
-    "/{tc_id}",
+    "/{tc_id}", dependencies=[Depends(require_permission("test_cases.edit"))],
     response_model=schemas.TestCaseResponse,
     summary="Test senaryosunu güncelle",
 )
@@ -144,7 +144,7 @@ def update_test_case(
 
 
 @router.delete(
-    "/{tc_id}",
+    "/{tc_id}", dependencies=[Depends(require_permission("test_cases.delete"))],
     status_code=status.HTTP_204_NO_CONTENT,  # FIX: Silme işlemi 204 döndürmeli, 200 değil
     summary="Test senaryosunu sil",
 )

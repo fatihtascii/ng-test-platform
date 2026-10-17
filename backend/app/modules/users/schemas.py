@@ -20,7 +20,17 @@ class UserUpdate(BaseModel):
     role:      Optional[str]      = None
 
 class UserPasswordUpdate(BaseModel):
-    password: str
+    password:         str
+    current_password: Optional[str] = None  # kendi şifresini değiştiren kullanıcı için zorunlu
+
+class ProfileUpdate(BaseModel):
+    """Kullanıcının kendi profilinde değiştirebildiği alanlar (rol hariç)."""
+    full_name: Optional[str]      = None
+    email:     Optional[EmailStr] = None
+
+class OwnPasswordChange(BaseModel):
+    current_password: str
+    new_password:     str
 
 class UserResponse(BaseModel):
     id:        int
