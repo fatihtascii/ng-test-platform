@@ -1,271 +1,120 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { Eye, EyeOff, AlertCircle, CheckCircle2, Check, X } from 'lucide-react';
 import { authApi } from '../api';
-import { Eye, EyeOff, ShieldCheck, AlertCircle, CheckCircle2, Loader2, User, Mail, Lock, IdCard } from 'lucide-react';
+import AuthLayout, { AuthField } from '../components/AuthLayout';
+import { Button } from '../components/ui';
+import { inputCls } from '../components/ui/tokens';
 
-// --- Şifre güç göstergesi ---
-const getPasswordStrength = (pwd) => {
-  if (!pwd) return null;
-  let score = 0;
-  if (pwd.length >= 8)           score++;
-  if (/[A-Z]/.test(pwd))         score++;
-  if (/[0-9]/.test(pwd))         score++;
-  if (/[^A-Za-z0-9]/.test(pwd))  score++;
-  if (score <= 1) return { label: 'Zayıf',   color: 'bg-rose-500',   width: 'w-1/4', textColor: 'text-rose-400' };
-  if (score === 2) return { label: 'Orta',    color: 'bg-amber-500',  width: 'w-2/4', textColor: 'text-amber-400' };
-  if (score === 3) return { label: 'İyi',     color: 'bg-blue-500',   width: 'w-3/4', textColor: 'text-blue-400' };
-  return              { label: 'Güçlü',   color: 'bg-emerald-500',width: 'w-full', textColor: 'text-emerald-400' };
-};
+// Backend kuralıyla aynı (users/service.validate_password_strength).
+// Eski form 6 karakteri yeterli sayıyordu; sunucu reddedince kullanıcı nedenini anlamıyordu.
+const PASSWORD_RULES = [
+  { id: 'len',   label: 'En az 8 karakter',    test: (p) => p.length >= 8 },
+  { id: 'upper', label: 'En az 1 büyük harf',  test: (p) => /[A-ZÇĞİÖŞÜ]/.test(p) },
+  { id: 'digit', label: 'En az 1 rakam',       test: (p) => /\d/.test(p) },
+];
+const USERNAME_RE = /^[a-zA-Z0-9_-]{3,50}$/;
 
 const RegisterPage = () => {
-  const [formData, setFormData] = useState({
-    full_name: '',
-    username:  '',
-    email:     '',
-    password:  '',
-  });
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword]       = useState(false);
-  const [showConfirm, setShowConfirm]         = useState(false);
-  const [isLoading, setIsLoading]             = useState(false);
-  const [error, setError]                     = useState('');
-  const [success, setSuccess]                 = useState(false);
+  const [form, setForm] = useState({ full_name: '', username: '', email: '', password: '' });
+  const [confirm, setConfirm]   = useState('');
+  const [showPw, setShowPw]     = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+  const [success, setSuccess]   = useState(false);
   const navigate = useNavigate();
 
-  const strength = getPasswordStrength(formData.password);
-
-  const update = (field) => (e) => setFormData(prev => ({ ...prev, [field]: e.target.value }));
-
+  const update = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
+  const rules = PASSWORD_RULES.map(r => ({ ...r, ok: r.test(form.password) }));
+  const match = form.password.length > 0 && form.password === confirm;
+  const usernameOk = USERNAME_RE.test(form.username);
+  const ready = form.full_name.trim() && usernameOk && rules.every(r => r.ok) && match;
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    if (!ready) return;
     setError('');
-
-    // Validasyon
-    if (!formData.full_name.trim()) {
-      setError('Ad Soyad alanı zorunludur.'); return;
-    }
-    if (formData.username.length < 3) {
-      setError('Kullanıcı adı en az 3 karakter olmalıdır.'); return;
-    }
-    if (formData.password.length < 6) {
-      setError('Şifre en az 6 karakter olmalıdır.'); return;
-    }
-    if (formData.password !== confirmPassword) {
-      setError('Şifreler eşleşmiyor.'); return;
-    }
-
-    setIsLoading(true);
+    setLoading(true);
     try {
-      await authApi.register(formData);
+      await authApi.register({ ...form, email: form.email.trim() || null });
       setSuccess(true);
-      setTimeout(() => navigate('/login'), 2000);
+      setTimeout(() => navigate('/login'), 1800);
     } catch (err) {
-      setError(err.message || 'Kayıt sırasında bir hata oluştu.');
+      setError(err.message || 'Hesap oluşturulamadı.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
+  if (success) {
+    return (
+      <AuthLayout title="Hesabınız oluşturuldu" subtitle="Giriş sayfasına yönlendiriliyorsunuz.">
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-300">
+          <CheckCircle2 size={16} /> Yeni hesaplar izleyici rolüyle açılır; yöneticiniz rolünüzü değiştirebilir.
+        </div>
+      </AuthLayout>
+    );
+  }
+
   return (
-    <div
-      className="min-h-screen flex items-center justify-center bg-slate-950 px-4 py-10"
-      style={{ backgroundImage: 'radial-gradient(ellipse at 30% 80%, #1e1b4b 0%, #0f172a 60%)' }}
+    <AuthLayout
+      title="Hesap oluştur"
+      subtitle="Ekibinizin test planlarını ve koşum sonuçlarını görüntüleyin."
+      footer={<>Zaten hesabınız var mı? <Link to="/login" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">Giriş yapın</Link></>}
     >
-      {/* Dekoratif arka plan */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative w-full max-w-md">
-
-        {/* Başarı Ekranı */}
-        {success ? (
-          <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-10 shadow-2xl shadow-black/50 text-center">
-            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-5">
-              <CheckCircle2 size={32} className="text-emerald-400" />
-            </div>
-            <h2 className="text-xl font-bold text-white mb-2">Kayıt Başarılı!</h2>
-            <p className="text-slate-400 text-sm">Giriş sayfasına yönlendiriliyorsunuz...</p>
-            <div className="mt-4 h-1 bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-500 rounded-full animate-[width_2s_ease-in-out]" style={{ width: '100%', transition: 'width 2s ease-in-out' }} />
-            </div>
-          </div>
-        ) : (
-          <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl shadow-black/50">
-
-            {/* Logo + Başlık */}
-            <div className="text-center mb-8">
-              <div className="w-14 h-14 bg-indigo-600 rounded-2xl mx-auto mb-5 flex items-center justify-center shadow-lg shadow-indigo-600/40">
-                <ShieldCheck size={28} className="text-white" />
-              </div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">Hesap Oluştur</h1>
-              <p className="text-slate-400 text-sm mt-2">NG TEST platformuna katılın</p>
-            </div>
-
-            {/* Hata Mesajı */}
-            {error && (
-              <div className="flex items-center gap-2.5 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm px-4 py-3 rounded-xl mb-6">
-                <AlertCircle size={16} className="shrink-0" />
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={handleRegister} className="space-y-4">
-
-              {/* Ad Soyad */}
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Ad Soyad</label>
-                <div className="relative">
-                  <IdCard size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={formData.full_name}
-                    onChange={update('full_name')}
-                    placeholder="Adınız Soyadınız"
-                    required
-                    className="w-full pl-10 pr-4 py-3 bg-slate-800/60 border border-slate-700/60 rounded-xl text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Kullanıcı Adı */}
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Kullanıcı Adı</label>
-                <div className="relative">
-                  <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={formData.username}
-                    onChange={update('username')}
-                    placeholder="kullaniciadi"
-                    required
-                    autoComplete="username"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-800/60 border border-slate-700/60 rounded-xl text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* E-posta */}
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">E-posta</label>
-                <div className="relative">
-                  <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={update('email')}
-                    placeholder="ornek@mail.com"
-                    required
-                    autoComplete="email"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-800/60 border border-slate-700/60 rounded-xl text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Şifre */}
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Şifre</label>
-                <div className="relative">
-                  <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={formData.password}
-                    onChange={update('password')}
-                    placeholder="••••••••"
-                    required
-                    autoComplete="new-password"
-                    className="w-full pl-10 pr-11 py-3 bg-slate-800/60 border border-slate-700/60 rounded-xl text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(v => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors p-1"
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                {/* Şifre güç göstergesi */}
-                {formData.password && strength && (
-                  <div className="mt-2 space-y-1">
-                    <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-300 ${strength.color} ${strength.width}`} />
-                    </div>
-                    <p className={`text-xs font-medium ${strength.textColor}`}>{strength.label}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Şifre Tekrar */}
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Şifre Tekrar</label>
-                <div className="relative">
-                  <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                  <input
-                    type={showConfirm ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    autoComplete="new-password"
-                    className={`w-full pl-10 pr-11 py-3 bg-slate-800/60 border rounded-xl text-white placeholder-slate-500 text-sm outline-none focus:ring-2 transition-all ${
-                      confirmPassword && confirmPassword !== formData.password
-                        ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
-                        : confirmPassword && confirmPassword === formData.password
-                        ? 'border-emerald-500/60 focus:border-emerald-500 focus:ring-emerald-500/20'
-                        : 'border-slate-700/60 focus:border-indigo-500 focus:ring-indigo-500/20'
-                    }`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirm(v => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors p-1"
-                  >
-                    {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                {confirmPassword && confirmPassword !== formData.password && (
-                  <p className="text-xs text-rose-400 mt-1.5">Şifreler eşleşmiyor.</p>
-                )}
-                {confirmPassword && confirmPassword === formData.password && (
-                  <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1">
-                    <CheckCircle2 size={12} /> Şifreler eşleşiyor.
-                  </p>
-                )}
-              </div>
-
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={isLoading || (confirmPassword !== formData.password)}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-indigo-600/30 hover:shadow-indigo-500/40 flex items-center justify-center gap-2 mt-2"
-              >
-                {isLoading
-                  ? <><Loader2 size={18} className="animate-spin" /> Hesap Oluşturuluyor...</>
-                  : 'Hesabı Oluştur'
-                }
-              </button>
-            </form>
-
-            {/* Giriş Linki */}
-            <div className="mt-8 pt-6 border-t border-slate-800 text-center">
-              <p className="text-slate-400 text-sm">
-                Zaten hesabınız var mı?{' '}
-                <Link to="/login" className="text-indigo-400 hover:text-indigo-300 font-semibold transition-colors">
-                  Giriş Yapın
-                </Link>
-              </p>
-            </div>
+      <form onSubmit={handleRegister} className="space-y-4" noValidate>
+        {error && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-500/10 dark:text-rose-300">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}
           </div>
         )}
 
-        {/* Alt yazı */}
-        <p className="text-center text-slate-600 text-xs mt-6">
-          NG TEST · Test Yönetim Platformu
-        </p>
-      </div>
-    </div>
+        <AuthField label="Ad soyad" htmlFor="full_name">
+          <input id="full_name" autoComplete="name" value={form.full_name} onChange={update('full_name')} className={inputCls} />
+        </AuthField>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <AuthField label="Kullanıcı adı" htmlFor="username"
+            hint={form.username && !usernameOk ? 'Harf, rakam, _ veya -; 3–50 karakter.' : null}>
+            <input id="username" autoComplete="username" value={form.username} onChange={update('username')} className={inputCls} />
+          </AuthField>
+          <AuthField label="E-posta (isteğe bağlı)" htmlFor="email">
+            <input id="email" type="email" autoComplete="email" value={form.email} onChange={update('email')} className={inputCls} />
+          </AuthField>
+        </div>
+
+        <AuthField label="Şifre" htmlFor="password">
+          <div className="relative">
+            <input id="password" type={showPw ? 'text' : 'password'} autoComplete="new-password"
+              value={form.password} onChange={update('password')} className={`${inputCls} pr-10`} />
+            <button type="button" onClick={() => setShowPw(s => !s)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              aria-label={showPw ? 'Şifreyi gizle' : 'Şifreyi göster'}>
+              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </AuthField>
+
+        <AuthField label="Şifre (tekrar)" htmlFor="confirm">
+          <input id="confirm" type={showPw ? 'text' : 'password'} autoComplete="new-password"
+            value={confirm} onChange={e => setConfirm(e.target.value)} className={inputCls} />
+        </AuthField>
+
+        {(form.password || confirm) && (
+          <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            {[...rules, { id: 'match', label: 'Şifreler eşleşiyor', ok: match }].map(r => (
+              <li key={r.id} className={`flex items-center gap-1.5 ${r.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500'}`}>
+                {r.ok ? <Check size={13} /> : <X size={13} />} {r.label}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <Button type="submit" variant="primary" size="lg" loading={loading} disabled={!ready} className="w-full justify-center">
+          Hesap oluştur
+        </Button>
+      </form>
+    </AuthLayout>
   );
 };
 

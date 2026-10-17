@@ -1,488 +1,306 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { RefreshCw, Plus, AlertCircle } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
-import PermissionGuard from '../components/PermissionGuard';
 import api from '../api';
 import {
-  FolderKanban, Beaker, Clock, PlayCircle, ArrowRight, FileEdit,
-  AlertCircle, RefreshCw, ClipboardList, TrendingUp, Plus, ChevronRight,
-  Zap, Target, BarChart3
-} from 'lucide-react';
+  Button, PageHeader, Panel, ResultBar, ResultLegend, StatusBadge, EmptyState, Skeleton, Ident,
+} from '../components/ui';
 
 // ── Yardımcılar ───────────────────────────────────────────────
 const timeAgo = (dateStr) => {
-  if (!dateStr) return null;
-  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-  if (diff < 60)    return `${diff} sn önce`;
+  if (!dateStr) return '';
+  const diff = Math.max(0, Math.floor((Date.now() - new Date(dateStr)) / 1000));
+  if (diff < 60)    return 'az önce';
   if (diff < 3600)  return `${Math.floor(diff / 60)} dk önce`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} saat önce`;
-  return `${Math.floor(diff / 86400)} gün önce`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} sa önce`;
+  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} gün önce`;
+  return new Date(dateStr).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
 };
 
-const getRateColor = (rate) =>
-  rate >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
-  rate >= 50 ? 'text-amber-600 dark:text-amber-400' :
-               'text-rose-600 dark:text-rose-400';
-
-const getRateBarColor = (rate) =>
-  rate >= 80 ? 'bg-emerald-500' : rate >= 50 ? 'bg-amber-500' : 'bg-rose-500';
-
-const Skeleton = ({ className }) => (
-  <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`} />
-);
-
-const MetricCard = ({ icon, label, value, sub, color, badge, badgeColor, onClick, loading }) => {
-  if (loading) return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl">
-      <div className="flex items-center justify-between mb-4">
-        <Skeleton className="w-10 h-10 rounded-xl"/>
-        <Skeleton className="w-14 h-5 rounded-lg"/>
-      </div>
-      <Skeleton className="w-16 h-8 rounded-lg mb-2"/>
-      <Skeleton className="w-28 h-4 rounded-lg"/>
-    </div>
-  );
-  return (
-    <button onClick={onClick}
-      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-700 transition-all group text-left w-full">
-      <div className="flex items-center justify-between mb-4">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${color.bg} ${color.text} group-hover:scale-105 transition-transform`}>
-          {icon}
-        </div>
-        {badge && (
-          <span className={`text-xs font-bold px-2.5 py-1 rounded-lg ${badgeColor || color.bg} ${color.text}`}>
-            {badge}
-          </span>
-        )}
-      </div>
-      <p className="text-2xl font-bold text-slate-900 dark:text-white tabular-nums mb-1">{value}</p>
-      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
-      {sub && <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">{sub}</p>}
-    </button>
-  );
+const safeList = (s) => {
+  if (Array.isArray(s)) return s;
+  try { const v = JSON.parse(s || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
 };
 
-// ── Ana Bileşen ────────────────────────────────────────────────
+// Test case statüleri → sonuç şeridi bölümleri
+const caseSegments = (cases) => [
+  { label: 'Geçti',          value: cases.filter(c => c.status === 'Başarılı').length,      tone: 'pass' },
+  { label: 'Kaldı',          value: cases.filter(c => c.status === 'Başarısız').length,     tone: 'fail' },
+  { label: 'Koşulmadı',      value: cases.filter(c => c.status === 'Test Edilmedi').length, tone: 'pending' },
+  { label: 'Taslak',         value: cases.filter(c => c.status === 'Taslak').length,        tone: 'draft' },
+];
+
+// Koşum sonuçları (results JSON) → bölümler
+const runSegments = (run) => {
+  const r = safeList(run.results);
+  const is = (x, ...v) => v.includes(x.status) || v.includes(x.run_status);
+  return [
+    { label: 'Geçti',    value: r.filter(x => is(x, 'Passed', 'Başarılı')).length,   tone: 'pass' },
+    { label: 'Kaldı',    value: r.filter(x => is(x, 'Failed', 'Başarısız')).length,  tone: 'fail' },
+    { label: 'Bloklu',   value: r.filter(x => is(x, 'Blocked', 'Bloklandı')).length, tone: 'blocked' },
+    { label: 'Bekliyor', value: r.filter(x => !is(x, 'Passed', 'Başarılı', 'Failed', 'Başarısız', 'Blocked', 'Bloklandı')).length, tone: 'pending' },
+  ];
+};
+
+// Plan maddeleri → bölümler
+const planSegments = (plan) => {
+  const items = plan.items || [];
+  const n = (s) => items.filter(i => i.run_status === s).length;
+  return [
+    { label: 'Geçti',    value: n('Başarılı'),  tone: 'pass' },
+    { label: 'Kaldı',    value: n('Başarısız'), tone: 'fail' },
+    { label: 'Atlandı',  value: n('Atlandı'),   tone: 'draft' },
+    { label: 'Bekliyor', value: n('Bekliyor'),  tone: 'pending' },
+  ];
+};
+
+const SEVERITY_DOT = { Kritik: 'bg-rose-600', Yüksek: 'bg-rose-400', Orta: 'bg-amber-500', Düşük: 'bg-slate-400' };
+const DEFECT_STATUS = { 'Open': 'Açık', 'In Progress': 'İnceleniyor', 'Re-test': 'Tekrar test', 'Resolved': 'Çözüldü' };
+
+const summarySentence = (segs, total) => {
+  if (!total) return 'Henüz test case yok.';
+  const [pass, fail, pending, draft] = segs.map(s => s.value);
+  const parts = [`${pass} tanesi geçti`];
+  if (fail)    parts.push(`${fail} tanesi kaldı`);
+  if (pending) parts.push(`${pending} tanesi henüz koşulmadı`);
+  if (draft)   parts.push(`${draft} tanesi taslak`);
+  const last = parts.pop();
+  return `${total} test case'in ${parts.length ? parts.join(', ') + ' ve ' : ''}${last}.`;
+};
+
+// Tüm panellerin verisi; izin olmayan uç noktalar (403) boş liste döner
+const fetchDashboard = async () => {
+  const [p, c, pl, r, d] = await Promise.allSettled([
+    api.get('/projects'), api.get('/test-cases'), api.get('/test-plans'),
+    api.get('/test-runs'), api.get('/defects'),
+  ]);
+  const val = (x) => (x.status === 'fulfilled' ? x.value.data : []);
+  return {
+    data: { projects: val(p), cases: val(c), plans: val(pl), runs: val(r), defects: val(d) },
+    error: p.status === 'rejected' && c.status === 'rejected' ? 'Veriler yüklenemedi. Sunucu bağlantısını kontrol edin.' : null,
+  };
+};
+
+// ── Sayfa ─────────────────────────────────────────────────────
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { can }  = usePermission();
+  const { can } = usePermission();
 
-  const [user] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
-  });
+  const [data, setData]       = useState({ projects: [], cases: [], plans: [], runs: [], defects: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
 
-  const [projects,  setProjects]  = useState([]);
-  const [testCases, setTestCases] = useState([]);
-  const [testPlans, setTestPlans] = useState([]);
-  const [testRuns,  setTestRuns]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-
-  // FIX: fetch → api (axios instance) — interceptorlar devreye giriyor
-  const fetchAll = useCallback(async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      const [projRes, tcRes, plansRes, runsRes] = await Promise.allSettled([
-        api.get('/projects'),
-        api.get('/test-cases'),
-        api.get('/test-plans'),
-        api.get('/test-runs'),
-      ]);
-
-      if (projRes.status  === 'fulfilled') setProjects(projRes.value.data);
-      if (tcRes.status    === 'fulfilled') setTestCases(tcRes.value.data);
-      if (plansRes.status === 'fulfilled') setTestPlans(plansRes.value.data);
-      if (runsRes.status  === 'fulfilled') setTestRuns(runsRes.value.data);
-
-      if (projRes.status === 'rejected' || tcRes.status === 'rejected') {
-        setError('Bazı veriler yüklenemedi.');
-      }
-    } catch {
-      setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
-    } finally {
-      setLoading(false);
-    }
+  const apply = useCallback((result) => {
+    setData(result.data);
+    setError(result.error);
+    setLoading(false);
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    let alive = true;
+    fetchDashboard().then(r => { if (alive) apply(r); });
+    return () => { alive = false; };
+  }, [apply]);
 
-  // ── Metrikler ────────────────────────────────────────────────
-  const metrics = useMemo(() => {
-    const total    = testCases.length;
-    const passed   = testCases.filter(tc => tc.status === 'Başarılı').length;
-    const failed   = testCases.filter(tc => tc.status === 'Başarısız').length;
-    const draft    = testCases.filter(tc => tc.status === 'Taslak').length;
-    const untested = testCases.filter(tc => tc.status === 'Test Edilmedi').length;
-    const testedCount = passed + failed;
-    const successRate = testedCount > 0 ? Math.round((passed / testedCount) * 100) : 0;
-    const activePlans    = testPlans.filter(p => p.status === 'Aktif').length;
-    const completedPlans = testPlans.filter(p => p.status === 'Tamamlandı').length;
-    const statusBar = [
-      { label: 'Başarılı',      count: passed,   color: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-      { label: 'Başarısız',     count: failed,   color: 'bg-rose-500',    text: 'text-rose-600 dark:text-rose-400' },
-      { label: 'Test Edilmedi', count: untested, color: 'bg-violet-400',  text: 'text-violet-600 dark:text-violet-400' },
-      { label: 'Taslak',        count: draft,    color: 'bg-slate-300 dark:bg-slate-600', text: 'text-slate-500 dark:text-slate-400' },
-    ].filter(i => i.count > 0);
-    return { total, passed, failed, draft, untested, successRate, testedCount, activePlans, completedPlans, statusBar };
-  }, [testCases, testPlans]);
+  const fetchAll = () => { setLoading(true); fetchDashboard().then(apply); };
 
-  const projectStats = useMemo(() => {
-    const stats = {};
-    testCases.forEach(tc => {
-      if (!stats[tc.project_id]) stats[tc.project_id] = { total: 0, passed: 0, failed: 0 };
-      stats[tc.project_id].total += 1;
-      if (tc.status === 'Başarılı') stats[tc.project_id].passed += 1;
-      if (tc.status === 'Başarısız') stats[tc.project_id].failed += 1;
-    });
-    return stats;
-  }, [testCases]);
+  const overall = useMemo(() => caseSegments(data.cases), [data.cases]);
+  const tested  = overall[0].value + overall[1].value;
+  const passRate = tested ? Math.round((overall[0].value / tested) * 100) : null;
 
-  const recentItems = useMemo(() =>
-    [...testCases].sort((a, b) => b.id - a.id).slice(0, 5),
-  [testCases]);
+  const projects = useMemo(() => data.projects.map(p => {
+    const cases = data.cases.filter(c => c.project_id === p.id);
+    const segs = caseSegments(cases);
+    const t = segs[0].value + segs[1].value;
+    return { ...p, total: cases.length, segs, rate: t ? Math.round((segs[0].value / t) * 100) : null };
+  }).sort((a, b) => b.total - a.total), [data.projects, data.cases]);
 
-  const getProjectName = (id) => projects.find(p => p.id === id)?.name || '—';
+  const openDefects = useMemo(() => data.defects.filter(d => d.status !== 'Resolved'), [data.defects]);
+  const activePlans = useMemo(() => data.plans.filter(p => p.status !== 'Tamamlandı'), [data.plans]);
+  const recentRuns  = useMemo(() => [...data.runs].sort((a, b) => b.id - a.id).slice(0, 6), [data.runs]);
 
-  const firstName = user?.full_name?.split(' ')[0] || user?.username || 'Kullanıcı';
-  const hour      = new Date().getHours();
-  const greeting  = hour < 12 ? 'Günaydın' : hour < 18 ? 'İyi günler' : 'İyi akşamlar';
+  const today = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-8">
-
-      {/* ── HEADER ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-            {greeting}, {firstName} 👋
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
-            İşte platformunuzun güncel durumu.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={fetchAll}
-            className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors"
-            title="Yenile">
-            <RefreshCw size={16}/>
-          </button>
-          <PermissionGuard permission="test_cases.create">
-            <button onClick={() => navigate('/test-cases')}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/20 flex items-center gap-2 text-sm">
-              <Plus size={15}/> Yeni Test
-            </button>
-          </PermissionGuard>
-        </div>
-      </div>
+    <div className="space-y-6 pb-8">
+      <PageHeader
+        title="Genel durum"
+        description={today}
+        actions={<>
+          <Button variant="ghost" size="icon" onClick={fetchAll} aria-label="Yenile" title="Yenile"
+            icon={<RefreshCw size={15} className={loading ? 'animate-spin' : ''} />} />
+          {can('test_cases.create') && (
+            <Button variant="primary" icon={<Plus size={15} />} onClick={() => navigate('/test-cases')}>Yeni test case</Button>
+          )}
+        </>}
+      />
 
       {error && (
-        <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-500/5 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 px-4 py-3 rounded-xl text-sm">
-          <AlertCircle size={15} className="shrink-0"/> {error}
-          <button onClick={fetchAll} className="ml-auto text-rose-600 dark:text-rose-400 hover:underline font-medium flex items-center gap-1">
-            <RefreshCw size={12}/> Tekrar Dene
-          </button>
+        <div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-500/10 dark:text-rose-300">
+          <AlertCircle size={16} className="shrink-0" /> {error}
+          <button onClick={fetchAll} className="ml-auto font-medium hover:underline">Tekrar dene</button>
         </div>
       )}
 
-      {/* ── 4 ANA METRİK KARTI ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard loading={loading}
-          icon={<FolderKanban size={20}/>}
-          label="Toplam Proje"
-          value={projects.length}
-          badge={`${projects.filter(p=>p.status==='Aktif').length} aktif`}
-          sub={`${projects.filter(p=>p.status==='Tamamlandı').length} tamamlandı`}
-          color={{ bg:'bg-indigo-50 dark:bg-indigo-500/10', text:'text-indigo-600 dark:text-indigo-400' }}
-          onClick={() => navigate('/projects')}
-        />
-        <MetricCard loading={loading}
-          icon={<Beaker size={20}/>}
-          label="Test Senaryosu"
-          value={metrics.total}
-          badge={`${metrics.draft} taslak`}
-          sub={`${metrics.untested} test edilmedi`}
-          color={{ bg:'bg-blue-50 dark:bg-blue-500/10', text:'text-blue-600 dark:text-blue-400' }}
-          onClick={() => navigate('/test-cases')}
-        />
-        <MetricCard loading={loading}
-          icon={<Target size={20}/>}
-          label="Başarı Oranı"
-          value={`%${metrics.successRate}`}
-          badge={metrics.successRate >= 80 ? '🎉 Harika' : metrics.successRate >= 50 ? 'Orta' : '⚠️ Düşük'}
-          sub={`${metrics.passed} geçti · ${metrics.failed} başarısız`}
-          color={{ bg: metrics.successRate >= 80 ? 'bg-emerald-50 dark:bg-emerald-500/10' : metrics.successRate >= 50 ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-rose-50 dark:bg-rose-500/10',
-                   text: metrics.successRate >= 80 ? 'text-emerald-600 dark:text-emerald-400' : metrics.successRate >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400' }}
-          onClick={() => navigate('/test-cases')}
-        />
-        <MetricCard loading={loading}
-          icon={<ClipboardList size={20}/>}
-          label="Test Planı"
-          value={testPlans.length}
-          badge={`${metrics.activePlans} aktif`}
-          sub={`${metrics.completedPlans} tamamlandı`}
-          color={{ bg:'bg-violet-50 dark:bg-violet-500/10', text:'text-violet-600 dark:text-violet-400' }}
-          onClick={() => navigate('/test-plans')}
-        />
-      </div>
-
-      {/* ── ANA İÇERİK — 3 kolon ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* SOL — Test Durum Özeti (2 kolon) */}
-        <div className="lg:col-span-2 space-y-6">
-
-          {/* Test Durum Dağılımı */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <BarChart3 size={16} className="text-indigo-500"/> Test Durum Dağılımı
-              </h2>
-              <button onClick={() => navigate('/test-cases')}
-                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium flex items-center gap-1">
-                Tümü <ArrowRight size={12}/>
-              </button>
-            </div>
-            <div className="p-6">
-              {loading ? (
-                <div className="space-y-3">{Array.from({length:4}).map((_,i)=><Skeleton key={i} className="h-8 w-full"/>)}</div>
-              ) : metrics.total === 0 ? (
-                <div className="py-10 flex flex-col items-center justify-center text-slate-400">
-                  <Beaker size={28} className="mb-3 opacity-20"/>
-                  <p className="text-sm">Henüz test senaryosu yok.</p>
-                  <PermissionGuard permission="test_cases.create">
-                    <button onClick={() => navigate('/test-cases')} className="mt-3 text-indigo-600 text-xs hover:underline font-medium flex items-center gap-1">
-                      <Plus size={12}/> İlk testi oluştur
-                    </button>
-                  </PermissionGuard>
-                </div>
-              ) : (
-                <div className="space-y-5">
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-400 mb-2">
-                      <span>{metrics.total} toplam senaryo</span>
-                      <span className={`font-bold ${getRateColor(metrics.successRate)}`}>%{metrics.successRate} başarı</span>
-                    </div>
-                    <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex gap-px">
-                      {metrics.statusBar.map(item => (
-                        <div key={item.label} className={`${item.color} h-full transition-all duration-700`}
-                          style={{ width: `${Math.round((item.count / metrics.total) * 100)}%` }}
-                          title={`${item.label}: ${item.count}`}/>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {metrics.statusBar.map(item => (
-                      <div key={item.label} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.color}`}/>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-medium ${item.text} truncate`}>{item.label}</p>
-                          <p className="text-xs text-slate-400">{Math.round((item.count / metrics.total) * 100)}%</p>
-                        </div>
-                        <span className="text-sm font-bold text-slate-700 dark:text-slate-200 tabular-nums">{item.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Proje Listesi */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <FolderKanban size={16} className="text-indigo-500"/> Projeler
-              </h2>
-              <button onClick={() => navigate('/projects')}
-                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium flex items-center gap-1">
-                Tümü <ArrowRight size={12}/>
-              </button>
-            </div>
-            {loading ? (
-              <div className="p-4 space-y-2">{Array.from({length:3}).map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
-            ) : projects.length === 0 ? (
-              <div className="py-10 text-center text-slate-400">
-                <FolderKanban size={28} className="mx-auto mb-2 opacity-20"/>
-                <p className="text-sm">Henüz proje yok.</p>
-                <PermissionGuard permission="projects.create">
-                  <button onClick={() => navigate('/projects')} className="mt-2 text-indigo-600 text-xs hover:underline font-medium">
-                    + Proje oluştur
-                  </button>
-                </PermissionGuard>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-50 dark:divide-slate-800/50">
-                {projects.slice(0, 5).map(project => {
-                  const stats = projectStats[project.id] || { total: 0, passed: 0, failed: 0 };
-                  const pTested = stats.passed + stats.failed;
-                  const pRate   = pTested > 0 ? Math.round((stats.passed / pTested) * 100) : null;
-                  return (
-                    <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)}
-                      className="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 group transition-colors text-left">
-                      <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-500 shrink-0">
-                        <FolderKanban size={15}/>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate">
-                          {project.name}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
-                          {stats.total} test · {stats.passed} geçti · {stats.failed} başarısız
-                        </p>
-                      </div>
-                      {pRate !== null && (
-                        <div className="hidden sm:flex items-center gap-2 shrink-0">
-                          <div className="w-16 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${getRateBarColor(pRate)}`} style={{ width: `${pRate}%` }}/>
-                          </div>
-                          <span className={`text-xs font-bold tabular-nums w-8 text-right ${getRateColor(pRate)}`}>%{pRate}</span>
-                        </div>
-                      )}
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border shrink-0 hidden sm:inline-flex ${
-                        project.status === 'Tamamlandı' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' :
-                        project.status === 'Beklemede'  ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800' :
-                        'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                      }`}>
-                        {project.status || 'Aktif'}
-                      </span>
-                      <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 group-hover:text-indigo-400 transition-colors shrink-0"/>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* SAĞ */}
-        <div className="space-y-6">
-
-          {/* Son Aktiviteler */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Clock size={15} className="text-indigo-500"/> Son Eklenenler
-              </h2>
-              <button onClick={() => navigate('/test-cases')}
-                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium flex items-center gap-1">
-                Tümü <ArrowRight size={12}/>
-              </button>
-            </div>
-            <div className="p-4">
-              {loading ? (
-                <div className="space-y-4">
-                  {Array.from({length:4}).map((_,i)=>(
-                    <div key={i} className="flex gap-3">
-                      <Skeleton className="w-7 h-7 rounded-full shrink-0"/>
-                      <div className="flex-1 space-y-1.5"><Skeleton className="h-3 w-full"/><Skeleton className="h-3 w-2/3"/></div>
-                    </div>
-                  ))}
-                </div>
-              ) : recentItems.length === 0 ? (
-                <div className="py-8 text-center text-slate-400">
-                  <FileEdit size={24} className="mx-auto mb-2 opacity-20"/>
-                  <p className="text-xs">Henüz test eklenmedi.</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {recentItems.map((tc) => {
-                    const statusCls = {
-                      'Başarılı':     'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                      'Başarısız':    'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400',
-                      'Test Edilmedi':'bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400',
-                      'Taslak':       'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-                    }[tc.status] || 'bg-slate-100 dark:bg-slate-800 text-slate-500';
-                    return (
-                      <div key={tc.id}
-                        className="flex gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
-                        onClick={() => navigate('/test-cases')}>
-                        <div className="w-7 h-7 rounded-full bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                          <FileEdit size={11} className="text-indigo-500"/>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                            {tc.title}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${statusCls}`}>{tc.status}</span>
-                            <span className="text-[10px] text-slate-400 truncate">
-                              {getProjectName(tc.project_id)}{tc.created_at && ` • ${timeAgo(tc.created_at)}`}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Test Planı Durumu */}
-          {!loading && testPlans.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-                <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <ClipboardList size={15} className="text-violet-500"/> Test Planları
-                </h2>
-                <button onClick={() => navigate('/test-plans')}
-                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium flex items-center gap-1">
-                  Tümü <ArrowRight size={12}/>
-                </button>
-              </div>
-              <div className="p-4 space-y-2">
-                {[
-                  { label: 'Toplam',      value: testPlans.length,       color: 'text-slate-600 dark:text-slate-300',    dot: 'bg-slate-400' },
-                  { label: 'Aktif',       value: metrics.activePlans,    color: 'text-amber-600 dark:text-amber-400',    dot: 'bg-amber-500' },
-                  { label: 'Tamamlandı',  value: metrics.completedPlans, color: 'text-emerald-600 dark:text-emerald-400',dot: 'bg-emerald-500' },
-                  { label: 'Beklemede',   value: testPlans.filter(p => p.status === 'Beklemede').length, color: 'text-slate-400', dot: 'bg-slate-300' },
-                  { label: 'Test Koşumu', value: testRuns.length,        color: 'text-indigo-600 dark:text-indigo-400',  dot: 'bg-indigo-500' },
-                ].map(row => (
-                  <div key={row.label} className="flex items-center justify-between py-1">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${row.dot}`}/>
-                      <span className="text-sm text-slate-500 dark:text-slate-400">{row.label}</span>
-                    </div>
-                    <span className={`text-sm font-bold tabular-nums ${row.color}`}>{row.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* ── Genel sonuç ─────────────────────────────────────── */}
+      <Panel bodyClassName="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-10">
+        <div className="min-w-0">
+          {loading ? (
+            <><Skeleton className="h-5 w-72" /><Skeleton className="mt-5 h-3 w-full" /><Skeleton className="mt-4 h-4 w-96" /></>
+          ) : (
+            <>
+              <p className="text-base text-slate-700 dark:text-slate-200">{summarySentence(overall, data.cases.length)}</p>
+              <ResultBar segments={overall} height="h-3" className="mt-4" />
+              <ResultLegend segments={overall} className="mt-3" />
+            </>
           )}
-
-          {/* Hızlı Aksiyonlar */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Zap size={15} className="text-amber-500"/> Hızlı Aksiyonlar
-              </h2>
-            </div>
-            <div className="p-3 space-y-1">
-              {[
-                { label: 'Yeni Test Ekle',     icon: <Beaker size={15}/>,        path: '/test-cases',  perm: 'test_cases.create',  color: 'text-indigo-500' },
-                { label: 'Yeni Proje',          icon: <FolderKanban size={15}/>,  path: '/projects',    perm: 'projects.create',    color: 'text-blue-500' },
-                { label: 'Yeni Test Planı',     icon: <ClipboardList size={15}/>, path: '/test-plans',  perm: 'test_plans.create',  color: 'text-violet-500' },
-                { label: 'Raporları Görüntüle', icon: <TrendingUp size={15}/>,    path: '/reports',     perm: 'reports.view',       color: 'text-emerald-500' },
-                { label: 'Hataları İncele',      icon: <AlertCircle size={15}/>,   path: '/defects',     perm: 'defects.view',       color: 'text-rose-400' },
-                { label: 'Otomasyon Çalıştır',   icon: <PlayCircle size={15}/>,    path: '/automation',  perm: 'automation.execute', color: 'text-rose-500' },
-              ].filter(a => !a.perm || can(a.perm)).map(action => (
-                <button key={action.label} onClick={() => navigate(action.path)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group text-left">
-                  <span className={`${action.color} shrink-0 group-hover:scale-110 transition-transform`}>{action.icon}</span>
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
-                    {action.label}
-                  </span>
-                  <ChevronRight size={13} className="ml-auto text-slate-300 dark:text-slate-600 group-hover:text-slate-400 transition-colors shrink-0"/>
-                </button>
-              ))}
-            </div>
-          </div>
-
         </div>
+        <dl className="grid grid-cols-2 gap-x-8 gap-y-4 border-t border-slate-200 pt-5 sm:grid-cols-4 lg:grid-cols-2 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0 dark:border-slate-800">
+          <Readout label="Geçme oranı" value={passRate == null ? '—' : `%${passRate}`} hint="koşulanlar içinde" />
+          <Readout label="Açık hata" value={openDefects.length} to={can('defects.view') ? '/defects' : null}
+            tone={openDefects.length ? 'text-rose-600 dark:text-rose-400' : null} />
+          <Readout label="Aktif plan" value={activePlans.length} to={can('test_plans.view') ? '/test-plans' : null} />
+          <Readout label="Proje" value={data.projects.length} to={can('projects.view') ? '/projects' : null} />
+        </dl>
+      </Panel>
+
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        {/* ── Projeler ─────────────────────────────────────── */}
+        <Panel title="Projeler" className="lg:col-span-2"
+          actions={can('projects.view') && <Link to="/projects" className="text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white">Tümü</Link>}>
+          {loading ? <ListSkeleton /> : projects.length === 0 ? (
+            <EmptyState title="Henüz proje yok" description="Test case'leri gruplamak için bir proje oluşturun."
+              action={can('projects.create') && <Button variant="primary" size="sm" onClick={() => navigate('/projects')}>Proje oluştur</Button>} />
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
+                  <th className="px-4 py-2 font-medium">Proje</th>
+                  <th className="hidden px-4 py-2 font-medium sm:table-cell">Sonuçlar</th>
+                  <th className="px-4 py-2 text-right font-medium">Geçme</th>
+                  <th className="px-4 py-2 text-right font-medium">Case</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {projects.slice(0, 8).map(p => (
+                  <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
+                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium text-slate-900 dark:text-white">{p.name}</span>
+                      {p.status && p.status !== 'Aktif' && <span className="ml-2 text-xs text-slate-500">{p.status}</span>}
+                    </td>
+                    <td className="hidden w-[40%] px-4 py-2.5 sm:table-cell"><ResultBar segments={p.segs} height="h-1.5" /></td>
+                    <td className="px-4 py-2.5 text-right text-slate-700 dark:text-slate-300">{p.rate == null ? '—' : `%${p.rate}`}</td>
+                    <td className="px-4 py-2.5 text-right text-slate-500 dark:text-slate-400">{p.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Panel>
+
+        {/* ── Açık hatalar ─────────────────────────────────── */}
+        <Panel title="Açık hatalar"
+          actions={can('defects.view') && <Link to="/defects" className="text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white">Tümü</Link>}>
+          {loading ? <ListSkeleton /> : !can('defects.view') ? (
+            <EmptyState title="Hataları görüntüleme izniniz yok" />
+          ) : openDefects.length === 0 ? (
+            <EmptyState title="Açık hata yok" description="Koşumlarda kalan testler burada listelenir." />
+          ) : (
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {openDefects.slice(0, 6).map(d => (
+                <li key={d.id}>
+                  <Link to={`/defects/${d.code}`} className="block px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${SEVERITY_DOT[d.severity] || 'bg-slate-400'}`} title={d.severity} />
+                      <Ident>{d.code}</Ident>
+                      <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">{DEFECT_STATUS[d.status] || d.status}</span>
+                    </div>
+                    <p className="mt-1 truncate text-sm text-slate-900 dark:text-slate-100">{d.title}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{d.project_name} · {timeAgo(d.updated_at || d.created_at)}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        {/* ── Aktif planlar ────────────────────────────────── */}
+        <Panel title="Aktif test planları" className="lg:col-span-2"
+          actions={can('test_plans.view') && <Link to="/test-plans" className="text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white">Tümü</Link>}>
+          {loading ? <ListSkeleton /> : activePlans.length === 0 ? (
+            <EmptyState title="Aktif plan yok" description="Bir sürüm ya da sprint için test planı oluşturup case'leri ekleyin."
+              action={can('test_plans.create') && <Button size="sm" onClick={() => navigate('/test-plans')}>Plan oluştur</Button>} />
+          ) : (
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {activePlans.slice(0, 5).map(plan => {
+                const segs = planSegments(plan);
+                const done = (plan.items || []).filter(i => i.run_status !== 'Bekliyor').length;
+                return (
+                  <li key={plan.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_40%_auto]">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-900 dark:text-white">{plan.title}</p>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {data.projects.find(p => p.id === plan.project_id)?.name || '—'}
+                        {plan.end_date && <> · bitiş {new Date(plan.end_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}</>}
+                      </p>
+                    </div>
+                    <ResultBar segments={segs} height="h-1.5" className="col-span-2 sm:col-span-1" />
+                    <span className="row-start-1 text-right text-sm text-slate-600 sm:row-start-auto dark:text-slate-300">
+                      {done}<span className="text-slate-400">/{(plan.items || []).length}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+
+        {/* ── Son koşumlar ─────────────────────────────────── */}
+        <Panel title="Son koşumlar"
+          actions={can('test_runs.view') && <Link to="/test-runs" className="text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white">Tümü</Link>}>
+          {loading ? <ListSkeleton /> : recentRuns.length === 0 ? (
+            <EmptyState title="Henüz koşum yok" description="Bir plan ya da otomasyon koşumu başlattığınızda sonuçlar burada görünür." />
+          ) : (
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {recentRuns.map(run => (
+                <li key={run.id}>
+                  <Link to={`/test-runs/${run.id}`} className="block px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate text-sm text-slate-900 dark:text-slate-100">{run.name}</span>
+                      <StatusBadge status={run.status} />
+                    </div>
+                    <ResultBar segments={runSegments(run)} height="h-1" className="mt-2" />
+                    <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{timeAgo(run.created_at)}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       </div>
     </div>
   );
 };
+
+const Readout = ({ label, value, hint, to, tone }) => {
+  const body = (
+    <>
+      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className={`mt-0.5 text-2xl font-semibold tracking-tight ${tone || 'text-slate-900 dark:text-white'}`}>{value}</dd>
+      {hint && <dd className="text-xs text-slate-400 dark:text-slate-500">{hint}</dd>}
+    </>
+  );
+  return to
+    ? <Link to={to} className="-m-1 block rounded-md p-1 hover:bg-slate-50 dark:hover:bg-slate-800/50">{body}</Link>
+    : <div>{body}</div>;
+};
+
+const ListSkeleton = () => (
+  <div className="space-y-3 p-4">
+    <Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-2/3" /><Skeleton className="h-4 w-1/2" />
+  </div>
+);
 
 export default Dashboard;
