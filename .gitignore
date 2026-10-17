@@ -1,11 +1,31 @@
-# Python & Sanal Ortam
+# Python & sanal ortam
 venv/
+.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Ortam Değişkenleri (Şifreler)
+# Ortam değişkenleri (şifreler, JWT anahtarı)
 .env
+.env.*
+!.env.example
 
 # Veritabanı
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
+
+# Eski test motoru artıkları (artık sistem temp dizinine yazılıyor)
+backend/tests/temp_*.py
+backend/tests/execution_*.log
+
+# Editör / işletim sistemi
+.idea/
+.DS_Store
+.vscode/*
+!.vscode/settings.json
+
+# Frontend
+node_modules/
+dist/
