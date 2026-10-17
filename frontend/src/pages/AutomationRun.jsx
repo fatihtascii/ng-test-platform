@@ -1,571 +1,531 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
+import { projectsApi, testCasesApi, testRunsApi } from '../api';
 import {
-  Play, Terminal, Server, Globe, Cpu,
+  Play, Terminal, Server, Globe, Cpu, FlaskConical,
   CheckSquare, Loader2, CheckCircle2, AlertCircle,
-  StopCircle, RefreshCw, Wifi, WifiOff
+  StopCircle, RefreshCw, Wifi, WifiOff, Activity,
+  ChevronDown, Settings2, MonitorPlay, Shield,
+  Clock, BarChart3, ArrowRight, Circle, Square,
+  Maximize2, Minimize2
 } from 'lucide-react';
+import { withToken } from '../auth';
 
-const Skeleton = ({ className }) => (
-  <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`} />
+const fmt = (s) =>
+  String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+
+const PRIORITY_CLS = {
+  'Kritik': 'text-rose-400 bg-rose-500/10 border-rose-500/25',
+  'Yüksek': 'text-orange-400 bg-orange-500/10 border-orange-500/25',
+  'Orta':   'text-blue-400 bg-blue-500/10 border-blue-500/25',
+  'Düşük':  'text-slate-500 bg-slate-500/10 border-slate-500/20',
+};
+const LOG_CLS = {
+  error:   'text-rose-400 font-medium',
+  success: 'text-emerald-400 font-medium',
+  warn:    'text-amber-300',
+  running: 'text-sky-300',
+  info:    'text-slate-300',
+};
+const SEL = 'w-full appearance-none bg-slate-950/80 border border-white/8 hover:border-white/15 text-slate-200 text-[13px] font-medium rounded-xl px-4 py-2.5 pr-9 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 disabled:opacity-40 cursor-pointer transition-all';
+
+const Skel = ({ cls }) => <div className={"animate-pulse bg-slate-800/60 rounded-xl " + cls} />;
+
+const StatCard = ({ label, value, color, accent, pulse }) => (
+  <div className={"relative flex flex-col items-center justify-center py-4 px-3 rounded-2xl border overflow-hidden " + accent}>
+    {pulse && value > 0 && <span className="absolute inset-0 rounded-2xl animate-ping bg-emerald-500/5 pointer-events-none" />}
+    <span className={"text-3xl font-black tabular-nums tracking-tight " + color}>{value}</span>
+    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600 mt-1">{label}</span>
+  </div>
 );
 
-const formatDuration = (seconds) => {
-  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const s = (seconds % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-};
-
 const AutomationRun = () => {
-  const { can } = usePermission();
+  const { can }  = usePermission();
+  const location = useLocation();
 
-  const [projects, setProjects]             = useState([]);
+  const [projects,       setProjects]       = useState([]);
   const [automatedCases, setAutomatedCases] = useState([]);
-  const [loading, setLoading]               = useState(true);
-  const [error, setError]                   = useState(null);
-
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState(null);
   const [selectedProject, setSelectedProject] = useState('');
-  const [environment, setEnvironment]         = useState('QA');
-  const [browser, setBrowser]                 = useState('Chrome');
-  const [headless, setHeadless]               = useState(true);
-
-  const [selectedCases, setSelectedCases] = useState([]);
-
-  const [isRunning, setIsRunning]           = useState(false);
-  const [progress, setProgress]             = useState(0);
-  const [logs, setLogs]                     = useState([]);
-  const [results, setResults]               = useState({ passed: 0, failed: 0, skipped: 0, total: 0 });
-  
-  const [wsStatus, setWsStatus]             = useState('idle');
+  const [environment,    setEnvironment]    = useState('QA');
+  const [browser,        setBrowser]        = useState('Chrome');
+  const [headless,       setHeadless]       = useState(true);
+  const [selectedCases,  setSelectedCases]  = useState([]);
+  const [isRunning,      setIsRunning]      = useState(false);
+  const [progress,       setProgress]       = useState(0);
+  const [logs,           setLogs]           = useState([]);
+  const [results,        setResults]        = useState({ passed: 0, failed: 0, skipped: 0, total: 0 });
+  const [wsStatus,       setWsStatus]       = useState('idle');
   const wsStatusRef                         = useRef('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [fullscreen,     setFullscreen]     = useState(false);
+  const [toast,          setToast]          = useState(null);
 
-  const [toast, setToast] = useState(null);
-  const toastTimerRef = useRef(null);
+  const resultsRef        = useRef({ passed: 0, failed: 0, skipped: 0, total: 0 });
+  const startTimeRef      = useRef(null);
+  const caseResultsRef    = useRef([]);
+  const automatedCasesRef = useRef([]);
+  const toastTimerRef     = useRef(null);
+  const terminalRef       = useRef(null);
+  const wsRef             = useRef(null);
+  const timerRef          = useRef(null);
 
-  const terminalRef = useRef(null);
-  const wsRef       = useRef(null);
-  const timerRef    = useRef(null);
-
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
-  const WS_BASE  = API_BASE.replace(/^http/, 'ws');
+  const WS_BASE = useRef(
+    (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/^http/, 'ws')
+  ).current;
 
   const showToast = useCallback((type, message) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ type, message });
-    toastTimerRef.current = setTimeout(() => setToast(null), 3500);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
   }, []);
 
-  const updateWsStatus = useCallback((status) => {
-    wsStatusRef.current = status;
-    setWsStatus(status);
-  }, []);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setError(null);
-      try {
-        const [projRes, casesRes] = await Promise.all([
-          fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
-          fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
-        ]);
-
-        if (projRes.ok) setProjects(await projRes.json());
-        if (casesRes.ok) {
-          const all = await casesRes.json();
-          setAutomatedCases(all.filter(tc => {
-            if (tc.execution_type === 'Automated' || tc.executionType === 'Automated') return true;
-            try {
-              if (typeof tc.description === 'string' && tc.description.trim().startsWith('{')) {
-                const desc = JSON.parse(tc.description);
-                return desc.execution_type === 'Automated' || desc.executionType === 'Automated';
-              }
-            } catch { /* ignore */ }
-            return false;
-          }));
-        }
-        if (!projRes.ok) setError('Projeler tam olarak yüklenemedi. Sunucu bağlantınızı kontrol edin.');
-      } catch {
-        setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [API_BASE]);
-
-  // Terminal scroll ayarı
-  useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  // Cleanup: Sayfa değiştirildiğinde bağlantıları güvenlice kapat
-  useEffect(() => () => {
-    clearInterval(timerRef.current);
-    clearTimeout(toastTimerRef.current);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.close();
-    }
-  }, []);
+  const updWs = useCallback((s) => { wsStatusRef.current = s; setWsStatus(s); }, []);
 
   const addLog = useCallback((message, type = 'info') => {
-    const timestamp = new Date().toLocaleTimeString('tr-TR', { hour12: false });
-    setLogs(prev => [...prev, { time: timestamp, message, type }]);
+    const ts = new Date().toLocaleTimeString('tr-TR', { hour12: false });
+    setLogs(prev => [...prev, { time: ts, message, type, id: Date.now() + Math.random() }]);
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [pR, cR] = await Promise.allSettled([projectsApi.getAll(), testCasesApi.getAll()]);
+        if (pR.status === 'fulfilled') setProjects(pR.value.data || []);
+        else setError('Projeler yüklenemedi.');
+        if (cR.status === 'fulfilled') {
+          const all = cR.value.data || [];
+          setAutomatedCases(all.filter(tc => {
+            if (tc.execution_type === 'Automated') return true;
+            try { return JSON.parse(tc.description || '{}').execution_type === 'Automated'; }
+            catch { return false; }
+          }));
+        }
+      } catch { setError('Sunucuya bağlanılamadı.'); }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  useEffect(() => { automatedCasesRef.current = automatedCases; }, [automatedCases]);
+  useEffect(() => {
+    if (terminalRef.current) terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+  }, [logs]);
+  useEffect(() => () => {
+    clearInterval(timerRef.current); clearTimeout(toastTimerRef.current);
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.close();
+  }, []);
+  useEffect(() => {
+    const p = new URLSearchParams(location.search);
+    const c = p.get('cases'); const pr = p.get('project');
+    if (pr) setSelectedProject(pr);
+    if (c) setSelectedCases(c.split(',').map(Number).filter(Boolean));
+  }, [location.search]);
 
   const projectCases = automatedCases.filter(tc =>
     !selectedProject || String(tc.project_id) === String(selectedProject)
   );
 
-  const toggleCaseSelection = (id) => {
+  const toggleCase = (id) => {
     if (isRunning) return;
     setSelectedCases(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
 
-  const selectAllCases = () => {
-    if (isRunning || projectCases.length === 0) return;
-    const allIds = projectCases.map(tc => tc.id);
-    const allSelected = allIds.every(id => selectedCases.includes(id));
-    setSelectedCases(allSelected ? [] : allIds);
+  const selectAll = () => {
+    if (isRunning || !projectCases.length) return;
+    const ids = projectCases.map(tc => tc.id);
+    setSelectedCases(ids.every(id => selectedCases.includes(id)) ? [] : ids);
   };
 
   const handleStop = () => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'stop' }));
-      wsRef.current.close();
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'stop' })); wsRef.current.close();
     }
-    clearInterval(timerRef.current);
-    setIsRunning(false);
-    updateWsStatus('disconnected');
-    addLog('[DURDURULDU] Koşum kullanıcı tarafından manuel olarak kesildi.', 'warn');
+    clearInterval(timerRef.current); setIsRunning(false); updWs('disconnected');
+    addLog('■ Koşum durduruldu.', 'warn');
   };
 
-  const handleRunTests = () => {
-    if (!selectedProject) { showToast('error', 'Lütfen bir proje seçin.'); return; }
-    if (selectedCases.length === 0) { showToast('error', 'En az bir test senaryosu seçin.'); return; }
+  const handleRun = () => {
+    if (!selectedProject) { showToast('error', 'Bir proje seçin.'); return; }
+    if (!selectedCases.length) { showToast('error', 'En az bir test seçin.'); return; }
 
-    const totalCases = selectedCases.length;
+    setIsRunning(true); setProgress(0); setLogs([]); setElapsedSeconds(0);
+    startTimeRef.current = new Date();
+    resultsRef.current = { passed: 0, failed: 0, skipped: 0, total: selectedCases.length };
+    caseResultsRef.current = [];
+    setResults({ passed: 0, failed: 0, skipped: 0, total: selectedCases.length });
+    updWs('connecting');
+    timerRef.current = setInterval(() => setElapsedSeconds(p => p + 1), 1000);
 
-    setIsRunning(true);
-    setProgress(0);
-    setLogs([]);
-    setElapsedSeconds(0);
-    setResults({ passed: 0, failed: 0, skipped: 0, total: totalCases });
-    updateWsStatus('connecting');
-
-    timerRef.current = setInterval(() => {
-      setElapsedSeconds(prev => prev + 1);
-    }, 1000);
-
-    const ws = new WebSocket(`${WS_BASE}/ws/run-test`);
+    const ws = new WebSocket(withToken(`${WS_BASE}/ws/run-test`));
     wsRef.current = ws;
 
     ws.onopen = () => {
-      updateWsStatus('connected');
-      addLog('[SİSTEM] WebSocket bağlantısı kuruldu. Koşum ortamı hazırlanıyor...', 'info');
-      
-      // Güvenli Payload: Backend ID'leri Integer bekleyebilir
+      updWs('connected');
+      addLog('◎ Bağlantı kuruldu — ortam hazırlanıyor...', 'info');
       ws.send(JSON.stringify({
-        environment,
-        browser,
-        headless,
+        environment, browser, headless,
         project_id: parseInt(selectedProject, 10),
         cases: selectedCases.map(id => parseInt(id, 10)),
-        test_case_ids: selectedCases.map(id => parseInt(id, 10)) // Alternatif key desteği
+        test_case_ids: selectedCases.map(id => parseInt(id, 10)),
       }));
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
-        let rawData = event.data;
-        // Backend bazen JSON.stringify yerine str() dönerse diye güvenlik yaması
-        if (typeof rawData === 'string' && rawData.startsWith("{'") && rawData.endsWith("'}")) {
-            rawData = rawData.replace(/'/g, '"');
-        }
-        
-        const data = JSON.parse(rawData);
-
-        // 🎯 HATA YAKALAYICI (Code Not Found Fix)
+        const data = JSON.parse(event.data);
         if (data.detail) {
-          const errMsg = data.detail === 'Not Found' 
-            ? 'Backend bu teste ait çalıştırılabilir bir otomasyon kodu (script) bulamadı.' 
-            : data.detail;
-            
-          addLog(`[HATA] ${errMsg}`, 'error');
-          clearInterval(timerRef.current);
-          setIsRunning(false);
-          updateWsStatus('error');
-          ws.close();
-          showToast('error', 'Koşum Başarısız: Kod Bulunamadı.');
-          return;
+          addLog('✕ ' + (data.detail === 'Not Found' ? 'Otomasyon kodu bulunamadı.' : data.detail), 'error');
+          clearInterval(timerRef.current); setIsRunning(false); updWs('error'); ws.close();
+          showToast('error', 'Koşum başarısız.'); return;
         }
-
         if (data.type === 'done') {
-          clearInterval(timerRef.current);
-          setIsRunning(false);
-          setProgress(100);
-          updateWsStatus('disconnected');
-          ws.close();
-          addLog('[SİSTEM] Koşum başarıyla tamamlandı.', 'success');
-          showToast('success', 'Otomasyon koşumu tamamlandı.');
+          clearInterval(timerRef.current); setIsRunning(false); setProgress(100);
+          updWs('disconnected'); ws.close();
+          addLog('✓ Koşum tamamlandı.', 'success'); showToast('success', 'Otomasyon tamamlandı.');
+          try {
+            const snap = resultsRef.current;
+            const dur = Math.round((new Date() - startTimeRef.current) / 1000);
+            const nowStr = new Date().toLocaleString('tr-TR', { hour12: false });
+            const cr = caseResultsRef.current;
+            let details = cr.length > 0
+              ? cr.map(r => ({ test_case_id: r.test_case_id, status: r.status, actual_result: r.actual_result || null }))
+              : selectedCases.map((cid, i) => ({
+                  test_case_id: cid,
+                  status: i < snap.passed ? 'Passed' : i < snap.passed + snap.failed ? 'Failed' : 'Skipped',
+                  actual_result: null,
+                }));
+            if (details.length < selectedCases.length) {
+              const covered = new Set(details.map(r => r.test_case_id));
+              selectedCases.forEach(cid => { if (!covered.has(cid)) details.push({ test_case_id: cid, status: 'Skipped', actual_result: null }); });
+            }
+            await testRunsApi.create({
+              name: 'Otomasyon Koşumu — ' + nowStr,
+              description: snap.total + ' test · ' + snap.passed + ' geçti · ' + snap.failed + ' başarısız · ' + dur + 's',
+              status: snap.failed > 0 ? 'Başarısız' : 'Tamamlandı',
+              project_id: parseInt(selectedProject, 10),
+              results: JSON.stringify(details),
+            });
+            addLog('↗ Sonuçlar kaydedildi.', 'info');
+            const fc = details.filter(r => r.status === 'Failed').length;
+            if (fc > 0) { addLog('⚠ ' + fc + ' hata Defect listesine eklendi.', 'warn'); showToast('error', '🔥 ' + fc + ' hata tespit edildi.'); }
+          } catch (e) { addLog('⚠ Kayıt hatası: ' + e.message, 'warn'); }
           return;
         }
-
-        if (typeof data.progress === 'number') {
-          setProgress(data.progress);
-        }
-
-        // Sadece geçerli mesajı olanları logla
+        if (typeof data.progress === 'number') setProgress(data.progress);
         if (data.message) {
           addLog(data.message, data.type || 'info');
-        }
-
-        // İstatistikleri Canlı Güncelle
-        setResults(prev => {
-          const next = { ...prev };
-          if (data.type === 'success') next.passed  += 1;
-          else if (data.type === 'error')  next.failed  += 1;
-          else if (data.type === 'skip')   next.skipped += 1;
-
-          // Backend progress göndermezse frontend hesaplasın
-          if (typeof data.progress !== 'number' && next.total > 0) {
-            const done = next.passed + next.failed + next.skipped;
-            setProgress(Math.round((done / next.total) * 100));
+          const mu = data.message.toUpperCase();
+          const ip = mu.includes('PASSED');
+          const ie = (mu.includes('FAILED') || mu.includes('ERROR')) && !mu.includes('COLLECTED');
+          const isk = mu.includes('SKIPPED') || mu.includes('XFAIL');
+          if (ip || ie) {
+            const idx = caseResultsRef.current.length;
+            const cid = selectedCases[idx] ?? null;
+            let note = null;
+            if (ie) { const after = data.message.split(/FAILED|ERROR/i).pop()?.trim(); if (after?.length > 2) note = after.replace(/^[\s\-:]+/, '').slice(0, 500); }
+            caseResultsRef.current = [...caseResultsRef.current, { test_case_id: cid, status: ip ? 'Passed' : 'Failed', actual_result: note }];
           }
-
-          return next;
-        });
-
-      } catch (err) {
-        addLog(`[SİSTEM] Beklenmeyen Format: ${event.data}`, 'warn');
-      }
+          if (ip || ie || isk || data.type === 'success' || data.type === 'error') {
+            setResults(prev => {
+              const next = { ...prev };
+              if (ip || data.type === 'success') next.passed += 1;
+              else if (ie || data.type === 'error') next.failed += 1;
+              else if (isk) next.skipped += 1;
+              else return prev;
+              resultsRef.current = next;
+              if (typeof data.progress !== 'number' && next.total > 0)
+                setProgress(Math.round(((next.passed + next.failed + next.skipped) / next.total) * 100));
+              return next;
+            });
+          }
+        }
+      } catch { addLog('⚠ Format hatası.', 'warn'); }
     };
 
     ws.onerror = () => {
-      clearInterval(timerRef.current);
-      updateWsStatus('error');
-      setIsRunning(false);
-      addLog('[CRİTİCAL] WebSocket bağlantı hatası! Sunucu yanıt vermiyor.', 'error');
-      showToast('error', 'Sunucu bağlantısı koptu.');
+      clearInterval(timerRef.current); setIsRunning(false); updWs('error');
+      addLog('✕ WebSocket bağlantı hatası.', 'error'); showToast('error', 'Bağlantı koptu.');
     };
 
     ws.onclose = () => {
-      clearInterval(timerRef.current);
-      setIsRunning(false);
-      if (wsStatusRef.current !== 'error') {
-        updateWsStatus('disconnected');
+      clearInterval(timerRef.current); setIsRunning(false);
+      if (wsStatusRef.current !== 'error') updWs('disconnected');
+      const fr = caseResultsRef.current;
+      if (fr.length > 0) {
+        const p = fr.filter(r => r.status === 'Passed').length;
+        const f = fr.filter(r => r.status === 'Failed').length;
+        const s = fr.filter(r => r.status === 'Skipped').length;
+        setResults(prev => ({ ...prev, passed: Math.max(prev.passed, p), failed: Math.max(prev.failed, f), skipped: Math.max(prev.skipped, s) }));
+        setProgress(Math.round(((p + f + s) / fr.length) * 100));
       }
     };
   };
 
+  const wsBadge = {
+    idle:         <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-700"><Circle size={6} className="fill-slate-700" />Hazır</span>,
+    connecting:   <span className="flex items-center gap-1.5 text-[11px] font-medium text-amber-500"><Loader2 size={10} className="animate-spin" />Bağlanıyor</span>,
+    connected:    <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400"><Wifi size={10} />Bağlı</span>,
+    disconnected: <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600"><WifiOff size={10} />Kesildi</span>,
+    error:        <span className="flex items-center gap-1.5 text-[11px] font-medium text-rose-400"><AlertCircle size={10} />Hata</span>,
+  }[wsStatus];
+
+  const total = results.passed + results.failed + results.skipped;
+  const pct   = total > 0 ? Math.round((results.passed / total) * 100) : null;
+
   if (loading) return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <Skeleton className="h-8 w-64" />
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="space-y-4">
-          <Skeleton className="h-64 rounded-2xl" />
-          <Skeleton className="h-72 rounded-2xl" />
-        </div>
-        <div className="xl:col-span-2 space-y-4">
-          <div className="grid grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-2xl" />)}
-          </div>
-          <Skeleton className="h-[500px] rounded-2xl" />
-        </div>
-      </div>
+    <div className="min-h-full bg-[#06080f] -m-8 p-6 space-y-4">
+      <Skel cls="h-14 w-72" />
+      <div className="grid grid-cols-4 gap-3">{[0,1,2,3].map(i => <Skel key={i} cls="h-20" />)}</div>
+      <div className="grid xl:grid-cols-2 gap-4"><Skel cls="h-96" /><Skel cls="h-96" /></div>
     </div>
   );
 
-  const wsStatusBadge = {
-    idle:         null,
-    connecting:   <span className="flex items-center gap-1 text-xs font-bold text-amber-500"><Loader2 size={12} className="animate-spin" /> Bağlanıyor</span>,
-    connected:    <span className="flex items-center gap-1 text-xs font-bold text-emerald-500"><Wifi size={12} /> Bağlı</span>,
-    disconnected: <span className="flex items-center gap-1 text-xs font-bold text-slate-400"><WifiOff size={12} /> Bağlantı Kesildi</span>,
-    error:        <span className="flex items-center gap-1 text-xs font-bold text-rose-500"><AlertCircle size={12} /> Hata</span>,
-  }[wsStatus];
-
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20 relative">
+    <div className="min-h-full bg-[#06080f] text-slate-100 -m-8 p-6 pb-10">
 
-      {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-bold border animate-in fade-in slide-in-from-top-2 duration-300 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
-            : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div className={"fixed top-5 right-5 z-[200] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-[13px] font-semibold border backdrop-blur-xl animate-in fade-in slide-in-from-top-3 duration-300 " + (toast.type === 'success' ? 'bg-emerald-950/95 border-emerald-800/60 text-emerald-300' : 'bg-rose-950/95 border-rose-800/60 text-rose-300')}>
+          {toast.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
           {toast.message}
         </div>
       )}
 
       {/* HEADER */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Play size={22} className="text-emerald-500 fill-emerald-500/20" /> Otomasyon Komuta Merkezi
-          </h1>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">
-            Otomatik test senaryolarını yapılandırın, tetikleyin ve canlı izleyin.
-          </p>
-        </div>
-
-        {isRunning && (
-          <div className="flex items-center gap-4 w-full lg:w-80 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm animate-in zoom-in-95 duration-300">
-            <div className="flex-1">
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="font-bold text-indigo-500">İşleniyor...</span>
-                <span className="font-bold text-slate-800 dark:text-white">%{progress}</span>
-              </div>
-              <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden shadow-inner">
-                <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${progress}%` }} />
-              </div>
-            </div>
-            <Loader2 size={18} className="text-indigo-500 animate-spin shrink-0" />
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 shrink-0">
+            <MonitorPlay size={20} className="text-white" />
           </div>
-        )}
+          <div>
+            <h1 className="text-[17px] font-bold text-white tracking-tight">Otomasyon Komuta Merkezi</h1>
+            <p className="text-[11px] text-slate-600 mt-0.5 font-medium">Playwright · pytest · Gerçek Zamanlı Terminal</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {isRunning && (
+            <div className="flex items-center gap-3 bg-slate-900/70 border border-white/8 rounded-xl px-4 py-2">
+              <div className="w-28">
+                <div className="flex justify-between text-[9px] mb-1.5 font-bold uppercase tracking-widest">
+                  <span className="text-slate-600">İlerleme</span>
+                  <span className="text-indigo-400">%{progress}</span>
+                </div>
+                <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-500" style={{ width: progress + '%' }} />
+                </div>
+              </div>
+              <Loader2 size={13} className="text-indigo-400 animate-spin shrink-0" />
+            </div>
+          )}
+          <div className="flex items-center gap-2 bg-slate-900/60 border border-white/8 rounded-xl px-3.5 py-2">
+            <Clock size={12} className="text-slate-600" />
+            <span className="font-mono text-[13px] font-bold text-slate-300 tabular-nums">{fmt(elapsedSeconds)}</span>
+          </div>
+        </div>
       </div>
 
-      {/* Hata Banner */}
       {error && (
-        <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm font-bold shadow-sm">
-          <AlertCircle size={16} className="shrink-0" /> {error}
+        <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-900/60 text-rose-400 px-4 py-3 rounded-xl text-[13px] mb-5 font-medium">
+          <AlertCircle size={14} />{error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      {/* STAT KARTLARI */}
+      <div className="grid grid-cols-4 gap-3 mb-5">
+        <StatCard label="Seçilen"   value={selectedCases.length} color="text-slate-200"   accent="border-white/6 bg-slate-900/40" />
+        <StatCard label="Geçen"     value={results.passed}       color="text-emerald-400" accent="border-emerald-900/40 bg-emerald-950/30" pulse={isRunning} />
+        <StatCard label="Başarısız" value={results.failed}       color="text-rose-400"    accent="border-rose-900/40 bg-rose-950/30" />
+        <StatCard label="Atlanan"   value={results.skipped}      color="text-amber-400"   accent="border-amber-900/30 bg-amber-950/20" />
+      </div>
 
-        {/* ── SOL KOLON ── */}
-        <div className="space-y-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-4">
 
-          {/* Koşum Ayarları */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-5">
-              <Server size={17} className="text-indigo-500" /> Koşum Ayarları
-            </h2>
-            <div className="space-y-4">
+        {/* SOL PANEL */}
+        <div className="space-y-4">
+
+          {/* Konfigürasyon */}
+          <div className="bg-slate-900/50 border border-white/6 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-white/5 flex items-center gap-2.5">
+              <Settings2 size={14} className="text-indigo-400" />
+              <span className="text-[13px] font-semibold text-slate-300">Konfigürasyon</span>
+            </div>
+            <div className="p-4 space-y-3.5">
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">Hedef Proje</label>
-                <select value={selectedProject}
-                  onChange={(e) => { setSelectedProject(e.target.value); setSelectedCases([]); }}
-                  disabled={isRunning}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-semibold text-sm rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white disabled:opacity-50 transition-all cursor-pointer">
-                  <option value="" disabled>Proje Seçin</option>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600 mb-1.5"><Server size={9} className="opacity-60" />Hedef Proje</label>
+                <div className="relative">
+                  <select value={selectedProject} onChange={e => { setSelectedProject(e.target.value); setSelectedCases([]); }} disabled={isRunning} className={SEL}>
+                    <option value="" disabled>Proje Seçin</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">Ortam</label>
+                  <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600 block mb-1.5">Ortam</label>
                   <div className="relative">
-                    <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <select value={environment} onChange={(e) => setEnvironment(e.target.value)} disabled={isRunning}
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-semibold text-sm rounded-xl pl-8 pr-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white disabled:opacity-50 transition-all cursor-pointer">
-                      <option value="QA">QA (Test)</option>
-                      <option value="Staging">Staging</option>
-                      <option value="Prod">Production</option>
+                    <select value={environment} onChange={e => setEnvironment(e.target.value)} disabled={isRunning} className={SEL}>
+                      <option value="QA">QA (Test)</option><option value="Staging">Staging</option><option value="Prod">Production</option>
                     </select>
+                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">Tarayıcı</label>
-                  <select value={browser} onChange={(e) => setBrowser(e.target.value)} disabled={isRunning}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-semibold text-sm rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white disabled:opacity-50 transition-all cursor-pointer">
-                    <option value="Chrome">Chrome</option>
-                    <option value="Firefox">Firefox</option>
-                    <option value="Edge">Edge</option>
-                    <option value="Safari">Safari</option>
-                  </select>
+                  <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-600 block mb-1.5">Tarayıcı</label>
+                  <div className="relative">
+                    <select value={browser} onChange={e => setBrowser(e.target.value)} disabled={isRunning} className={SEL}>
+                      <option>Chrome</option><option>Firefox</option><option>Edge</option><option>Safari</option>
+                    </select>
+                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 pt-1 border-t border-slate-100 dark:border-slate-800/60 mt-4 pt-4">
-                <input type="checkbox" id="headless" checked={headless}
-                  onChange={(e) => setHeadless(e.target.checked)} disabled={isRunning}
-                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
-                />
+              <div onClick={() => !isRunning && setHeadless(h => !h)}
+                className={"flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none " + (headless ? 'bg-indigo-500/8 border-indigo-500/20 hover:border-indigo-500/35' : 'bg-white/3 border-white/8 hover:border-white/15') + (isRunning ? ' opacity-40 pointer-events-none' : '')}>
                 <div>
-                  <label htmlFor="headless" className="text-sm font-bold text-slate-800 dark:text-white cursor-pointer">Headless Mod</label>
-                  <p className="text-xs text-slate-500 mt-0.5">Tarayıcı penceresi görünmeden arka planda çalışır.</p>
+                  <p className="text-[13px] font-semibold text-slate-200">Headless Mod</p>
+                  <p className="text-[11px] text-slate-600 mt-0.5">Tarayıcı arka planda çalışır</p>
+                </div>
+                <div className="relative shrink-0" style={{ width: '38px', height: '21px' }}>
+                  <div className={"absolute inset-0 rounded-full transition-colors " + (headless ? 'bg-indigo-500' : 'bg-slate-700')} />
+                  <div className={"absolute top-[2px] w-[17px] h-[17px] rounded-full bg-white shadow-md transition-all " + (headless ? 'left-[19px]' : 'left-[2px]')} />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Test Seçimi */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm flex flex-col max-h-[440px]">
-            <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 flex justify-between items-center shrink-0">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <CheckSquare size={15} className="text-indigo-500" /> Otomatik Testler
+          {/* Test Listesi */}
+          <div className="bg-slate-900/50 border border-white/6 rounded-2xl overflow-hidden flex flex-col" style={{ maxHeight: '400px' }}>
+            <div className="px-5 py-3.5 border-b border-white/5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <FlaskConical size={14} className="text-violet-400" />
+                <span className="text-[13px] font-semibold text-slate-300">Otomatik Testler</span>
                 {projectCases.length > 0 && (
-                  <span className="text-xs font-black bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-md border border-slate-300 dark:border-slate-700 shadow-sm">
-                    {selectedCases.length}/{projectCases.length}
-                  </span>
+                  <span className="text-[10px] font-bold bg-violet-500/15 text-violet-400 border border-violet-500/20 px-2 py-0.5 rounded-lg">{selectedCases.length}/{projectCases.length}</span>
                 )}
-              </h3>
-              <button onClick={selectAllCases}
-                disabled={!selectedProject || isRunning || projectCases.length === 0}
-                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-40 transition-opacity">
-                {projectCases.length > 0 && projectCases.every(tc => selectedCases.includes(tc.id))
-                  ? 'Seçimi Kaldır'
-                  : 'Tümünü Seç'}
+              </div>
+              <button onClick={selectAll} disabled={!selectedProject || isRunning || !projectCases.length}
+                className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 disabled:opacity-30 transition-colors">
+                {projectCases.length > 0 && projectCases.every(tc => selectedCases.includes(tc.id)) ? 'Seçimi Kaldır' : 'Tümünü Seç'}
               </button>
             </div>
-
-            <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+            <div className="flex-1 overflow-y-auto p-2">
               {!selectedProject ? (
-                <div className="py-12 text-center">
-                  <Server size={32} className="mx-auto text-slate-200 dark:text-slate-700 mb-3" />
-                  <p className="text-sm font-medium text-slate-400">Önce bir proje seçmelisiniz.</p>
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Server size={28} className="text-slate-800 mb-3" /><p className="text-[12px] text-slate-700 font-medium">Proje seçin</p>
                 </div>
               ) : projectCases.length === 0 ? (
-                <div className="py-12 text-center">
-                  <Cpu size={32} className="mx-auto text-slate-200 dark:text-slate-700 mb-3" />
-                  <p className="text-sm font-medium text-slate-400">Bu projede otomatik test bulunamadı.</p>
-                  <p className="text-xs text-slate-400 mt-1">Test Senaryoları'nda Yürütme tipi 'Automated' olmalıdır.</p>
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Cpu size={28} className="text-slate-800 mb-3" /><p className="text-[12px] text-slate-700 font-medium">Otomatik test bulunamadı</p>
                 </div>
-              ) : (
-                <div className="space-y-1">
-                  {projectCases.map(tc => {
-                    const isSelected = selectedCases.includes(tc.id);
-                    return (
-                      <div key={tc.id} onClick={() => toggleCaseSelection(tc.id)}
-                        className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border ${
-                          isSelected
-                            ? 'bg-indigo-50/50 dark:bg-indigo-500/10 border-indigo-200 dark:border-indigo-500/30'
-                            : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                        } ${isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-colors shrink-0 shadow-sm ${
-                          isSelected ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-                        }`}>
-                          {isSelected && <CheckSquare size={12} strokeWidth={3} />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{tc.title}</p>
-                          <p className="text-xs font-semibold text-slate-400 tracking-tight">#{tc.id} · {tc.priority}</p>
-                        </div>
+              ) : projectCases.map(tc => {
+                const sel = selectedCases.includes(tc.id);
+                return (
+                  <div key={tc.id} onClick={() => toggleCase(tc.id)}
+                    className={"flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 cursor-pointer transition-all border " + (sel ? 'bg-indigo-500/10 border-indigo-500/25' : 'border-transparent hover:bg-white/4') + (isRunning ? ' opacity-50 cursor-not-allowed' : '')}>
+                    <div className={"flex items-center justify-center rounded-md border transition-all shrink-0 " + (sel ? 'bg-indigo-500 border-indigo-500' : 'border-slate-700')} style={{ width: '17px', height: '17px' }}>
+                      {sel && <CheckSquare size={10} strokeWidth={3} className="text-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-medium text-slate-200 truncate">{tc.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-slate-700">#{tc.id}</span>
+                        {tc.priority && <span className={"text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md border " + (PRIORITY_CLS[tc.priority] || PRIORITY_CLS['Orta'])}>{tc.priority}</span>}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-
-            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 space-y-2 shrink-0">
+            <div className="p-3 border-t border-white/5 space-y-2 shrink-0">
               {can('automation.execute') ? (
                 <>
-                  <button onClick={handleRunTests}
-                    disabled={isRunning || selectedCases.length === 0 || !selectedProject}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 text-sm border border-transparent">
-                    {isRunning
-                      ? <><Loader2 size={16} className="animate-spin" /> Koşuluyor...</>
-                      : <><Play size={16} className="fill-white" /> {selectedCases.length} Testi Başlat</>
-                    }
+                  <button onClick={handleRun} disabled={isRunning || !selectedCases.length || !selectedProject}
+                    className="w-full py-3 rounded-xl font-bold text-[13px] disabled:opacity-40 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 shadow-lg shadow-emerald-600/20 text-white transition-all">
+                    {isRunning ? <><Loader2 size={14} className="animate-spin" />Koşuluyor...</> : <><Play size={14} className="fill-white" />{selectedCases.length} Testi Başlat<ArrowRight size={13} /></>}
                   </button>
                   {isRunning && (
                     <button onClick={handleStop}
-                      className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-md shadow-rose-600/20">
-                      <StopCircle size={16} /> Durdur
+                      className="w-full py-2.5 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 bg-rose-950/50 hover:bg-rose-950/80 border border-rose-800/40 text-rose-400 transition-all">
+                      <StopCircle size={13} />Durdur
                     </button>
                   )}
                 </>
               ) : (
-                <div className="text-center text-xs font-bold text-rose-500 py-2 border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-900/10 rounded-xl">
-                  Otomasyon tetikleme yetkiniz bulunmuyor.
+                <div className="text-center text-[11px] text-slate-700 py-2.5 border border-slate-800 bg-slate-900/40 rounded-xl">
+                  <Shield size={11} className="inline mr-1.5" />Yetki gerekli
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* ── SAĞ KOLON ── */}
-        <div className="xl:col-span-2 space-y-5 flex flex-col">
-
-          {/* Sonuç Kartları */}
-          <div className="grid grid-cols-4 gap-4 shrink-0">
-            {[
-              { label: 'Seçilen',    value: selectedCases.length,        bg: 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800',                         text: 'text-slate-900 dark:text-white',                           sub: 'text-slate-500' },
-              { label: 'Geçen',      value: results.passed,              bg: 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30',         text: 'text-emerald-600 dark:text-emerald-400',    sub: 'text-emerald-600 dark:text-emerald-500' },
-              { label: 'Başarısız',  value: results.failed,              bg: 'bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30',                     text: 'text-rose-600 dark:text-rose-400',          sub: 'text-rose-600 dark:text-rose-500' },
-              { label: 'Süre',       value: formatDuration(elapsedSeconds), bg: 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700',                  text: 'text-slate-700 dark:text-white',                           sub: 'text-slate-500' },
-            ].map(card => (
-              <div key={card.label} className={`${card.bg} p-4 rounded-2xl text-center shadow-sm`}>
-                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${card.sub}`}>{card.label}</p>
-                <p className={`text-2xl font-black tabular-nums ${card.text}`}>{card.value}</p>
+        {/* TERMİNAL */}
+        <div className={"flex flex-col " + (fullscreen ? 'fixed inset-4 z-50 rounded-2xl overflow-hidden shadow-2xl' : '')} style={fullscreen ? {} : { height: '600px' }}>
+          <div className="bg-[#0c1018] border border-white/6 border-b-0 rounded-t-2xl px-4 py-3 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1.5">
+                <button onClick={handleStop} className="w-3 h-3 rounded-full bg-rose-500/70 hover:bg-rose-500 transition-colors" />
+                <div className="w-3 h-3 rounded-full bg-amber-500/40" />
+                <div className="w-3 h-3 rounded-full bg-emerald-500/40" />
               </div>
-            ))}
-          </div>
-
-          {/* Terminal */}
-          <div className="flex-1 bg-[#0d1117] rounded-2xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col min-h-[500px] relative">
-            <div className="bg-[#161b22] px-5 py-3.5 flex items-center justify-between border-b border-slate-800 shrink-0">
-              <div className="flex items-center gap-4">
-                <div className="flex gap-2">
-                  <div className="w-3 h-3 rounded-full bg-rose-500/80 shadow-[0_0_8px_rgba(244,63,94,0.5)]" />
-                  <div className="w-3 h-3 rounded-full bg-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-                  <div className="w-3 h-3 rounded-full bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                </div>
-                <div className="h-4 w-px bg-slate-700 mx-1"></div>
-                <Terminal size={15} className="text-indigo-400" />
-                <span className="text-xs font-bold font-mono text-slate-300">execution-console.log</span>
-                <div className="ml-2 bg-black/50 px-2 py-0.5 rounded-md border border-white/5 shadow-inner">
-                  {wsStatusBadge}
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => { if (!isRunning) setLogs([]); }}
-                  disabled={isRunning}
-                  className="text-slate-400 hover:text-white disabled:opacity-30 transition-colors text-xs font-bold flex items-center gap-1.5"
-                  title="Terminali Temizle">
-                  <RefreshCw size={13} /> Temizle
-                </button>
-              </div>
+              <div className="w-px h-4 bg-white/8" />
+              <Terminal size={13} className="text-slate-600" />
+              <span className="text-[11px] font-mono text-slate-600 tracking-wide">execution-console.log</span>
+              <div className="bg-black/50 px-2.5 py-0.5 rounded-lg border border-white/5">{wsBadge}</div>
             </div>
-
-            <div ref={terminalRef}
-              className="flex-1 p-5 overflow-y-auto font-mono text-xs leading-relaxed space-y-1.5 scroll-smooth scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
-              {logs.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center opacity-30">
-                  <Cpu size={48} className="text-slate-400 mb-4" />
-                  <p className="text-slate-400 font-medium">Terminal hazır. Koşum bekleniyor...</p>
-                </div>
-              ) : logs.map((log, idx) => (
-                <div key={idx} className="flex gap-3 hover:bg-white/5 px-2 py-1 rounded transition-colors break-words">
-                  <span className="text-slate-500 shrink-0 select-none tabular-nums font-bold">[{log.time}]</span>
-                  <span className={`${
-                    log.type === 'error'   ? 'text-rose-400 font-bold'    :
-                    log.type === 'success' ? 'text-emerald-400 font-bold' :
-                    log.type === 'warn'    ? 'text-amber-300'   :
-                    log.type === 'running' ? 'text-blue-300'    :
-                    'text-slate-300'
-                  }`}>
-                    {log.message}
-                  </span>
-                </div>
-              ))}
-              {isRunning && (
-                <div className="flex gap-3 px-2 py-1 mt-2">
-                  <span className="text-slate-600 tabular-nums font-bold">[{new Date().toLocaleTimeString('tr-TR', { hour12: false })}]</span>
-                  <span className="text-indigo-400 animate-pulse">█</span>
+            <div className="flex items-center gap-2">
+              {pct !== null && !isRunning && (
+                <div className="flex items-center gap-1.5 bg-white/4 border border-white/6 rounded-lg px-2.5 py-1">
+                  <BarChart3 size={10} className="text-slate-600" />
+                  <span className={"text-[10px] font-bold " + (pct >= 80 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-rose-400')}>%{pct} başarı</span>
                 </div>
               )}
+              <button onClick={() => !isRunning && setLogs([])} disabled={isRunning}
+                className="flex items-center gap-1 text-[10px] text-slate-700 hover:text-slate-500 disabled:opacity-30 transition-colors px-2 py-1 rounded-lg hover:bg-white/5">
+                <RefreshCw size={10} />Temizle
+              </button>
+              <button onClick={() => setFullscreen(f => !f)} className="p-1.5 text-slate-700 hover:text-slate-500 hover:bg-white/5 rounded-lg transition-colors">
+                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
             </div>
+          </div>
 
-            {/* Özet Çubuğu */}
-            {!isRunning && results.total > 0 && (
-              <div className="bg-[#161b22] border-t border-slate-800 px-6 py-3 flex items-center gap-6 text-xs font-mono font-bold">
-                <span className="text-slate-400 uppercase tracking-widest text-[10px]">Özet</span>
-                <span className="text-emerald-400 flex items-center gap-1.5"><CheckCircle2 size={14}/> {results.passed} geçti</span>
-                <span className="text-rose-400 flex items-center gap-1.5"><AlertCircle size={14}/> {results.failed} başarısız</span>
-                {results.skipped > 0 && <span className="text-amber-400">— {results.skipped} atlandı</span>}
-                <span className="text-slate-400 ml-auto border-l border-slate-700 pl-6">Süre: {formatDuration(elapsedSeconds)}</span>
+          <div ref={terminalRef} className="flex-1 bg-[#080d14] px-5 py-4 overflow-y-auto font-mono text-[12px] leading-[1.75] border-x border-white/6 min-h-0">
+            {logs.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center select-none">
+                <Activity size={38} className="text-slate-800 mb-4" />
+                <p className="text-slate-700 text-[13px] font-medium">Terminal hazır</p>
+                <p className="text-slate-800 text-[11px] mt-1">Koşum başlatıldığında loglar burada görünür</p>
+              </div>
+            ) : logs.map(log => (
+              <div key={log.id} className="flex gap-3 group hover:bg-white/[0.018] px-1.5 py-0.5 rounded-lg -mx-1.5 transition-colors">
+                <span className="text-slate-800 shrink-0 tabular-nums select-none">[{log.time}]</span>
+                <span className={(LOG_CLS[log.type] || 'text-slate-400') + ' break-all'}>{log.message}</span>
+              </div>
+            ))}
+            {isRunning && (
+              <div className="flex gap-3 px-1.5 -mx-1.5 mt-1">
+                <span className="text-slate-800 tabular-nums">[{new Date().toLocaleTimeString('tr-TR', { hour12: false })}]</span>
+                <span className="text-indigo-600 animate-pulse font-bold">▌</span>
               </div>
             )}
           </div>
+
+          <div className="bg-[#0c1018] border border-t-0 border-white/6 rounded-b-2xl px-5 py-2.5 flex items-center gap-4 shrink-0">
+            <div className="flex-1 h-0.5 bg-slate-900 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-indigo-600 to-violet-600 rounded-full transition-all duration-500" style={{ width: progress + '%' }} />
+            </div>
+            <div className="flex items-center gap-4 text-[11px] font-mono shrink-0">
+              <span className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={10} />{results.passed} geçti</span>
+              <span className="flex items-center gap-1.5 text-rose-600"><AlertCircle size={10} />{results.failed} başarısız</span>
+              {results.skipped > 0 && <span className="flex items-center gap-1.5 text-amber-600"><Square size={9} />{results.skipped} atlandı</span>}
+              <span className="text-slate-800 border-l border-slate-900 pl-4 tabular-nums">{fmt(elapsedSeconds)}</span>
+            </div>
+          </div>
         </div>
+
       </div>
     </div>
   );

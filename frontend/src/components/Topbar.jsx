@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { clearPermissionCache } from '../hooks/usePermission';
+import { clearPermissionCache, usePermission } from '../hooks/usePermission';
 import {
   Sun, Moon, Shield, ChevronRight,
-  User, LogOut, Settings, ChevronDown
+  User, Users, LogOut, Settings, ChevronDown
 } from 'lucide-react';
+import { clearSession, USER_UPDATED_EVENT } from '../auth';
 
 // ── Breadcrumb Haritası ───────────────────────────────────────
 const PATH_MAP = {
@@ -15,6 +16,7 @@ const PATH_MAP = {
   '/test-plans':   ['Test Planları'],
   '/users':        ['Kullanıcılar'],
   '/roles':        ['Rol Yönetimi'],
+  '/profile':      ['Profilim'],
   '/reports':      ['Raporlar'],
   '/defects':      ['Hatalar'],
   '/automation':   ['Otomasyon'],
@@ -72,6 +74,7 @@ const getInitials = (name = '', username = '') => {
 
 // ── Ana Bileşen ───────────────────────────────────────────────
 const Topbar = () => {
+  const { can } = usePermission();
   const location = useLocation();
   const navigate  = useNavigate();
 
@@ -79,6 +82,12 @@ const Topbar = () => {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
   });
+  // Profil sayfasında ad/e-posta değişince anında yansıt
+  useEffect(() => {
+    const onUpdate = (e) => setUser(e.detail);
+    window.addEventListener(USER_UPDATED_EVENT, onUpdate);
+    return () => window.removeEventListener(USER_UPDATED_EVENT, onUpdate);
+  }, []);
 
   // ✅ Düzeltildi: Sayfa ilk yüklendiğinde dark class var mı kontrol ediliyor
   const [theme, setTheme] = useState(() => {
@@ -111,7 +120,7 @@ const Topbar = () => {
   }, []);
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('user');
+    clearSession();
     try { clearPermissionCache(); } catch {}
     window.location.href = '/login';
   }, []);
@@ -202,14 +211,22 @@ const Topbar = () => {
 
               {/* Aksiyonlar */}
               <div className="p-1.5">
+                <button onClick={() => { navigate('/profile'); setProfileOpen(false); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors font-medium">
+                  <User size={15} className="text-slate-400"/> Profilim
+                </button>
+                {can('users.view') && (
                 <button onClick={() => { navigate('/users'); setProfileOpen(false); }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors font-medium">
-                  <User size={15} className="text-slate-400"/> Profil & Kullanıcılar
+                  <Users size={15} className="text-slate-400"/> Kullanıcılar
                 </button>
+                )}
+                {can('roles.view') && (
                 <button onClick={() => { navigate('/roles'); setProfileOpen(false); }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors font-medium">
                   <Shield size={15} className="text-slate-400"/> Rol Yönetimi
                 </button>
+                )}
               </div>
 
               <div className="h-px bg-slate-100 dark:bg-slate-800 mx-3"/>

@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { usePermission, clearPermissionCache } from '../hooks/usePermission';
-import Logo from '../assets/logo.png';
+import Logo from '../assets/logo.svg';
 import {
   LayoutDashboard, FolderKanban, Beaker, LogOut,
   Users, ClipboardList, PlayCircle, TrendingUp,
   Bug, Cpu, Globe, Blocks, Shield, ChevronDown
 } from 'lucide-react';
+import { clearSession, USER_UPDATED_EVENT } from '../auth';
 
 // ── Menü Grupları ─────────────────────────────────────────────
 const NAV_GROUPS = [
@@ -32,7 +33,7 @@ const NAV_GROUPS = [
       { name: 'Otomasyon',      path: '/automation',   icon: <Cpu size={18} />,        requiredPerm: 'automation.view',   color: 'text-cyan-500 dark:text-cyan-400' },
       { name: 'Raporlar',       path: '/reports',      icon: <TrendingUp size={18} />, requiredPerm: 'reports.view',      color: 'text-fuchsia-500 dark:text-fuchsia-400' },
       { name: 'Ortamlar & Veri',path: '/environments', icon: <Globe size={18} />,      requiredPerm: 'environments.view', color: 'text-teal-500 dark:text-teal-400' },
-      { name: 'Entegrasyonlar', path: '/integrations', icon: <Blocks size={18} />,     requiredPerm: null,                color: 'text-pink-500 dark:text-pink-400' },
+      { name: 'Entegrasyonlar', path: '/integrations', icon: <Blocks size={18} />,     requiredPerm: 'integrations.view', color: 'text-pink-500 dark:text-pink-400' },
     ],
   },
   {
@@ -84,9 +85,15 @@ const Sidebar = () => {
   const { can }  = usePermission();
 
   // ✅ Performans Sızıntısı Kapatıldı: Sadece ilk render'da çalışır
-  const [user] = useState(() => {
+  const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
   });
+  // Profil sayfasında ad/e-posta değişince anında yansıt
+  useEffect(() => {
+    const onUpdate = (e) => setUser(e.detail);
+    window.addEventListener(USER_UPDATED_EVENT, onUpdate);
+    return () => window.removeEventListener(USER_UPDATED_EVENT, onUpdate);
+  }, []);
 
   const [logoError, setLogoError] = useState(false);
 
@@ -96,7 +103,7 @@ const Sidebar = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
+    clearSession();
     try { clearPermissionCache(); } catch {}
     // ✅ Sayfayı tamamen yenileyerek SPA state kalıntılarını temizler (Güvenli Çıkış)
     window.location.replace('/login'); 

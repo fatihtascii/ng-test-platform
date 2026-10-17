@@ -6,11 +6,13 @@ import {
   Folder, Loader2, PlayCircle, Cpu, Zap, Hash, Sparkles,
   Wand2, Bot, RefreshCw, Clock, Terminal, Copy, Check, CheckSquare,
   Square, Download, FileText, ChevronsUpDown, ArrowUp, ArrowDown,
-  Key, Code2, Play
+  Key, Code2, Play, Image as ImageIcon, ClipboardList,
+  Smartphone, // <-- Mobil ikon
 } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
-import { testCasesApi, projectsApi } from '../api';
+import { testCasesApi, projectsApi, testPlansApi, testRunsApi } from '../api';
+import { withToken } from '../auth';
 
 // ── Sabitler ──────────────────────────────────────────────────
 export const GLOBAL_TEST_TYPES = [
@@ -74,7 +76,7 @@ const safeParseDesc = (desc) => {
       };
     }
   } catch {}
-  return { steps: desc ? [{ id: 0, action: desc, expectedResult: '' }] : [], type: 'Functional', execution_type: 'Manual' };
+  return { steps: desc ? [{ id: 0, action: desc, expectedResult: '', image: null }] : [], type: 'Functional', execution_type: 'Manual' };
 };
 
 const formatDate = (iso) => {
@@ -112,13 +114,22 @@ const StepCard = ({ step, index }) => (
           <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{step.expectedResult}</p>
         </div>
       )}
+      {step.image && (
+        <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500 mb-2">Görsel (Önizleme)</p>
+          <img
+            src={step.image}
+            alt={`Adım ${index + 1} görseli`}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 max-h-48 object-contain bg-slate-100 dark:bg-slate-900"
+          />
+        </div>
+      )}
     </div>
   </div>
 );
 
 const CodeBlock = ({ code, language = 'python' }) => {
   const [copied, setCopied] = useState(false);
-  
   const handleCopy = () => {
     navigator.clipboard.writeText(code)
       .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
@@ -188,15 +199,11 @@ const AIModal = ({ onClose, onImport }) => {
         }
       );
       if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'API hatası'); }
-      
       const data = await res.json();
       let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-      
-      // 🚀 ZIRH 1: Gemini'den gelen Markdown formatlı JSON'ı güvenli şekilde temizle
       rawText = rawText.replace(/```json/gi, '').replace(/```/gi, '').trim();
-      
       const parsed = JSON.parse(rawText);
-      parsed.steps = (parsed.steps || []).map((s, i) => ({ ...s, id: Date.now() + i }));
+      parsed.steps = (parsed.steps || []).map((s, i) => ({ ...s, id: Date.now() + i, image: null }));
       setResult(parsed);
       setState('success');
     } catch (err) {
@@ -321,6 +328,275 @@ const AIModal = ({ onClose, onImport }) => {
   );
 };
 
+// ── Mobil Test Çalıştırma Modalı ──────────────────────────────
+const MobileRunModal = ({ tc, onClose, showToast }) => {
+  const API_BASE = import.meta.env?.VITE_API_URL ?? '';
+
+  const [devices,      setDevices]      = useState([]);
+  const [loadingDev,   setLoadingDev]   = useState(true);
+  const [selectedDev,  setSelectedDev]  = useState(null);
+  const [appPath,      setAppPath]      = useState('');
+  const [appPackage,   setAppPackage]   = useState('');
+  const [appActivity,  setAppActivity]  = useState('');
+  const [bundleId,     setBundleId]     = useState('');
+  const [appiumServer, setAppiumServer] = useState('http://localhost:4723');
+  const [runState,     setRunState]     = useState('idle');   // idle | running | done | error
+  const [runId,        setRunId]        = useState(null);
+  const [logs,         setLogs]         = useState([]);
+  const [errorMsg,     setErrorMsg]     = useState('');
+  const logRef = useRef(null);
+  const esRef  = useRef(null);
+
+  // Cihazları yükle
+  useEffect(() => {
+    fetch(`${API_BASE}/api/mobile/devices`)
+      .then(r => r.json())
+      .then(data => { setDevices(data); if (data.length > 0) setSelectedDev(data[0]); })
+      .catch(() => setDevices([]))
+      .finally(() => setLoadingDev(false));
+  }, []);
+
+  // SSE log akışı
+  const streamLogs = useCallback((id) => {
+    const es = new EventSource(withToken(`${API_BASE}/api/mobile/run/${id}/logs/stream`));
+    esRef.current = es;
+    es.onmessage = (e) => {
+      const entry = JSON.parse(e.data);
+      if (entry.msg === '[DONE]') { es.close(); setRunState('done'); return; }
+      setLogs(prev => [...prev, entry]);
+      setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50);
+    };
+    es.onerror = () => { es.close(); setRunState('done'); };
+  }, [API_BASE]);
+
+  useEffect(() => () => esRef.current?.close(), []);
+
+  const handleRun = async () => {
+    if (!selectedDev) { setErrorMsg('Lütfen bir cihaz seçin.'); return; }
+    if (!appPath.trim()) { setErrorMsg('Uygulama yolu zorunludur.'); return; }
+    setErrorMsg(''); setLogs([]); setRunState('running');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/mobile/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          test_case_id: tc.id,
+          device_id:    selectedDev.id,
+          platform:     selectedDev.platform,
+          app_path:     appPath.trim(),
+          app_package:  appPackage  || null,
+          app_activity: appActivity || null,
+          bundle_id:    bundleId    || null,
+          appium_server: appiumServer,
+        }),
+      });
+      if (!res.ok) throw new Error('Koşu başlatılamadı.');
+      const data = await res.json();
+      setRunId(data.run_id);
+      streamLogs(data.run_id);
+    } catch (err) {
+      setErrorMsg(err.message);
+      setRunState('error');
+    }
+  };
+
+  const levelColor = { ok: 'text-emerald-400', error: 'text-rose-400', info: 'text-blue-400' };
+  const isAndroid  = selectedDev?.platform === 'android';
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={runState === 'running' ? undefined : onClose}/>
+      <div className="relative bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+
+        {/* Renk çizgisi */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-500 rounded-t-3xl"/>
+
+        {/* Başlık */}
+        <div className="px-6 pt-6 pb-4 flex justify-between items-start shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
+              <Smartphone size={20} className="text-white"/>
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 dark:text-white">Mobil Test Koş</h3>
+              <p className="text-xs text-slate-400 truncate max-w-xs">#{tc.id} · {tc.title}</p>
+            </div>
+          </div>
+          <button onClick={onClose} disabled={runState === 'running'}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-30">
+            <X size={18}/>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4">
+
+          {/* Cihaz seçimi */}
+          {runState === 'idle' || runState === 'error' ? (
+            <>
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Cihaz Seç</p>
+                {loadingDev ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-400 py-3">
+                    <Loader2 size={14} className="animate-spin"/> Cihazlar taranıyor…
+                  </div>
+                ) : devices.length === 0 ? (
+                  <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
+                    <AlertCircle size={15} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"/>
+                    <div>
+                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Cihaz bulunamadı</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                        Android için ADB bağlantısını, iOS için Xcode Simulator'ı kontrol edin.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {devices.map(d => (
+                      <button key={d.id} onClick={() => setSelectedDev(d)}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                          selectedDev?.id === d.id
+                            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 dark:border-indigo-600'
+                            : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                        }`}>
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${
+                          d.platform === 'ios'
+                            ? 'bg-blue-50 dark:bg-blue-900/20'
+                            : 'bg-green-50 dark:bg-green-900/20'
+                        }`}>
+                          {d.platform === 'ios' ? '' : '🤖'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{d.name}</p>
+                          <p className="text-xs text-slate-400 truncate">
+                            {d.platform === 'android'
+                              ? `Android ${d.version} · ${d.id}`
+                              : `iOS ${d.version} · ${d.id.slice(0, 10)}…`}
+                          </p>
+                        </div>
+                        {selectedDev?.id === d.id && (
+                          <CheckCircle2 size={16} className="text-indigo-500 shrink-0"/>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Form alanları */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Uygulama yolu (.apk / .ipa) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    value={appPath} onChange={e => setAppPath(e.target.value)}
+                    placeholder="/path/to/app.apk"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+
+                {selectedDev && (
+                  isAndroid ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">App Package</label>
+                        <input value={appPackage} onChange={e => setAppPackage(e.target.value)}
+                          placeholder="com.example.app"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500"/>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">App Activity</label>
+                        <input value={appActivity} onChange={e => setAppActivity(e.target.value)}
+                          placeholder=".MainActivity"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500"/>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Bundle ID</label>
+                      <input value={bundleId} onChange={e => setBundleId(e.target.value)}
+                        placeholder="com.example.app"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500"/>
+                    </div>
+                  )
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Appium Server</label>
+                  <input value={appiumServer} onChange={e => setAppiumServer(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500"/>
+                </div>
+              </div>
+
+              {errorMsg && (
+                <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-900/10 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 px-3 py-2.5 rounded-xl text-xs">
+                  <AlertCircle size={14} className="shrink-0"/>{errorMsg}
+                </div>
+              )}
+
+              <button onClick={handleRun} disabled={!selectedDev || !appPath.trim() || loadingDev}
+                className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 shadow-lg shadow-indigo-500/20">
+                <Play size={15}/> Testi Başlat
+              </button>
+            </>
+          ) : (
+            // Çalışıyor / Tamamlandı ekranı
+            <div className="space-y-4">
+              <div className={`flex items-center gap-3 p-3 rounded-xl border ${
+                runState === 'done'
+                  ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+                  : 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800'
+              }`}>
+                {runState === 'running' ? (
+                  <Loader2 size={16} className="animate-spin text-blue-500 shrink-0"/>
+                ) : (
+                  <CheckCircle2 size={16} className="text-emerald-500 shrink-0"/>
+                )}
+                <div>
+                  <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    {runState === 'running' ? 'Test çalışıyor…' : 'Test tamamlandı'}
+                  </p>
+                  {runId && <p className="text-xs text-slate-400 font-mono mt-0.5">Run ID: {runId}</p>}
+                </div>
+              </div>
+
+              {/* Canlı Log */}
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Terminal size={11}/>
+                  {runState === 'running' ? <span className="text-blue-500 animate-pulse">Canlı Log</span> : 'Log'}
+                </p>
+                <div ref={logRef}
+                  className="bg-slate-950 rounded-xl p-3 h-52 overflow-y-auto font-mono text-xs leading-relaxed border border-slate-800">
+                  {logs.length === 0 && (
+                    <p className="text-slate-600 animate-pulse">Bağlantı bekleniyor…</p>
+                  )}
+                  {logs.map((l, i) => (
+                    <p key={i} className={levelColor[l.level] ?? 'text-slate-300'}>
+                      <span className="text-slate-600 select-none mr-2">[{l.time}]</span>{l.msg}
+                    </p>
+                  ))}
+                  {runState === 'done' && (
+                    <p className="text-slate-600 mt-2">─── koşu tamamlandı ───</p>
+                  )}
+                </div>
+              </div>
+
+              {runState === 'done' && (
+                <button onClick={onClose}
+                  className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors">
+                  Kapat
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Ana Bileşen ────────────────────────────────────────────────
 const TestCases = () => {
   const location = useLocation();
@@ -332,35 +608,38 @@ const TestCases = () => {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
 
-  const [searchTerm,     setSearchTerm]     = useState('');
-  const [statusFilter,   setStatusFilter]   = useState('All');
-  const [priorityFilter, setPriorityFilter] = useState('All');
-  const [projectFilter,  setProjectFilter]  = useState(
+  const [searchTerm,      setSearchTerm]      = useState('');
+  const [statusFilter,    setStatusFilter]    = useState('All');
+  const [priorityFilter,  setPriorityFilter]  = useState('All');
+  const [projectFilter,   setProjectFilter]   = useState(
     () => new URLSearchParams(window.location.search).get('project') || 'All'
   );
-  const [typeFilter,     setTypeFilter]     = useState('All');
-  const [execFilter,     setExecFilter]     = useState('All');
+  const [typeFilter,      setTypeFilter]      = useState('All');
+  const [execFilter,      setExecFilter]      = useState('All');
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
   const [sortConfig, setSortConfig] = useState({ key: 'id', direction: 'desc' });
 
-  const [selected,       setSelected]       = useState(new Set());
-  const [bulkStatus,     setBulkStatus]     = useState('');
-  const [isBulkSaving,   setIsBulkSaving]   = useState(false);
+  const [selected,        setSelected]        = useState(new Set());
+  const [bulkStatus,      setBulkStatus]      = useState('');
+  const [isBulkSaving,    setIsBulkSaving]    = useState(false);
 
-  const [activeDropdown, setActiveDropdown] = useState(null);
-  const [panel,          setPanel]          = useState(null);
-  const [isSubmitting,   setIsSubmitting]   = useState(false);
-  const [formError,      setFormError]      = useState('');
-  const [deleteConfirm,  setDeleteConfirm]  = useState(null);
-  const [isDeleting,     setIsDeleting]     = useState(false);
-  const [showAIModal,    setShowAIModal]    = useState(false);
+  const [activeDropdown,  setActiveDropdown]  = useState(null);
+  const [panel,           setPanel]           = useState(null);
+  const [isSubmitting,    setIsSubmitting]    = useState(false);
+  const [formError,       setFormError]       = useState('');
+  const [deleteConfirm,   setDeleteConfirm]   = useState(null);
+  const [isDeleting,      setIsDeleting]      = useState(false);
+  const [showAIModal,     setShowAIModal]     = useState(false);
 
-  const [activeTab,        setActiveTab]        = useState('manual');
-  const [generatedCode,    setGeneratedCode]    = useState('');
-  const [isGeneratingBDD,  setIsGeneratingBDD]  = useState(false);
+  // ── YENİ: Mobil koşu state'i ──
+  const [mobileRunTc, setMobileRunTc] = useState(null); // null veya test case objesi
+
+  const [activeTab,           setActiveTab]           = useState('manual');
+  const [generatedCode,       setGeneratedCode]       = useState('');
+  const [isGeneratingBDD,     setIsGeneratingBDD]     = useState(false);
 
   const toastTimerRef = useRef(null);
   const [toast, setToast] = useState(null);
@@ -375,7 +654,7 @@ const TestCases = () => {
   const defaultForm = {
     title: '', status: 'Taslak', priority: 'Orta', project_id: '',
     type: 'Functional', execution_type: 'Manual',
-    steps: [{ id: Date.now(), action: '', expectedResult: '' }],
+    steps: [{ id: Date.now(), action: '', expectedResult: '', image: null }],
     gherkin_scenario: '',
     automation_script: '',
   };
@@ -407,9 +686,8 @@ const TestCases = () => {
     if (p) setProjectFilter(p);
   }, [location.search]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, priorityFilter, projectFilter, typeFilter, execFilter]);
+  useEffect(() => { setCurrentPage(1); },
+    [searchTerm, statusFilter, priorityFilter, projectFilter, typeFilter, execFilter]);
 
   const handleSort = (key) => {
     setSortConfig(prev => ({
@@ -423,7 +701,7 @@ const TestCases = () => {
     setForm({
       ...defaultForm,
       project_id: projects[0]?.id || '',
-      steps: [{ id: Date.now(), action: '', expectedResult: '' }],
+      steps: [{ id: Date.now(), action: '', expectedResult: '', image: null }],
     });
     setPanel({ mode: 'create' });
   };
@@ -437,16 +715,13 @@ const TestCases = () => {
   const openEdit = (tc) => {
     setFormError(''); setGeneratedCode('');
     const parsed = safeParseDesc(tc.description);
-
     let initialTab = 'manual';
     if (parsed.execution_type === 'Automated' && tc.automation_script) initialTab = 'automated';
     else if (tc.gherkin_scenario) initialTab = 'bdd';
-
     setActiveTab(initialTab);
-
     setForm({
       ...tc,
-      steps: parsed.steps.length > 0 ? parsed.steps : [{ id: Date.now(), action: '', expectedResult: '' }],
+      steps: parsed.steps.length > 0 ? parsed.steps : [{ id: Date.now(), action: '', expectedResult: '', image: null }],
       type: parsed.type,
       execution_type: parsed.execution_type,
       gherkin_scenario: tc.gherkin_scenario || '',
@@ -521,7 +796,6 @@ const TestCases = () => {
     setFormError('');
     if (!form.project_id)   { setFormError('Lütfen bir proje seçiniz.'); return; }
     if (!form.title.trim()) { setFormError('Test başlığı boş bırakılamaz.'); return; }
-
     setIsSubmitting(true);
     try {
       const body = {
@@ -529,24 +803,19 @@ const TestCases = () => {
         description:       JSON.stringify({
           steps:          form.steps,
           type:           form.type,
-          execution_type: form.execution_type, 
+          execution_type: form.execution_type,
         }),
         status:            form.status,
         priority:          form.priority,
         project_id:        parseInt(form.project_id),
-        execution_type:    form.execution_type, 
+        execution_type:    form.execution_type,
         gherkin_scenario:  form.gherkin_scenario  || null,
         automation_script: form.automation_script || null,
-        tags:              '[]', // Etiketler UI'dan kaldırıldı, backend boş JSON dizisi bekler
+        tags:              '[]',
       };
-
-      const req = panel?.mode === 'create'
-        ? testCasesApi.create(body)
-        : testCasesApi.update(form.id, body);
-
+      const req  = panel?.mode === 'create' ? testCasesApi.create(body) : testCasesApi.update(form.id, body);
       const res  = await req;
       const saved = res.data;
-
       if (panel?.mode === 'create') {
         setTestCases(prev => [saved, ...prev]);
       } else {
@@ -612,12 +881,10 @@ const TestCases = () => {
       const parsed = safeParseDesc(tc.description);
       return parsed.execution_type === 'Automated' && Boolean(tc.automation_script?.trim());
     });
-
     if (automatedIds.length === 0) {
-      showToast('error', 'Seçili testlerde otomasyona uygun (içinde kod olan) senaryo bulunamadı.');
+      showToast('error', 'Seçili testlerde otomasyona uygun senaryo bulunamadı.');
       return;
     }
-
     const params = new URLSearchParams();
     params.set('cases', automatedIds.join(','));
     if (projectFilter !== 'All') params.set('project', projectFilter);
@@ -635,17 +902,7 @@ const TestCases = () => {
     sortedAndFilteredData.forEach(tc => {
       const parsed = safeParseDesc(tc.description);
       const safeTitle = String(tc.title).replace(/"/g, '""');
-      rows.push([
-        tc.id,
-        `"${safeTitle}"`,
-        getProjectName(tc.project_id),
-        tc.status,
-        tc.priority,
-        parsed.type,
-        parsed.execution_type,
-        tc.gherkin_scenario  ? 'Evet' : 'Hayır',
-        tc.automation_script ? 'Evet' : 'Hayır',
-      ]);
+      rows.push([tc.id, `"${safeTitle}"`, getProjectName(tc.project_id), tc.status, tc.priority, parsed.type, parsed.execution_type, tc.gherkin_scenario ? 'Evet' : 'Hayır', tc.automation_script ? 'Evet' : 'Hayır']);
     });
     const csv  = rows.map(r => r.join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -656,9 +913,17 @@ const TestCases = () => {
     showToast('success', `${sortedAndFilteredData.length} test senaryosu dışa aktarıldı.`);
   };
 
-  const addStep    = () => setForm(p => ({ ...p, steps: [...p.steps, { id: Date.now(), action: '', expectedResult: '' }] }));
+  const addStep    = () => setForm(p => ({ ...p, steps: [...p.steps, { id: Date.now(), action: '', expectedResult: '', image: null }] }));
   const updateStep = (id, field, val) => setForm(p => ({ ...p, steps: p.steps.map(s => s.id === id ? { ...s, [field]: val } : s) }));
   const removeStep = (id) => setForm(p => ({ ...p, steps: p.steps.length > 1 ? p.steps.filter(s => s.id !== id) : p.steps }));
+
+  const handleImageUpload = (id, file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('error', 'Lütfen geçerli bir resim dosyası seçin.'); return; }
+    const reader = new FileReader();
+    reader.onloadend = () => updateStep(id, 'image', reader.result);
+    reader.readAsDataURL(file);
+  };
 
   const getProjectName = (id) => projects.find(p => p.id === id)?.name || '—';
   const getType        = (desc) => { try { return JSON.parse(desc)?.type || null; } catch { return null; } };
@@ -673,26 +938,18 @@ const TestCases = () => {
         (priorityFilter === 'All' || tc.priority  === priorityFilter) &&
         (projectFilter  === 'All' || tc.project_id === parseInt(projectFilter)) &&
         (typeFilter     === 'All' || parsed.type  === typeFilter) &&
-        (execFilter     === 'All' || parsed.execution_type === execFilter) 
+        (execFilter     === 'All' || parsed.execution_type === execFilter)
       );
     });
-
     result.sort((a, b) => {
       let aValue = a[sortConfig.key];
       let bValue = b[sortConfig.key];
-      if (sortConfig.key === 'priority') {
-        aValue = getPriorityConfig(a.priority).val;
-        bValue = getPriorityConfig(b.priority).val;
-      }
-      if (sortConfig.key === 'project_id') {
-        aValue = getProjectName(a.project_id);
-        bValue = getProjectName(b.project_id);
-      }
+      if (sortConfig.key === 'priority') { aValue = getPriorityConfig(a.priority).val; bValue = getPriorityConfig(b.priority).val; }
+      if (sortConfig.key === 'project_id') { aValue = getProjectName(a.project_id); bValue = getProjectName(b.project_id); }
       if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aValue > bValue) return sortConfig.direction === 'asc' ?  1 : -1;
       return 0;
     });
-
     return result;
   }, [testCases, searchTerm, statusFilter, priorityFilter, projectFilter, typeFilter, execFilter, sortConfig]);
 
@@ -791,10 +1048,21 @@ const TestCases = () => {
           <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-400">{selected.size} seçili</span>
           <div className="flex items-center gap-2 ml-auto flex-wrap">
             {can('automation.execute') && selectedAutomatedCount > 0 && (
-              <button
-                onClick={handleSendToAutomation}
+              <button onClick={handleSendToAutomation}
                 className="px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1.5 transition-colors">
                 <Play size={12}/> Otomasyona Gönder ({selectedAutomatedCount})
+              </button>
+            )}
+            {/* ── YENİ: Toplu Mobil Koş ── */}
+            {selected.size === 1 && (
+              <button
+                onClick={() => {
+                  const id  = [...selected][0];
+                  const tc  = testCases.find(t => t.id === id);
+                  if (tc) { setMobileRunTc(tc); setSelected(new Set()); }
+                }}
+                className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg flex items-center gap-1.5 transition-colors">
+                <Smartphone size={12}/> Mobil Koş
               </button>
             )}
             <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}
@@ -836,7 +1104,7 @@ const TestCases = () => {
           { icon: <Folder size={14}/>,      value: projectFilter,  onChange: setProjectFilter,  options: [['All','Tüm Projeler'], ...projects.map(p => [p.id, p.name])] },
           { icon: <Activity size={14}/>,    value: statusFilter,   onChange: setStatusFilter,   options: [['All','Tüm Durumlar'],['Taslak','Taslak'],['Başarılı','Başarılı'],['Başarısız','Başarısız'],['Test Edilmedi','Test Edilmedi']] },
           { icon: <AlertCircle size={14}/>, value: priorityFilter, onChange: setPriorityFilter, options: [['All','Tüm Öncelikler'],['Kritik','Kritik'],['Yüksek','Yüksek'],['Orta','Orta'],['Düşük','Düşük']] },
-          { icon: <Cpu size={14}/>,         value: execFilter,     onChange: setExecFilter,     options: [['All','Tüm Yürütme'],['Manual','Manual'],['Automated','Automated']] }, 
+          { icon: <Cpu size={14}/>,         value: execFilter,     onChange: setExecFilter,     options: [['All','Tüm Yürütme'],['Manual','Manual'],['Automated','Automated']] },
         ].map((f, i) => (
           <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded-xl">
             <span className="text-slate-400 shrink-0">{f.icon}</span>
@@ -847,8 +1115,7 @@ const TestCases = () => {
           </div>
         ))}
         {hasFilter && (
-          <button
-            onClick={() => { setSearchTerm(''); setStatusFilter('All'); setPriorityFilter('All'); setProjectFilter('All'); setTypeFilter('All'); setExecFilter('All'); }}
+          <button onClick={() => { setSearchTerm(''); setStatusFilter('All'); setPriorityFilter('All'); setProjectFilter('All'); setTypeFilter('All'); setExecFilter('All'); }}
             className="flex items-center justify-center gap-1 text-xs text-slate-500 hover:text-indigo-600 font-medium border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 hover:border-indigo-300 transition-all bg-white dark:bg-slate-900">
             <X size={12}/> Temizle
           </button>
@@ -897,8 +1164,7 @@ const TestCases = () => {
                     </p>
                     <div className="flex items-center justify-center gap-3 mt-3">
                       {hasFilter && (
-                        <button
-                          onClick={() => { setSearchTerm(''); setStatusFilter('All'); setPriorityFilter('All'); setProjectFilter('All'); setTypeFilter('All'); setExecFilter('All'); }}
+                        <button onClick={() => { setSearchTerm(''); setStatusFilter('All'); setPriorityFilter('All'); setProjectFilter('All'); setTypeFilter('All'); setExecFilter('All'); }}
                           className="text-sm text-slate-500 hover:underline">Filtreyi Temizle</button>
                       )}
                       {can('test_cases.create') && (
@@ -916,8 +1182,6 @@ const TestCases = () => {
                 const tcType     = getType(tc.description);
                 const isSelected = selected.has(tc.id);
                 const parsed     = safeParseDesc(tc.description);
-                
-                // 🚀 ZIRH: Eğer son 2 elemandaysak dropdown'ı YUKARI doğru (drop-up) aç ki kesilmesin.
                 const isNearBottom = currentItems.length > 3 && index >= currentItems.length - 2;
 
                 return (
@@ -961,8 +1225,8 @@ const TestCases = () => {
                     </td>
                     <td className="px-6 py-4 hidden lg:table-cell">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold border ${
-                        parsed.execution_type === 'Automated' 
-                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800' 
+                        parsed.execution_type === 'Automated'
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
                           : 'text-slate-600 bg-slate-100 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
                       }`}>
                         {parsed.execution_type === 'Automated' ? <><Code2 size={12}/> Otomasyon</> : <><Square size={12}/> Manuel</>}
@@ -1000,11 +1264,37 @@ const TestCases = () => {
                               <Copy size={13}/> Kopyala
                             </button>
                           )}
+                          {can('test_plans.create') && (
+                            <>
+                              <div className="h-px bg-slate-100 dark:bg-slate-700"/>
+                              <button onClick={() => navigate(`/test-plans?add_case=${tc.id}&project=${tc.project_id}`)}
+                                className="w-full px-4 py-2.5 text-sm font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10 flex items-center gap-2 transition-colors">
+                                <ClipboardList size={13}/> Plana Ekle
+                              </button>
+                            </>
+                          )}
+                          {can('test_runs.create') && (
+                            <>
+                              <div className="h-px bg-slate-100 dark:bg-slate-700"/>
+                              <button onClick={() => navigate(`/test-runs?project_id=${tc.project_id}&highlight=${tc.id}`)}
+                                className="w-full px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-2 transition-colors">
+                                <Play size={13}/> Koşum Başlat
+                              </button>
+                            </>
+                          )}
+                          {/* ── YENİ: Dropdown Mobil Test Koş ── */}
+                          <>
+                            <div className="h-px bg-slate-100 dark:bg-slate-700"/>
+                            <button
+                              onClick={() => { setMobileRunTc(tc); setActiveDropdown(null); }}
+                              className="w-full px-4 py-2.5 text-sm font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10 flex items-center gap-2 transition-colors">
+                              <Smartphone size={13}/> Mobil Test Koş
+                            </button>
+                          </>
                           {can('automation.execute') && parsed.execution_type === 'Automated' && tc.automation_script && (
                             <>
                               <div className="h-px bg-slate-100 dark:bg-slate-700"/>
-                              <button
-                                onClick={() => navigate(`/automation?cases=${tc.id}&project=${tc.project_id}`)}
+                              <button onClick={() => navigate(`/automation?cases=${tc.id}&project=${tc.project_id}`)}
                                 className="w-full px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-2 transition-colors">
                                 <Play size={13}/> Otomasyona Gönder
                               </button>
@@ -1045,6 +1335,16 @@ const TestCases = () => {
       )}
 
       {showAIModal && <AIModal onClose={() => setShowAIModal(false)} onImport={handleAIImport}/>}
+
+      {/* ── YENİ: Mobil Run Modal ── */}
+      {mobileRunTc && (
+        <MobileRunModal
+          tc={mobileRunTc}
+          onClose={() => setMobileRunTc(null)}
+          showToast={showToast}
+        />
+      )}
+
       {isPanelOpen && <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60]" onClick={closePanel}/>}
 
       {/* SIDE PANEL */}
@@ -1077,15 +1377,13 @@ const TestCases = () => {
           <div className="flex-1 overflow-y-auto">
             <div className="grid grid-cols-1 lg:grid-cols-3 h-full">
               <div className="lg:col-span-2 p-6 border-r-0 lg:border-r border-slate-100 dark:border-slate-800 overflow-y-auto space-y-6">
-
                 {viewTC.automation_script && (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <Code2 size={16} className="text-emerald-500"/>
                       <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Playwright Kodu</h3>
                       {can('automation.execute') && (
-                        <button
-                          onClick={() => navigate(`/automation?cases=${viewTC.id}&project=${viewTC.project_id}`)}
+                        <button onClick={() => navigate(`/automation?cases=${viewTC.id}&project=${viewTC.project_id}`)}
                           className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors">
                           <Play size={11}/> Çalıştır
                         </button>
@@ -1094,7 +1392,6 @@ const TestCases = () => {
                     <CodeBlock code={viewTC.automation_script} language="python"/>
                   </div>
                 )}
-
                 {viewTC.gherkin_scenario && (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
@@ -1104,7 +1401,6 @@ const TestCases = () => {
                     <CodeBlock code={viewTC.gherkin_scenario} language="gherkin"/>
                   </div>
                 )}
-
                 <div>
                   <div className="flex items-center gap-2 mb-5">
                     <PlayCircle size={17} className="text-indigo-500"/>
@@ -1159,7 +1455,7 @@ const TestCases = () => {
                     <span className="text-xs text-slate-500 dark:text-slate-400">{formatDate(viewTC.updated_at)}</span>
                   </MetaRow>
                 )}
-                
+
                 <div className="pt-5 space-y-2">
                   {can('test_cases.edit') && (
                     <button onClick={switchToEdit}
@@ -1167,9 +1463,14 @@ const TestCases = () => {
                       <Pencil size={14}/> Düzenle
                     </button>
                   )}
+                  {/* ── YENİ: View panel Mobil Koş butonu ── */}
+                  <button
+                    onClick={() => { setMobileRunTc(viewTC); setPanel(null); }}
+                    className="w-full py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                    <Smartphone size={14}/> Mobil Test Koş
+                  </button>
                   {can('automation.execute') && viewTC.execution_type === 'Automated' && viewTC.automation_script && (
-                    <button
-                      onClick={() => navigate(`/automation?cases=${viewTC.id}&project=${viewTC.project_id}`)}
+                    <button onClick={() => navigate(`/automation?cases=${viewTC.id}&project=${viewTC.project_id}`)}
                       className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                       <Play size={14}/> Otomasyona Gönder
                     </button>
@@ -1201,8 +1502,6 @@ const TestCases = () => {
                   <AlertCircle size={15} className="shrink-0"/> {formError}
                 </div>
               )}
-
-              {/* Temel Bilgiler */}
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 space-y-4">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Temel Bilgiler</p>
                 <div>
@@ -1220,8 +1519,6 @@ const TestCases = () => {
                   </select>
                 </div>
               </div>
-
-              {/* Sınıflandırma */}
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 space-y-4">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sınıflandırma</p>
                 <div className="grid grid-cols-2 gap-4">
@@ -1264,8 +1561,6 @@ const TestCases = () => {
                   )}
                 </div>
               </div>
-
-              {/* Sekmeler */}
               <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto">
                 <button onClick={() => setActiveTab('manual')}
                   className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'manual' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
@@ -1282,45 +1577,54 @@ const TestCases = () => {
                   </button>
                 )}
               </div>
-
-              {/* Adımlar */}
               {activeTab === 'manual' && (
-                <div className="space-y-3 animate-in fade-in slide-in-from-left-2 duration-200">
+                <div className="space-y-4 animate-in fade-in slide-in-from-left-2 duration-200">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Test Adımları</p>
                     <span className="text-xs text-slate-400">{form.steps.length} adım</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 pl-7">
-                    <p className="text-xs text-slate-400 font-medium">Aksiyon</p>
-                    <p className="text-xs text-slate-400 font-medium">Beklenen Sonuç</p>
-                  </div>
                   {form.steps.map((step, index) => (
-                    <div key={step.id} className="flex items-start gap-2">
-                      <span className="mt-2.5 text-xs font-bold text-slate-300 dark:text-slate-600 w-5 shrink-0 text-right">{index + 1}</span>
-                      <div className="flex-1 grid grid-cols-2 gap-2">
-                        <input type="text" placeholder="Adımı girin..." value={step.action}
-                          onChange={e => updateStep(step.id, 'action', e.target.value)}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"/>
-                        <input type="text" placeholder="Beklenen sonuç..." value={step.expectedResult}
-                          onChange={e => updateStep(step.id, 'expectedResult', e.target.value)}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"/>
+                    <div key={step.id} className="p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl space-y-3">
+                      <div className="flex gap-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold shrink-0">{index + 1}</div>
+                        <div className="flex-1 space-y-3">
+                          <input type="text" placeholder="Aksiyon (Ne yapılacak?)" value={step.action}
+                            onChange={e => updateStep(step.id, 'action', e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-colors placeholder:text-slate-400"/>
+                          <input type="text" placeholder="Beklenen sonuç..." value={step.expectedResult}
+                            onChange={e => updateStep(step.id, 'expectedResult', e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-colors placeholder:text-slate-400"/>
+                        </div>
+                        <div className="shrink-0 flex flex-col gap-2">
+                          <label className="w-10 h-10 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer transition-all" title="Adıma Görsel Ekle">
+                            <ImageIcon size={18}/>
+                            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(step.id, e.target.files[0])}/>
+                          </label>
+                          {form.steps.length > 1 && (
+                            <button onClick={() => removeStep(step.id)} className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors rounded-xl hover:bg-rose-50 dark:hover:bg-rose-500/10">
+                              <X size={18}/>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      {form.steps.length > 1 && (
-                        <button onClick={() => removeStep(step.id)}
-                          className="mt-2.5 text-slate-300 dark:text-slate-600 hover:text-rose-500 transition-colors p-0.5 shrink-0">
-                          <X size={15}/>
-                        </button>
+                      {step.image && (
+                        <div className="ml-11 relative group rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 inline-block">
+                          <img src={step.image} alt="Önizleme" className="h-32 w-auto object-contain bg-white dark:bg-slate-900"/>
+                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                            <button onClick={() => updateStep(step.id, 'image', null)} className="p-2 bg-rose-500 text-white rounded-lg hover:bg-rose-600 transition-colors shadow-lg">
+                              <X size={16}/>
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
                   <button onClick={addStep}
-                    className="w-full py-2.5 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-400 flex items-center justify-center gap-2 hover:border-indigo-400 hover:text-indigo-500 transition-colors">
-                    <Plus size={14}/> Adım Ekle
+                    className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-semibold text-slate-400 flex items-center justify-center gap-2 hover:border-indigo-400 hover:text-indigo-500 transition-colors bg-white dark:bg-slate-900">
+                    <Plus size={16}/> Yeni Adım Ekle
                   </button>
                 </div>
               )}
-
-              {/* BDD */}
               {activeTab === 'bdd' && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-200">
                   <div className="bg-fuchsia-50 dark:bg-fuchsia-500/5 border border-fuchsia-100 dark:border-fuchsia-500/20 rounded-2xl p-5">
@@ -1359,8 +1663,6 @@ const TestCases = () => {
                   )}
                 </div>
               )}
-
-              {/* Playwright Kod Editörü */}
               {activeTab === 'automated' && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-200">
                   <div className="bg-[#0d1117] rounded-2xl border border-slate-800 shadow-xl overflow-hidden flex flex-col">
@@ -1377,35 +1679,27 @@ const TestCases = () => {
                       <div className="flex items-center gap-3">
                         {form.automation_script && (
                           <button onClick={() => setForm(p => ({...p, automation_script: ''}))}
-                            className="text-xs text-rose-400 hover:text-rose-300 font-medium transition-colors">
-                            Temizle
-                          </button>
+                            className="text-xs text-rose-400 hover:text-rose-300 font-medium transition-colors">Temizle</button>
                         )}
                         <button onClick={() => setForm(p => ({...p, automation_script: PLAYWRIGHT_TEMPLATE}))}
-                          className="text-xs text-emerald-500 hover:text-emerald-400 font-medium transition-colors">
-                          Şablon Yükle
-                        </button>
+                          className="text-xs text-emerald-500 hover:text-emerald-400 font-medium transition-colors">Şablon Yükle</button>
                       </div>
                     </div>
-                    <textarea
-                      value={form.automation_script}
+                    <textarea value={form.automation_script}
                       onChange={e => setForm(p => ({...p, automation_script: e.target.value}))}
                       placeholder="# Python/Playwright test kodunuzu buraya yazın..."
                       className="w-full h-80 bg-transparent text-emerald-400 font-mono text-[13px] leading-relaxed p-4 outline-none resize-y placeholder:text-slate-600"
-                      spellCheck="false"
-                    />
+                      spellCheck="false"/>
                   </div>
                   <div className="flex items-start gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-800/50 p-3 rounded-xl">
                     <AlertCircle size={16} className="text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0"/>
                     <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
-                      Buraya yazacağınız kodlar, <strong>Otomasyon Komuta Merkezi'nden</strong> doğrudan sunucunuzda çalıştırılacaktır. Sadece geçerli Python (Pytest/Playwright) kodları giriniz.
+                      Buraya yazacağınız kodlar, <strong>Otomasyon Komuta Merkezi'nden</strong> doğrudan sunucunuzda çalıştırılacaktır.
                     </p>
                   </div>
                 </div>
               )}
             </div>
-
-            {/* Panel Footer */}
             <div className="p-5 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0 bg-white dark:bg-slate-900">
               <p className="text-xs text-slate-400">
                 {activeTab === 'automated' && form.automation_script

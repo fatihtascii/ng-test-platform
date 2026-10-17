@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
+import { usersApi, rolesApi } from '../api';
 import {
   Users as UsersIcon, Search, Shield, MoreVertical, X,
   AlertCircle, CheckCircle2, UserX, Trash2,
@@ -129,23 +130,19 @@ const Users = () => {
   const [pwForm,     setPwForm]     = useState({ newPassword: '', confirm: '' });
   const [pwShow,     setPwShow]     = useState({ new: false, confirm: false });
 
-  // ✅ Dinamik API Base URL
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const fetchData = useCallback(async () => {
     setError(null);
     try {
-      // ✅ Domino Etkisi Çözüldü: Users de kalkanlı
-      const [usersRes, rolesRes] = await Promise.all([
-        fetch(`${API_BASE}/users`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/roles`).catch(() => ({ ok: false })),
+      const [usersRes, rolesRes] = await Promise.allSettled([
+        usersApi.getAll(),
+        rolesApi.getAll(),
       ]);
-      
-      if (usersRes.ok) setUsers(await usersRes.json());
+      if (usersRes.status === 'fulfilled') setUsers(usersRes.value.data);
       else setError('Kullanıcılar yüklenemedi. Sunucu bağlantınızı kontrol edin.');
 
-      if (rolesRes.ok) {
-        setRoles(await rolesRes.json());
+      if (rolesRes.status === 'fulfilled') {
+        setRoles(rolesRes.value.data);
       } else {
         setRoles([
           { id:1, name:'admin',   display_name:'Admin',           color:'rose',   description:'Tam erişim' },
@@ -156,7 +153,7 @@ const Users = () => {
       }
     } catch { setError('Sunucuya bağlanılamadı.'); }
     finally   { setLoading(false); }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -218,20 +215,11 @@ const Users = () => {
     if (err) { setPanelError(err); return; }
     setIsSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/users`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(createForm),
-      });
-      if (res.ok) {
-        const newUser = await res.json();
-        setUsers(prev => [...prev, newUser]);
-        closePanel();
-        showToast('success', `@${newUser.username} başarıyla oluşturuldu.`);
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setPanelError(parseApiError(d, 'Kullanıcı oluşturulamadı.'));
-      }
-    } catch { setPanelError('Sunucuya ulaşılamadı.'); }
+      const res = await usersApi.create(createForm);
+      setUsers(prev => [...prev, res.data]);
+      closePanel();
+      showToast('success', `@${res.data.username} başarıyla oluşturuldu.`);
+    } catch (err) { setPanelError(err.message || 'Kullanıcı oluşturulamadı.'); }
     finally  { setIsSaving(false); }
   };
 
@@ -239,20 +227,11 @@ const Users = () => {
     if (!editForm.full_name.trim()) { setPanelError('Ad Soyad boş olamaz.'); return; }
     setIsSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/users/${panelUser.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: editForm.full_name, email: editForm.email || null, role: editForm.role }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
-        closePanel();
-        showToast('success', 'Kullanıcı güncellendi.');
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setPanelError(parseApiError(d, 'Güncelleme başarısız.'));
-      }
-    } catch { setPanelError('Sunucuya ulaşılamadı.'); }
+      const res = await usersApi.update(panelUser.id, { full_name: editForm.full_name, email: editForm.email || null, role: editForm.role });
+      setUsers(prev => prev.map(u => u.id === res.data.id ? res.data : u));
+      closePanel();
+      showToast('success', 'Kullanıcı güncellendi.');
+    } catch (err) { setPanelError(err.message || 'Güncelleme başarısız.'); }
     finally  { setIsSaving(false); }
   };
 
@@ -261,18 +240,10 @@ const Users = () => {
     if (err) { setPanelError(err); return; }
     setIsSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/users/${panelUser.id}/password`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwForm.newPassword }),
-      });
-      if (res.ok) {
-        closePanel();
-        showToast('success', 'Şifre güncellendi.');
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setPanelError(parseApiError(d, `Şifre güncellenemedi. (${res.status})`));
-      }
-    } catch { setPanelError('Sunucuya ulaşılamadı.'); }
+      await usersApi.updatePassword(panelUser.id, { password: pwForm.newPassword });
+      closePanel();
+      showToast('success', 'Şifre güncellendi.');
+    } catch (err) { setPanelError(err.message || 'Şifre güncellenemedi.'); }
     finally  { setIsSaving(false); }
   };
 
@@ -281,21 +252,14 @@ const Users = () => {
     try {
       if (id === 'bulk') {
         const ids = [...selected];
-        await Promise.all(ids.map(uid =>
-          fetch(`${API_BASE}/users/${uid}`, { method: 'DELETE' })
-        ));
+        await Promise.all(ids.map(uid => usersApi.remove(uid)));
         setUsers(prev => prev.filter(u => !ids.includes(u.id)));
         setSelected(new Set());
         showToast('success', `${ids.length} kullanıcı silindi.`);
       } else {
-        const res = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE' });
-        if (res.ok) {
-          setUsers(prev => prev.filter(u => u.id !== id));
-          showToast('success', 'Kullanıcı silindi.');
-        } else {
-          const d = await res.json().catch(() => ({}));
-          showToast('error', parseApiError(d, 'Kullanıcı silinemedi.'));
-        }
+        await usersApi.remove(id);
+        setUsers(prev => prev.filter(u => u.id !== id));
+        showToast('success', 'Kullanıcı silindi.');
       }
     } catch { showToast('error', 'Sunucuya ulaşılamadı.'); }
     finally { setIsDeleting(false); setDeleteConfirm(null); }
@@ -303,30 +267,17 @@ const Users = () => {
 
   const handleQuickRoleChange = async (userId, newRole) => {
     try {
-      const res = await fetch(`${API_BASE}/users/${userId}/role`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
-        showToast('success', `Rol: ${getRoleLabel(newRole)}`);
-      } else {
-        showToast('error', 'Rol güncellenemedi.');
-      }
-    } catch { showToast('error', 'Sunucuya ulaşılamadı.'); }
+      const res = await usersApi.updateRole(userId, newRole);
+      setUsers(prev => prev.map(u => u.id === res.data.id ? res.data : u));
+      showToast('success', `Rol: ${getRoleLabel(newRole)}`);
+    } catch (err) { showToast('error', err.message || 'Rol güncellenemedi.'); }
   };
 
   const handleBulkRoleAssign = async () => {
     if (!bulkRole || selected.size === 0) return;
     setIsBulkSaving(true);
     try {
-      await Promise.all([...selected].map(uid =>
-        fetch(`${API_BASE}/users/${uid}/role`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: bulkRole }),
-        })
-      ));
+      await Promise.all([...selected].map(uid => usersApi.updateRole(uid, bulkRole)));
       await fetchData();
       setSelected(new Set());
       setBulkRole('');
@@ -364,10 +315,8 @@ const Users = () => {
   const isPanelOpen = !!panel;
   const hasSelection = selected.size > 0;
 
-  const openMyProfile = () => {
-    const me = users.find(u => u.username === currentUser?.username);
-    if (me) openPanel('edit', me);
-  };
+  // Kendi profil düzenlemesi artık ayrı sayfada (rolü ne olursa olsun herkes erişebilir)
+  const openMyProfile = () => navigate('/profile');
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 relative">

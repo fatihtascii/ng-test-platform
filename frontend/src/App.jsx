@@ -18,7 +18,10 @@ import Reports       from './pages/Reports';
 import AutomationRun from './pages/AutomationRun';
 import Environments  from './pages/Environments';
 import Integrations  from './pages/Integrations';
-import RoleManagement from './pages/Rolemanagement';
+// FIX: Dosya adı RoleManagement.jsx (büyük M) — Linux büyük/küçük harf duyarlı.
+// 'Rolemanagement' import'u production build'de "Module not found" hatasına neden olur.
+import RoleManagement from './pages/RoleManagement';
+import Profile        from './pages/Profile';
 
 // Bileşenler
 import Sidebar from './components/Sidebar';
@@ -26,12 +29,19 @@ import Topbar  from './components/Topbar';
 
 // Hooklar
 import useAutoLogout from './hooks/useAutoLogout';
+import { getToken } from './auth';
+import { usePermission } from './hooks/usePermission';
+import NoAccess from './components/NoAccess';
 
-const AppLayout = ({ children }) => {
-  useAutoLogout(5);
+// perm: sayfayı görmek için gereken izin (yoksa "yetkiniz yok" ekranı gösterilir)
+const AppLayout = ({ children, perm }) => {
+  // FIX: Timeout 30 dakikaya çıkarıldı — 5 dk aktif kullanıcıları da çıkarıyordu.
+  useAutoLogout(30);
+  const { can } = usePermission();
 
+  // Token'ı olmayan (eski oturum) kullanıcılar da yeniden giriş yapmalı
   const user = localStorage.getItem('user');
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user || !getToken()) return <Navigate to="/login" replace />;
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
@@ -40,7 +50,7 @@ const AppLayout = ({ children }) => {
         <Topbar />
         <main className="p-8 flex-1 overflow-y-auto">
           <div className="max-w-7xl mx-auto">
-            {children}
+            {!perm || can(perm) ? children : <NoAccess permission={perm} />}
           </div>
         </main>
       </div>
@@ -58,20 +68,21 @@ function App() {
 
         {/* Korumalı Sayfalar */}
         <Route path="/"                element={<AppLayout><Dashboard /></AppLayout>} />
-        <Route path="/projects"        element={<AppLayout><Projects /></AppLayout>} />
-        <Route path="/projects/:id"    element={<AppLayout><ProjectDetail /></AppLayout>} />
-        <Route path="/test-cases"      element={<AppLayout><TestCases /></AppLayout>} />
-        <Route path="/test-plans"      element={<AppLayout><TestPlans /></AppLayout>} />
-        <Route path="/test-runs"       element={<AppLayout><TestRuns /></AppLayout>} />
-        <Route path="/test-runs/:id"   element={<AppLayout><TestRunDetail /></AppLayout>} />
-        <Route path="/users"           element={<AppLayout><UsersPage /></AppLayout>} />
-        <Route path="/defects"         element={<AppLayout><Defects /></AppLayout>} />
-        <Route path="/defects/:id"     element={<AppLayout><DefectDetail /></AppLayout>} />
-        <Route path="/reports"         element={<AppLayout><Reports /></AppLayout>} />
-        <Route path="/automation"      element={<AppLayout><AutomationRun /></AppLayout>} />
-        <Route path="/environments"    element={<AppLayout><Environments /></AppLayout>} />
-        <Route path="/integrations"    element={<AppLayout><Integrations /></AppLayout>} />
-        <Route path="/roles"           element={<AppLayout><RoleManagement /></AppLayout>} />
+        <Route path="/projects"        element={<AppLayout perm="projects.view"><Projects /></AppLayout>} />
+        <Route path="/projects/:id"    element={<AppLayout perm="projects.view"><ProjectDetail /></AppLayout>} />
+        <Route path="/test-cases"      element={<AppLayout perm="test_cases.view"><TestCases /></AppLayout>} />
+        <Route path="/test-plans"      element={<AppLayout perm="test_plans.view"><TestPlans /></AppLayout>} />
+        <Route path="/test-runs"       element={<AppLayout perm="test_runs.view"><TestRuns /></AppLayout>} />
+        <Route path="/test-runs/:id"   element={<AppLayout perm="test_runs.view"><TestRunDetail /></AppLayout>} />
+        <Route path="/users"           element={<AppLayout perm="users.view"><UsersPage /></AppLayout>} />
+        <Route path="/defects"         element={<AppLayout perm="defects.view"><Defects /></AppLayout>} />
+        <Route path="/defects/:id"     element={<AppLayout perm="defects.view"><DefectDetail /></AppLayout>} />
+        <Route path="/reports"         element={<AppLayout perm="reports.view"><Reports /></AppLayout>} />
+        <Route path="/automation"      element={<AppLayout perm="automation.view"><AutomationRun /></AppLayout>} />
+        <Route path="/environments"    element={<AppLayout perm="environments.view"><Environments /></AppLayout>} />
+        <Route path="/integrations"    element={<AppLayout perm="integrations.view"><Integrations /></AppLayout>} />
+        <Route path="/profile"         element={<AppLayout><Profile /></AppLayout>} />
+        <Route path="/roles"           element={<AppLayout perm="roles.view"><RoleManagement /></AppLayout>} />
 
         {/* Tanımsız URL */}
         <Route path="*" element={<Navigate to="/" replace />} />

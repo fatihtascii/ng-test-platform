@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
+import { testRunsApi, projectsApi, testPlansApi, testCasesApi } from '../api';
 import PermissionGuard from '../components/PermissionGuard';
 import {
   PlayCircle, Search, MoreVertical, X, Pencil, Trash2, Folder,
@@ -55,13 +56,14 @@ const Skeleton = ({ className }) => (
 // FIX: defaultForm bileşen dışında — her render'da yeni obje oluşturmuyor
 const makeDefaultForm = (firstProjectId = '') => ({
   name: '', description: '', status: 'Aktif',
-  project_id: firstProjectId, test_plan_id: '',
+  project_id: firstProjectId, test_plan_id: null,
 });
 
 // ── Ana Bileşen ────────────────────────────────────────────────────
 const TestRuns = () => {
-  const { can }  = usePermission();
-  const navigate = useNavigate();
+  const { can }    = usePermission();
+  const navigate   = useNavigate();
+  const location   = useLocation();
 
   const [testRuns,  setTestRuns]  = useState([]);
   const [projects,  setProjects]  = useState([]);
@@ -95,8 +97,6 @@ const TestRuns = () => {
   }, []);
   useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
-
   // Runner State
   const [isRunnerOpen,        setIsRunnerOpen]        = useState(false);
   const [runningTestRun,      setRunningTestRun]      = useState(null);
@@ -116,24 +116,21 @@ const TestRuns = () => {
   const fetchData = useCallback(async () => {
     setError(null);
     try {
-      const [projRes, runRes, plansRes] = await Promise.all([
-        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/test-runs`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/test-plans`).catch(() => ({ ok: false })),
+      const [projRes, runRes, plansRes] = await Promise.allSettled([
+        projectsApi.getAll(),
+        testRunsApi.getAll(),
+        testPlansApi.getAll(),
       ]);
-      if (projRes.ok)  setProjects(await projRes.json());
-      if (plansRes.ok) setTestPlans(await plansRes.json());
-      if (runRes.ok) {
-        const data = await runRes.json();
-        setTestRuns(data.sort((a, b) => b.id - a.id));
-      }
-      if (!projRes.ok || !runRes.ok) setError('Bazı veriler yüklenemedi.');
+      if (projRes.status  === 'fulfilled') setProjects(projRes.value.data);
+      if (plansRes.status === 'fulfilled') setTestPlans(plansRes.value.data);
+      if (runRes.status   === 'fulfilled') setTestRuns([...runRes.value.data].sort((a, b) => b.id - a.id));
+      if (projRes.status  !== 'fulfilled' || runRes.status !== 'fulfilled') setError('Bazı veriler yüklenemedi.');
     } catch {
       setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
     } finally {
       setLoading(false);
     }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -143,6 +140,22 @@ const TestRuns = () => {
     return () => document.removeEventListener('click', close);
   }, [fetchData]);
 
+  // Query param handler — TestPlans'tan "Koşum Başlat" ile gelindiğinde
+  useEffect(() => {
+    const params    = new URLSearchParams(location.search);
+    const planId    = params.get('plan_id');
+    const projectId = params.get('project_id');
+    if (planId || projectId) {
+      setCurrentTestRun(makeDefaultForm(projectId || ''));
+      if (planId) {
+        setCurrentTestRun(prev => ({ ...prev, test_plan_id: planId, project_id: projectId || prev.project_id }));
+      }
+      setModalMode('create');
+      setIsPanelOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   // ── CRUD İşlemleri ──────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     setFormError('');
@@ -150,9 +163,6 @@ const TestRuns = () => {
     if (!currentTestRun.project_id)  { setFormError('Proje seçiniz.'); return; }
     setIsSubmitting(true);
     try {
-      const url    = modalMode === 'create' ? `${API_BASE}/test-runs` : `${API_BASE}/test-runs/${currentTestRun.id}`;
-      const method = modalMode === 'create' ? 'POST' : 'PUT';
-
       const payload = {
         ...currentTestRun,
         project_id:   Number(currentTestRun.project_id),
@@ -164,34 +174,23 @@ const TestRuns = () => {
       // FIX: project_id NaN ise erken durdur
       if (isNaN(payload.project_id)) { setFormError('Geçersiz proje seçimi.'); setIsSubmitting(false); return; }
 
-      const res = await fetch(url, {
-        method, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        setIsPanelOpen(false); fetchData();
-        showToast('success', modalMode === 'create' ? 'Koşum başarıyla oluşturuldu.' : 'Koşum güncellendi.');
-      } else {
-        setFormError(await parseApiError(res));
-      }
-    } catch { setFormError('Sunucuya ulaşılamadı.'); }
+      if (modalMode === 'create') await testRunsApi.create(payload);
+      else await testRunsApi.update(currentTestRun.id, payload);
+      setIsPanelOpen(false); fetchData();
+      showToast('success', modalMode === 'create' ? 'Koşum başarıyla oluşturuldu.' : 'Koşum güncellendi.');
+    } catch (err) { setFormError(err.message || 'Sunucuya ulaşılamadı.'); }
     finally  { setIsSubmitting(false); }
-  }, [currentTestRun, modalMode, API_BASE, fetchData, showToast]);
+  }, [currentTestRun, modalMode, fetchData, showToast]);
 
   const handleDelete = useCallback(async (id) => {
     setIsDeleting(true);
     try {
-      const res = await fetch(`${API_BASE}/test-runs/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setTestRuns(prev => prev.filter(r => r.id !== id));
-        showToast('success', 'Koşum kalıcı olarak silindi.');
-      } else {
-        showToast('error', await parseApiError(res));
-      }
-    } catch { showToast('error', 'Sunucuya ulaşılamadı.'); }
+      await testRunsApi.remove(id);
+      setTestRuns(prev => prev.filter(r => r.id !== id));
+      showToast('success', 'Koşum kalıcı olarak silindi.');
+    } catch (err) { showToast('error', err.message || 'Silinemedi.'); }
     finally  { setIsDeleting(false); setDeleteConfirm(null); }
-  }, [API_BASE, showToast]);
+  }, [showToast]);
 
   const openCreatePanel = useCallback(() => {
     setModalMode('create');
@@ -215,10 +214,8 @@ const TestRuns = () => {
     setIsRunnerLoading(true); // FIX: loading başlat
 
     try {
-      const res = await fetch(`${API_BASE}/test-cases`);
-      if (!res.ok) throw new Error('Test senaryoları alınamadı.');
-
-      const all      = await res.json();
+      const tcRes = await testCasesApi.getAll();
+      const all = tcRes.data;
       let filtered   = all.filter(tc => tc.project_id === run.project_id);
 
       // Test planı bağlıysa filtrele
@@ -246,19 +243,23 @@ const TestRuns = () => {
       });
       setCurrentRunResults(results);
 
-      // İlk Pending teste aç
-      const firstPending = filtered.find(tc => {
+      // Öncelik: Failed + hata notu dolu olan ilk test → Pending → ilk test
+      const firstFailed = filtered.find(tc => {
+        const r = existing.find(r => r.test_case_id === tc.id);
+        return r?.status === 'Failed' && r?.actual_result;
+      });
+      const firstPending = !firstFailed && filtered.find(tc => {
         const r = existing.find(r => r.test_case_id === tc.id);
         return !r || r.status === 'Pending';
       });
-      setExpandedCaseId(firstPending?.id ?? filtered[0]?.id ?? null);
+      setExpandedCaseId(firstFailed?.id ?? firstPending?.id ?? filtered[0]?.id ?? null);
 
     } catch (err) {
       showToast('error', err.message || 'Test senaryoları yüklenemedi.');
     } finally {
       setIsRunnerLoading(false); // FIX: loading bitir
     }
-  }, [API_BASE, testPlans, showToast]);
+  }, [testPlans, showToast]);
 
   const closeTestRunner = useCallback(() => {
     if (hasUnsavedChanges) {
@@ -314,26 +315,22 @@ const TestRuns = () => {
     if (!runningTestRun) return;
     setIsDefectCreating(true);
     try {
+      // Backend TestRun şeması: name zorunlu, status geçerli değerlerden biri olmalı.
+      // (Eski payload title/'Açık' gönderdiği için istek her zaman 422 alıyordu.)
       const payload = {
-        title:       `[Oto-Defect] ${tcTitle} - Koşum Hatası`,
-        description: `**Test Koşumu:** ${runningTestRun.name}\n**Test Case ID:** #${tcId}\n\n**Bulgu / Hata Notu:**\n${note}`,
-        status:      'Açık',
-        priority:    'Yüksek',
-        project_id:  runningTestRun.project_id,
+        name:         `[Oto-Defect] ${tcTitle} - Koşum Hatası`,
+        description:  `**Test Koşumu:** ${runningTestRun.name}\n**Test Case ID:** #${tcId}\n\n**Bulgu / Hata Notu:**\n${note}`,
+        status:       'Başarısız',
+        project_id:   runningTestRun.project_id,
+        test_plan_id: runningTestRun.test_plan_id ?? null,
+        is_defect:    true,
+        results:      JSON.stringify([{ case_id: tcId, status: 'Failed', error: note }]),
       };
-      const res = await fetch(`${API_BASE}/defects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        showToast('success', '🔥 Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
-      } else {
-        showToast('error', await parseApiError(res));
-      }
-    } catch { showToast('error', 'Defect API servisine ulaşılamadı.'); }
+      await testRunsApi.create(payload);
+      showToast('success', '🔥 Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
+    } catch (err) { showToast('error', err.message || 'Defect API servisine ulaşılamadı.'); }
     finally  { setIsDefectCreating(false); }
-  }, [API_BASE, runningTestRun, showToast]);
+  }, [runningTestRun, showToast]);
 
   const handleBulkStatusChange = useCallback((status) => {
     if (!can('test_runs.execute')) return;
@@ -347,21 +344,14 @@ const TestRuns = () => {
     setIsSavingRun(true);
     try {
       const updated = { ...runningTestRun, results: JSON.stringify(currentRunResults) };
-      const res = await fetch(`${API_BASE}/test-runs/${runningTestRun.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      });
-      if (res.ok) {
-        setRunningTestRun(updated);
-        setHasUnsavedChanges(false);
-        fetchData();
-        showToast('success', 'İlerleme ara kayıt olarak kaydedildi.');
-      } else {
-        showToast('error', await parseApiError(res));
-      }
-    } catch { showToast('error', 'Bağlantı hatası, kaydedilemedi.'); }
+      await testRunsApi.update(runningTestRun.id, updated);
+      setRunningTestRun(updated);
+      setHasUnsavedChanges(false);
+      fetchData();
+      showToast('success', 'İlerleme ara kayıt olarak kaydedildi.');
+    } catch (err) { showToast('error', err.message || 'Bağlantı hatası, kaydedilemedi.'); }
     finally  { setIsSavingRun(false); }
-  }, [runningTestRun, currentRunResults, API_BASE, can, fetchData, showToast]);
+  }, [runningTestRun, currentRunResults, can, fetchData, showToast]);
 
   const finishTestRun = useCallback(async () => {
     if (!runningTestRun || !can('test_runs.execute')) return;
@@ -373,24 +363,17 @@ const TestRuns = () => {
     setIsSavingRun(true);
     try {
       const updated = { ...runningTestRun, status: 'Tamamlandı', results: JSON.stringify(currentRunResults) };
-      const res = await fetch(`${API_BASE}/test-runs/${runningTestRun.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      });
-      if (res.ok) {
-        setHasUnsavedChanges(false);
-        setIsRunnerOpen(false);
-        setRunningTestRun(null);
-        setProjectTestCases([]);
-        setCurrentRunResults([]);
-        fetchData();
-        showToast('success', 'Koşum tamamlandı ve başarıyla kaydedildi.');
-      } else {
-        showToast('error', await parseApiError(res));
-      }
-    } catch { showToast('error', 'Sunucuya ulaşılamadı.'); }
+      await testRunsApi.update(runningTestRun.id, updated);
+      setHasUnsavedChanges(false);
+      setIsRunnerOpen(false);
+      setRunningTestRun(null);
+      setProjectTestCases([]);
+      setCurrentRunResults([]);
+      fetchData();
+      showToast('success', 'Koşum tamamlandı ve başarıyla kaydedildi.');
+    } catch (err) { showToast('error', err.message || 'Sunucuya ulaşılamadı.'); }
     finally  { setIsSavingRun(false); }
-  }, [runningTestRun, currentRunResults, API_BASE, can, fetchData, showToast]);
+  }, [runningTestRun, currentRunResults, can, fetchData, showToast]);
 
   // ── Yardımcı Hesaplamalar ────────────────────────────────────────
   const calculateProgress = useCallback((resultsStr) => {

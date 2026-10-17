@@ -4,6 +4,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 const CACHE_KEY    = 'ng-permissions-cache';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+// FIX: API_BASE hardcoded 'http://127.0.0.1:8000' yerine env'den okunuyor.
+// Eski haliyle production'da backend'e ulaşamazdı.
+const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
 // Statik fallback — /roles 401 veya network hatası alırsa kullanılır
 const STATIC_ROLE_PERMISSIONS = {
   admin: [
@@ -17,6 +21,7 @@ const STATIC_ROLE_PERMISSIONS = {
     'automation.view','automation.execute',
     'environments.view','environments.manage',
     'roles.view','roles.manage',
+    'integrations.view','integrations.manage',
   ],
   manager: [
     'projects.view','projects.create','projects.edit',
@@ -69,7 +74,6 @@ const saveCache = (role, permissions) => {
   } catch { /* ignore */ }
 };
 
-// Tüm permission cache'lerini temizle (logout'ta çağır)
 export const clearPermissionCache = () => {
   try {
     Object.keys(sessionStorage)
@@ -80,25 +84,21 @@ export const clearPermissionCache = () => {
 
 // ── Hook ─────────────────────────────────────────────────────────
 export const usePermission = () => {
-  // Kullanıcı bilgisini bir kere oku — render döngüsü yaratmamak için ref kullan
   const userRef = useRef(null);
   if (!userRef.current) {
     try { userRef.current = JSON.parse(localStorage.getItem('user')); } catch {}
   }
   const role = userRef.current?.role || 'viewer';
 
-  // Cache'den başlangıç değerini al — varsa fetch'e hiç gitme
   const [permissions, setPermissions] = useState(() => {
     const cached = loadCache(role);
     return cached ?? STATIC_ROLE_PERMISSIONS[role] ?? STATIC_ROLE_PERMISSIONS.viewer;
   });
   const [loading, setLoading] = useState(false);
 
-  // Sadece bir kere çalışsın — sonsuz döngüyü önlemek için mounted ref
   const fetchedRef = useRef(false);
 
   const fetchPermissions = useCallback(async () => {
-    // Cache varsa backend'e gitme
     const cached = loadCache(role);
     if (cached) {
       setPermissions(cached);
@@ -107,78 +107,46 @@ export const usePermission = () => {
 
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:8000/roles', {
-        signal: AbortSignal.timeout(5000), // 5 saniye timeout
+      // /auth/me oturumdaki kullanıcının rol izinlerini döner (roles.view izni gerekmez)
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        signal: AbortSignal.timeout(5000),
       });
 
       if (res.ok) {
-        const roles = await res.json();
-        const userRole = roles.find(r => r.name === role);
-        // Backend RolePermission nesnesi döndürüyor, .key veya direkt string olabilir
-        const perms = (userRole?.permissions ?? []).map(p =>
-          typeof p === 'string' ? p : (p.key ?? '')
-        ).filter(Boolean);
+        const me = await res.json();
+        const perms = (me?.permissions ?? []).filter(Boolean);
 
         if (perms.length > 0) {
           saveCache(role, perms);
           setPermissions(perms);
         } else {
-          // Backend boş döndürdü — statik fallback kullan
           setPermissions(STATIC_ROLE_PERMISSIONS[role] ?? STATIC_ROLE_PERMISSIONS.viewer);
         }
       } else {
-        // 401, 403, 500 vb. — statik fallback
-        console.warn(`[usePermission] /roles ${res.status} — statik fallback kullanılıyor`);
+        console.warn(`[usePermission] /auth/me ${res.status} — statik fallback`);
         setPermissions(STATIC_ROLE_PERMISSIONS[role] ?? STATIC_ROLE_PERMISSIONS.viewer);
       }
     } catch (err) {
-      // Network hatası, timeout vb. — statik fallback
-      console.warn('[usePermission] Backend erişilemiyor — statik fallback kullanılıyor:', err.message);
+      console.warn('[usePermission] Backend erişilemiyor — statik fallback:', err.message);
       setPermissions(STATIC_ROLE_PERMISSIONS[role] ?? STATIC_ROLE_PERMISSIONS.viewer);
     } finally {
       setLoading(false);
     }
   }, [role]);
 
-  // Sadece ilk mount'ta çalış — role değişiminde sonsuz döngüye girme
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-
     const cached = loadCache(role);
-    if (!cached) {
-      fetchPermissions();
-    }
+    if (!cached) fetchPermissions();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Sorgu fonksiyonları ──────────────────────────────────────────
-  const can = useCallback((key) => {
-    if (role === 'admin') return true;
-    return permissions.includes(key);
-  }, [permissions, role]);
+  const can    = useCallback((key)    => role === 'admin' || permissions.includes(key),  [permissions, role]);
+  const canAny = useCallback((keys=[])=> role === 'admin' || keys.some(k => permissions.includes(k)),  [permissions, role]);
+  const canAll = useCallback((keys=[])=> role === 'admin' || keys.every(k => permissions.includes(k)), [permissions, role]);
 
-  const canAny = useCallback((keys = []) => {
-    if (role === 'admin') return true;
-    return keys.some(k => permissions.includes(k));
-  }, [permissions, role]);
-
-  const canAll = useCallback((keys = []) => {
-    if (role === 'admin') return true;
-    return keys.every(k => permissions.includes(k));
-  }, [permissions, role]);
-
-  return {
-    can,
-    canAny,
-    canAll,
-    permissions,
-    role,
-    loading,
-    isAdmin:  role === 'admin',
-    isViewer: role === 'viewer',
-    refetch:  fetchPermissions,
-  };
+  return { can, canAny, canAll, permissions, role, loading, isAdmin: role === 'admin', isViewer: role === 'viewer', refetch: fetchPermissions };
 };
 
 export default usePermission;

@@ -1,12 +1,12 @@
 import { useEffect, useCallback } from 'react';
+import { clearSession } from '../auth';
 
 const useAutoLogout = (timeoutInMinutes = 5) => {
   const timeoutMs = timeoutInMinutes * 60 * 1000;
 
   const logout = useCallback(() => {
     if (localStorage.getItem('user')) {
-      localStorage.removeItem('user');
-      localStorage.removeItem('lastActivityTime'); // İzleri temizle
+      clearSession(); // user, token ve aktivite izlerini temizler
       window.location.href = '/login'; 
     }
   }, []);

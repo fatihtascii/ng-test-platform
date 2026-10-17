@@ -1,20 +1,28 @@
-// frontend/src/api.js
 import axios from 'axios';
+import { API_BASE, getToken, redirectToLogin } from './auth';
 
-// ── Base URL — .env dosyasından okunur ────────────────────────
-// .env dosyasına ekle: VITE_API_URL=http://127.0.0.1:8000
+/**
+ * ── YAPILAN DÜZELTMELER ───────────────────────────────────────
+ * 1. Pydantic Hata Formatlama: Liste olarak gelen hatalar daha okunabilir hale getirildi.
+ * 2. Token Yönetimi: 'access_token' ve 'token' anahtarları arasında tam uyum sağlandı.
+ * 3. HTTP Metotları: Backend beklentilerine göre PATCH ve PUT metotları stabilize edildi.
+ * 4. Defect Entegrasyonu: Backend yapısına uygun is_defect filtresi eklendi.
+ * ─────────────────────────────────────────────────────────────
+ */
+
+const BASE_URL = API_BASE;
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000',
-  timeout: 15000, // 15 saniye timeout — cevap vermezse beklemez
+  baseURL: BASE_URL,
+  timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// ── REQUEST interceptor — her isteğe otomatik token ekle ──────
+// ── REQUEST INTERCEPTOR (Kimlik Doğrulama) ────────────────────
 api.interceptors.request.use(
   (config) => {
-    // localStorage'dan token oku (varsa Authorization header'a ekle)
-    // Şu an token sistemi yoksa bu satırlar hazır bekler, zarar vermez
-    const token = localStorage.getItem('access_token');
+    // Hem 'access_token' hem 'token' anahtarlarını kontrol et
+    const token = getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -23,120 +31,121 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ── RESPONSE interceptor — hataları merkezi yakala ────────────
+// ── RESPONSE INTERCEPTOR (Hata Yönetimi) ──────────────────────
 api.interceptors.response.use(
-  // Başarılı cevap — dokunma, direkt geç
   (response) => response,
-
-  // Hatalı cevap — merkezi yönet
   (error) => {
-    const status  = error.response?.status;
-    const detail  = error.response?.data?.detail;
+    const status = error.response?.status;
+    const detail = error.response?.data?.detail;
 
-    // 401 Unauthorized — oturum süresi dolmuş, login'e yönlendir
-    if (status === 401) {
-      localStorage.removeItem('user');
-      localStorage.removeItem('access_token');
-      // Zaten login sayfasındaysa döngüye girme
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
+    // 401 Unauthorized: Oturumu temizle ve login'e yönlendir
+    // (login denemesindeki 401 "şifre hatalı" demektir, yönlendirme yapılmaz)
+    if (status === 401 && !error.config?.url?.includes('/auth/login')) {
+      redirectToLogin();
     }
 
-    // 403 Forbidden — yetkisiz işlem
-    if (status === 403) {
-      console.warn('[API] Yetkisiz işlem:', detail || 'Bu işlem için yetkiniz yok.');
+    // Pydantic/FastAPI validation hatalarını düzgün bir mesajda birleştir
+    let message = 'Beklenmedik bir hata oluştu.';
+    if (Array.isArray(detail)) {
+      // Örn: "username: field required, password: too short"
+      message = detail.map((d) => `${d.loc?.at(-1) || 'Hata'}: ${d.msg}`).join(' | ');
+    } else if (typeof detail === 'string') {
+      message = detail;
+    } else {
+      message = error.message;
     }
 
-    // 500 Server Error — backend hatası
-    if (status >= 500) {
-      console.error('[API] Sunucu hatası:', detail || error.message);
-    }
-
-    // Hata nesnesine okunabilir mesaj ekle
-    const message =
-      detail ||
-      error.message ||
-      'Beklenmedik bir hata oluştu.';
-
-    // Orijinal hata nesnesine mesajı ekleyerek fırlat
-    // Sayfalarda: catch(err) => err.message ile okunabilir
     return Promise.reject(new Error(message));
   }
 );
 
 export default api;
 
-// ── Modüler endpoint fonksiyonları (isteğe bağlı kullanım) ────
-// Sayfada direkt api.get('/projects') yerine
-// import { projectsApi } from '../api' şeklinde de kullanılabilir
-
-export const projectsApi = {
-  getAll:  ()       => api.get('/projects'),
-  getOne:  (id)     => api.get(`/projects/${id}`),
-  create:  (data)   => api.post('/projects', data),
-  update:  (id, data) => api.put(`/projects/${id}`, data),
-  remove:  (id)     => api.delete(`/projects/${id}`),
-};
-
-export const testCasesApi = {
-  getAll:       (params) => api.get('/test-cases', { params }),
-  getOne:       (id)     => api.get(`/test-cases/${id}`),
-  create:       (data)   => api.post('/test-cases', data),
-  update:       (id, data) => api.put(`/test-cases/${id}`, data),
-  remove:       (id)     => api.delete(`/test-cases/${id}`),
-  generateBDD:  (data)   => api.post('/test-cases/generate-bdd-code', data),
-};
-
-export const testPlansApi = {
-  getAll:       ()         => api.get('/test-plans'),
-  getOne:       (id)       => api.get(`/test-plans/${id}`),
-  create:       (data)     => api.post('/test-plans', data),
-  update:       (id, data) => api.put(`/test-plans/${id}`, data),
-  remove:       (id)       => api.delete(`/test-plans/${id}`),
-  addItem:      (id, data) => api.post(`/test-plans/${id}/items`, data),
-  updateItem:   (planId, itemId, data) => api.patch(`/test-plans/${planId}/items/${itemId}`, data),
-  removeItem:   (planId, itemId) => api.delete(`/test-plans/${planId}/items/${itemId}`),
-};
-
-export const testRunsApi = {
-  getAll:  ()         => api.get('/test-runs'),
-  getOne:  (id)       => api.get(`/test-runs/${id}`),
-  create:  (data)     => api.post('/test-runs', data),
-  update:  (id, data) => api.put(`/test-runs/${id}`, data),
-  remove:  (id)       => api.delete(`/test-runs/${id}`),
-};
-
-export const usersApi = {
-  getAll:         ()         => api.get('/users'),
-  create:         (data)     => api.post('/users', data),
-  update:         (id, data) => api.put(`/users/${id}`, data),
-  remove:         (id)       => api.delete(`/users/${id}`),
-  updateRole:     (id, data) => api.put(`/users/${id}/role`, data),
-  updatePassword: (id, data) => api.put(`/users/${id}/password`, data),
-};
+// ── MODÜLER ENDPOINT'LER ──────────────────────────────────────
 
 export const authApi = {
   login:    (data) => api.post('/auth/login', data),
   register: (data) => api.post('/auth/register', data),
+  me:       ()     => api.get('/auth/me'),
+  updateMe: (data) => api.patch('/auth/me', data),
+  changeMyPassword: (data) => api.post('/auth/me/password', data),
+};
+
+export const projectsApi = {
+  getAll:  ()           => api.get('/projects'),
+  getOne:  (id)         => api.get(`/projects/${id}`),
+  create:  (data)       => api.post('/projects', data),
+  update:  (id, data)   => api.put(`/projects/${id}`, data),
+  remove:  (id)         => api.delete(`/projects/${id}`),
+};
+
+export const testCasesApi = {
+  getAll:      (params)   => api.get('/test-cases', { params }),
+  getOne:      (id)       => api.get(`/test-cases/${id}`),
+  create:      (data)     => api.post('/test-cases', data),
+  update:      (id, data) => api.put(`/test-cases/${id}`, data),
+  remove:      (id)       => api.delete(`/test-cases/${id}`),
+  bulkDelete:  (data)     => api.post('/test-cases/bulk/delete', data),
+  bulkStatus:  (data)     => api.patch('/test-cases/bulk/status', data),
+  generateBDD: (data)     => api.post('/test-cases/generate-bdd-code', data),
+};
+
+export const testPlansApi = {
+  getAll:     ()              => api.get('/test-plans'),
+  getOne:     (id)            => api.get(`/test-plans/${id}`),
+  create:     (data)          => api.post('/test-plans', data),
+  update:     (id, data)      => api.put(`/test-plans/${id}`, data),
+  remove:     (id)            => api.delete(`/test-plans/${id}`),
+  addItem:    (id, data)      => api.post(`/test-plans/${id}/items`, data),
+  updateItem: (planId, itemId, data) => api.patch(`/test-plans/${planId}/items/${itemId}`, data),
+  removeItem: (planId, itemId)       => api.delete(`/test-plans/${planId}/items/${itemId}`),
+};
+
+export const testRunsApi = {
+  getAll:  ()           => api.get('/test-runs'),
+  getOne:  (id)         => api.get(`/test-runs/${id}`),
+  create:  (data)       => api.post('/test-runs', data),
+  update:  (id, data)   => api.put(`/test-runs/${id}`, data),
+  remove:  (id)         => api.delete(`/test-runs/${id}`),
+};
+
+export const usersApi = {
+  getAll:         ()           => api.get('/users'),
+  getOne:         (id)         => api.get(`/users/${id}`),
+  create:         (data)       => api.post('/users', data),
+  // Role güncellemesi için ayrı bir payload gönderilir
+  update:         (id, data)   => api.put(`/users/${id}`, data),
+  updateRole:     (id, role)   => api.put(`/users/${id}`, { role }),
+  updatePassword: (id, data)   => api.patch(`/users/${id}/password`, data),
+  remove:         (id)         => api.delete(`/users/${id}`),
 };
 
 export const rolesApi = {
-  getAll:           ()           => api.get('/roles'),
-  update:           (id, data)   => api.put(`/roles/${id}`, data),
-  updatePermissions:(id, data)   => api.put(`/roles/${id}/permissions`, data),
+  getAll:            ()           => api.get('/roles'),
+  create:            (data)       => api.post('/roles', data),
+  update:            (id, data)   => api.put(`/roles/${id}`, data),
+  remove:            (id)         => api.delete(`/roles/${id}`),
+  getPermissions:    ()           => api.get('/permissions'),
+  updatePermissions: (id, data)   => api.put(`/roles/${id}/permissions`, data),
 };
 
 export const environmentsApi = {
-  getAll:      () => api.get('/environments'),
-  create:      (data)     => api.post('/environments', data),
-  update:      (id, data) => api.put(`/environments/${id}`, data),
-  remove:      (id)       => api.delete(`/environments/${id}`),
+  getAll:  (params)   => api.get('/environments', { params }),
+  create:  (data)     => api.post('/environments', data),
+  update:  (id, data) => api.put(`/environments/${id}`, data),
+  remove:  (id)       => api.delete(`/environments/${id}`),
 };
 
 export const variablesApi = {
-  getAll:  ()         => api.get('/variables'),
+  getAll:  (params)   => api.get('/variables', { params }),
   create:  (data)     => api.post('/variables', data),
   update:  (id, data) => api.put(`/variables/${id}`, data),
   remove:  (id)       => api.delete(`/variables/${id}`),
+};
+
+export const defectsApi = {
+  // Defect'ler backend'de is_defect=true flag'i ile test-runs tablosunda tutulur
+  getAll: (params) => api.get('/test-runs', { params: { ...params, is_defect: true } }),
+  getOne: (id)     => api.get(`/test-runs/${id}`),
+  create: (data)   => api.post('/test-runs', { ...data, is_defect: true }),
 };
