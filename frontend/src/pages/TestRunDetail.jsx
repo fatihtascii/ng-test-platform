@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { testRunsApi, projectsApi, testCasesApi } from '../api';
 import { usePermission } from '../hooks/usePermission';
 import {
   ArrowLeft, PlayCircle, Folder, Clock, CheckCircle2,
@@ -55,38 +56,32 @@ const TestRunDetail = () => {
   const [error, setError]       = useState(null);
   const [activeFilter, setActiveFilter] = useState('All');
 
-  // ✅ Dinamik API Base URL
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const fetchDetail = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      // ✅ Domino Etkisi Çözüldü: Ana koşum verisi dışındakiler hata verse de sayfa çalışır
-      const [runRes, projsRes, casesRes] = await Promise.all([
-        fetch(`${API_BASE}/test-runs`), // Bu zorunlu
-        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
+      // FIX: /test-runs/{id} direkt endpoint kullanılıyor — tüm listeyi çekmek yerine
+      const [runRes, projsRes, casesRes] = await Promise.allSettled([
+        testRunsApi.getOne(id),
+        projectsApi.getAll(),
+        testCasesApi.getAll(),
       ]);
 
-      if (!runRes.ok) throw new Error('Koşumlar yüklenemedi.');
+      if (runRes.status !== 'fulfilled') throw new Error('Koşum bulunamadı.');
 
-      const runs  = await runRes.json();
-      const projs = projsRes.ok ? await projsRes.json() : [];
-      const tcs   = casesRes.ok ? await casesRes.json() : [];
-
-      const found = runs.find(r => String(r.id) === String(id));
-      if (!found) throw new Error('Koşum bulunamadı.');
-
+      const found = runRes.value.data;
       setRun(found);
-      setProject(projs.find(p => p.id === found.project_id) || null);
-      setTestCases(tcs);
+      if (projsRes.status === 'fulfilled') {
+        setProject(projsRes.value.data.find(p => p.id === found.project_id) || null);
+      }
+      if (casesRes.status === 'fulfilled') setTestCases(casesRes.value.data);
     } catch (err) {
       setError(err.message || 'Veri yüklenemedi.');
     } finally {
       setLoading(false);
     }
-  }, [id, API_BASE]);
+  }, [id]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 

@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.base import Base
 
+
 class TestPlan(Base):
     __tablename__ = "test_plans"
 
@@ -11,16 +12,25 @@ class TestPlan(Base):
     description = Column(Text,        nullable=True)
     status      = Column(String(30),  default="Aktif", nullable=False)
     project_id  = Column(Integer,     ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    start_date  = Column(String(10),  nullable=True)   # "YYYY-MM-DD"
+    start_date  = Column(String(10),  nullable=True)
     end_date    = Column(String(10),  nullable=True)
     created_at  = Column(DateTime,    server_default=func.now(), nullable=False)
     updated_at  = Column(DateTime,    server_default=func.now(), onupdate=func.now())
 
-    project = relationship("Project",      back_populates="test_plans")
-    items   = relationship("TestPlanItem", back_populates="plan", cascade="all, delete-orphan")
+    project   = relationship("Project",      back_populates="test_plans")
+    items     = relationship("TestPlanItem", back_populates="plan", cascade="all, delete-orphan")
+
+    # FIX: TestRun.test_plan_id FK'sinin back_populates'u
+    test_runs = relationship(
+        "TestRun",
+        back_populates="test_plan",
+        foreign_keys="TestRun.test_plan_id",
+        lazy="select",
+    )
 
     def __repr__(self):
-        return f"<TestPlan id={self.id} title={self.title[:40]}>"
+        return f"<TestPlan id={self.id} title={self.title[:40]!r}>"
+
 
 class TestPlanItem(Base):
     __tablename__ = "test_plan_items"
@@ -39,4 +49,4 @@ class TestPlanItem(Base):
     )
 
     def __repr__(self):
-        return f"<TestPlanItem plan={self.plan_id} case={self.test_case_id} status={self.run_status}>"
+        return f"<TestPlanItem plan={self.plan_id} case={self.test_case_id} status={self.run_status!r}>"

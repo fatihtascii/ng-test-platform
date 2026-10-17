@@ -13,7 +13,8 @@ class TestCase(Base):
     id    = Column(Integer, primary_key=True, index=True)
     title = Column(String(500), index=True, nullable=False)
 
-    # JSON string olarak adımları ve meta bilgileri tutar
+    # 🚀 POSTGRESQL AVANTAJI: Text tipi 1GB'a kadar veri alır.
+    # Base64 görselleri içeren devasa JSON verisi buraya sorunsuzca sığacaktır.
     description = Column(Text, nullable=True)
 
     status   = Column(String(30), default="Test Edilmedi", nullable=False)
@@ -26,15 +27,11 @@ class TestCase(Base):
         Integer,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,  # FIX: Yalnız project_id sorguları için tek kolon index
+        index=True,
     )
 
-    # FIX: server_default eklendi — ORM bypass edilerek yapılan INSERT'lerde
-    # de "[]" varsayılanı garantilenir.
     tags = Column(Text, default="[]", server_default="[]", nullable=False)
 
-    # FIX: execution_type için server_default eklendi.
-    # CheckConstraint DB seviyesinde geçersiz değerleri engeller.
     execution_type = Column(
         String(50),
         default="Manual",
@@ -47,9 +44,6 @@ class TestCase(Base):
 
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
-    # FIX: onupdate=func.now() yalnızca ORM üzerinden yapılan UPDATE'lerde çalışır.
-    # Direkt SQL UPDATE'lerinde güncellenmez — bu SQLAlchemy'nin bilinen sınırlamasıdır.
-    # PostgreSQL kullanıyorsanız trigger ile de destekleyebilirsiniz (opsiyonel).
     updated_at = Column(
         DateTime,
         server_default=func.now(),
@@ -67,32 +61,23 @@ class TestCase(Base):
 
     # ── Index & Constraint'ler ───────────────────────────────────
     __table_args__ = (
-        # Mevcut: proje bazlı durum sorgularını hızlandırır
         Index("ix_test_cases_project_status", "project_id", "status"),
-
-        # FIX: Otomasyon sayfası execution_type'a göre filtreler — index gerekli
         Index("ix_test_cases_project_execution", "project_id", "execution_type"),
 
-        # FIX: DB seviyesinde geçersiz status değerlerini engeller
         CheckConstraint(
             "status IN ('Taslak', 'Test Edilmedi', 'Başarılı', 'Başarısız')",
             name="ck_test_cases_status",
         ),
-
-        # FIX: DB seviyesinde geçersiz priority değerlerini engeller
         CheckConstraint(
             "priority IN ('Düşük', 'Orta', 'Yüksek', 'Kritik')",
             name="ck_test_cases_priority",
         ),
-
-        # FIX: DB seviyesinde geçersiz execution_type değerlerini engeller
         CheckConstraint(
             "execution_type IN ('Manual', 'Automated')",
             name="ck_test_cases_execution_type",
         ),
     )
 
-    # FIX: title None ise __repr__ patlamaz
     def __repr__(self) -> str:
         safe_title = (self.title or "")[:40]
         return f"<TestCase id={self.id} title={safe_title!r}>"

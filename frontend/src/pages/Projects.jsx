@@ -6,7 +6,7 @@ import {
   Plus, Search, Folder, MoreVertical, X,
   Pencil, Trash2, Filter, AlertCircle, CheckCircle2,
   Loader2, ArrowUpDown, LayoutGrid, List, ChevronRight
-} from 'lucide-react'; // ✅ KULLANILMAYAN İKONLAR (Activity, Beaker) TEMİZLENDİ
+} from 'lucide-react';
 
 // ── Yardımcı Stiller ──────────────────────────────────────────
 const getStatusStyle = (status) => {
@@ -48,7 +48,7 @@ const Projects = () => {
 
   const [toast, setToast] = useState(null);
   
-  // ✅ Dinamik API Base URL
+  // API Base URL
   const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const showToast = useCallback((type, message) => {
@@ -89,9 +89,13 @@ const Projects = () => {
   const projectStats = useMemo(() => {
     const statsMap = {};
     projects.forEach(p => {
-      const tcs = testCases.filter(tc => tc.project_id === p.id);
+      // ✅ DÜZELTME: id için fallback sağladık
+      const pid = p.id || p._id || p.project_id;
+      if (!pid) return; // Geçersiz projeleri atla
+      
+      const tcs = testCases.filter(tc => tc.project_id === pid);
       const passed = tcs.filter(tc => tc.status === 'Başarılı' || tc.status === 'Passed').length;
-      statsMap[p.id] = {
+      statsMap[pid] = {
         total: tcs.length,
         passed,
         rate: tcs.length > 0 ? Math.round((passed / tcs.length) * 100) : null
@@ -104,21 +108,20 @@ const Projects = () => {
     // 1. Filtreleme
     let result = projects.filter(p => {
       const q = searchTerm.toLowerCase();
-      const matchSearch = p.name.toLowerCase().includes(q) || 
+      const matchSearch = p.name?.toLowerCase().includes(q) || 
                           (p.description?.toLowerCase().includes(q)) ||
-                          String(p.id).includes(q);
+                          String(p.id || '').includes(q);
       const matchStatus = statusFilter === 'All' || p.status === statusFilter;
       return matchSearch && matchStatus;
     });
 
     // 2. Sıralama
     if (sortBy === 'name_asc') {
-      result.sort((a, b) => a.name.localeCompare(b.name));
+      result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     } else if (sortBy === 'name_desc') {
-      result.sort((a, b) => b.name.localeCompare(a.name));
+      result.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
     } else {
-      // Varsayılan: Yeniden Eskiye
-      result.sort((a, b) => b.id - a.id);
+      result.sort((a, b) => (b.id || 0) - (a.id || 0));
     }
 
     return result;
@@ -134,7 +137,8 @@ const Projects = () => {
     
     try {
       const isCreate = modalMode === 'create';
-      const url = isCreate ? `${API_BASE}/projects` : `${API_BASE}/projects/${currentProject.id}`;
+      const pid = currentProject.id || currentProject._id; // Güvenli ID
+      const url = isCreate ? `${API_BASE}/projects` : `${API_BASE}/projects/${pid}`;
       const method = isCreate ? 'POST' : 'PUT';
       
       const res = await fetch(url, {
@@ -148,15 +152,18 @@ const Projects = () => {
       });
 
       if (res.ok) {
-        const savedProject = await res.json();
+        const resData = await res.json();
+        // ✅ DÜZELTME: FastAPI/Backend veriyi { data: {...} } şeklinde dönerse diye extraction güvencesi.
+        const savedProject = resData.data ? resData.data : resData;
+
         if (isCreate) setProjects(prev => [savedProject, ...prev]);
-        else setProjects(prev => prev.map(p => p.id === savedProject.id ? savedProject : p));
+        else setProjects(prev => prev.map(p => (p.id === savedProject.id || p._id === savedProject._id) ? savedProject : p));
         
         setIsModalOpen(false);
         showToast('success', isCreate ? 'Proje başarıyla oluşturuldu.' : 'Proje güncellendi.');
       } else {
         const errData = await res.json().catch(() => ({ detail: 'İşlem başarısız oldu.' }));
-        setFormError(errData.detail);
+        setFormError(errData.detail || 'Bir sorun oluştu.');
       }
     } catch {
       setFormError('Sunucu hatası oluştu. Lütfen tekrar deneyin.');
@@ -170,7 +177,7 @@ const Projects = () => {
     try {
       const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        setProjects(prev => prev.filter(p => p.id !== id));
+        setProjects(prev => prev.filter(p => p.id !== id && p._id !== id));
         showToast('success', 'Proje sistemden kalıcı olarak silindi.');
       } else {
         showToast('error', 'Proje silinemedi.');
@@ -318,11 +325,14 @@ const Projects = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
                 {processedProjects.map((project) => {
-                  const stats = projectStats[project.id] || { total: 0, passed: 0, rate: null };
+                  // ✅ DÜZELTME: id için fallback
+                  const projectId = project.id || project._id || project.project_id;
+                  const stats = projectStats[projectId] || { total: 0, passed: 0, rate: null };
+                  
                   return (
                     <tr 
-                      key={project.id} 
-                      onClick={() => navigate(`/projects/${project.id}`)}
+                      key={projectId || Math.random()} 
+                      onClick={() => projectId && navigate(`/projects/${projectId}`)}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
                     >
                       <td className="px-5 py-4">
@@ -369,15 +379,15 @@ const Projects = () => {
 
                       <td className="px-5 py-4 text-right relative" onClick={(e) => e.stopPropagation()}>
                         <button
-                          onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === project.id ? null : project.id); }}
+                          onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === projectId ? null : projectId); }}
                           className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
                         >
                           <MoreVertical size={16} />
                         </button>
                         
-                        {activeDropdown === project.id && (
+                        {activeDropdown === projectId && (
                           <div className="absolute right-8 top-10 w-40 bg-white dark:bg-slate-900 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 z-50 py-1 animate-in fade-in zoom-in-95 text-left">
-                            <button onClick={() => navigate(`/projects/${project.id}`)} className="w-full px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2">
+                            <button onClick={() => navigate(`/projects/${projectId}`)} className="w-full px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2">
                               <ChevronRight size={14} /> Detaylara Git
                             </button>
                             <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
@@ -387,7 +397,7 @@ const Projects = () => {
                               </button>
                             )}
                             {can('projects.delete') && (
-                              <button onClick={() => { setDeleteConfirm(project.id); setActiveDropdown(null); }} className="w-full px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2">
+                              <button onClick={() => { setDeleteConfirm(projectId); setActiveDropdown(null); }} className="w-full px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2">
                                 <Trash2 size={14} /> Sil
                               </button>
                             )}
@@ -405,11 +415,12 @@ const Projects = () => {
         // GRİD GÖRÜNÜMÜ
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {processedProjects.map((project) => {
-            const stats = projectStats[project.id] || { total: 0, passed: 0, rate: null };
+            const projectId = project.id || project._id || project.project_id;
+            const stats = projectStats[projectId] || { total: 0, passed: 0, rate: null };
             return (
               <div 
-                key={project.id}
-                onClick={() => navigate(`/projects/${project.id}`)}
+                key={projectId || Math.random()}
+                onClick={() => projectId && navigate(`/projects/${projectId}`)}
                 className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-all cursor-pointer flex flex-col h-full group"
               >
                 <div className="flex justify-between items-start mb-3">

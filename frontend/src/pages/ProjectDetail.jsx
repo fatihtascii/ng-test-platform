@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
+import { projectsApi, testCasesApi } from '../api';
 import {
   ArrowLeft, Folder, Settings, Users, Beaker,
   Activity, AlertCircle, CheckCircle2, Clock,
@@ -45,7 +46,10 @@ const TABS = ['Genel Bakış', 'Test Senaryoları'];
 
 // ── Ana Bileşen ────────────────────────────────────────────────
 const ProjectDetail = () => {
-  const { id }   = useParams();
+  // ✅ DÜZELTME 1: Parametre isimlendirme çakışmalarına karşı güvenli hale getirdik.
+  const params = useParams();
+  const id = params.id || params.projectId; 
+
   const navigate = useNavigate();
   const { can }  = usePermission();
 
@@ -63,9 +67,6 @@ const ProjectDetail = () => {
 
   const tabsRef = useRef(null);
 
-  // ✅ Dinamik API Base URL
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
-
   const goToTab = (tab) => {
     setActiveTab(tab);
     setTimeout(() => tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
@@ -79,37 +80,44 @@ const ProjectDetail = () => {
 
   // 1. Proje verisi
   useEffect(() => {
+    // ✅ DÜZELTME 2: Gelen ID undefined ise boşuna istek atıp backend'i yormuyoruz ve 422 yemiyoruz.
+    if (!id || id === 'undefined') {
+      setError("Geçersiz proje bağlantısı (ID bulunamadı).");
+      setLoading(false);
+      return;
+    }
+
     const fetchProject = async () => {
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/projects/${id}`);
-        if (res.status === 404) setError('404');
-        else if (res.ok) setProject(await res.json());
-        else setError('Proje detayları yüklenemedi.');
-      } catch { setError('Sunucuya bağlanılamadı.'); }
+        const res = await projectsApi.getOne(id);
+        setProject(res.data);
+      } catch (err) {
+        // ✅ DÜZELTME 3: Hata mesajlarını daha anlaşılır yakalıyoruz.
+        if (err.message?.includes('404') || err.response?.status === 404) setError('404');
+        else if (err.response?.status === 422) setError('Backend: Doğrulama Hatası (ID geçersiz formatta).');
+        else setError(err.response?.data?.detail || err.message || 'Proje detayları yüklenemedi.');
+      }
       finally { setLoading(false); }
     };
     fetchProject();
-  }, [id, API_BASE]);
+  }, [id]);
 
   // 2. Test senaryoları
   useEffect(() => {
-    if (!project) return;
+    if (!project || !id || id === 'undefined') return;
     const fetchTCs = async () => {
       setTcLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/test-cases`);
-        if (res.ok) {
-          const all = await res.json();
-          setTestCases((all || []).filter(tc => String(tc.project_id) === String(id)));
-        }
+        const res = await testCasesApi.getAll({ project_id: id });
+        setTestCases(res.data || []);
       } catch { console.error('Test senaryoları çekilemedi.'); }
       finally { setTcLoading(false); }
     };
     fetchTCs();
-  }, [project, id, API_BASE]);
+  }, [project, id]);
 
-  // ── Hesaplamalar (✅ useMemo ile Optimize Edildi) ──────────────
+  // ── Hesaplamalar ──────────────
   const stats = useMemo(() => ({
     total:    testCases.length,
     passed:   testCases.filter(tc => tc.status === 'Başarılı' || tc.status === 'Passed').length,
@@ -167,16 +175,16 @@ const ProjectDetail = () => {
 
   if (error) return (
     <div className="flex flex-col items-center py-20 gap-4">
-      <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 text-rose-700 px-5 py-4 rounded-2xl text-sm font-bold">
-        <AlertCircle size={20} /> {error}
+      <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 text-rose-700 px-5 py-4 rounded-2xl text-sm font-bold shadow-sm">
+        <AlertCircle size={20} className="shrink-0" />
+        <span>{error}</span>
       </div>
-      <button onClick={() => navigate('/projects')} className="text-indigo-600 hover:underline font-bold text-sm">Geri Dön</button>
+      <button onClick={() => navigate('/projects')} className="mt-2 text-indigo-600 hover:text-indigo-700 hover:underline font-bold text-sm">Geri Dön ve Tekrar Dene</button>
     </div>
   );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20 max-w-7xl mx-auto">
-
       {/* HEADER */}
       <div className="flex items-start gap-4">
         <button onClick={() => navigate('/projects')}
@@ -221,7 +229,6 @@ const ProjectDetail = () => {
                     {testCases.length}
                   </span>
                 )}
-                {/* Active Indicator Line */}
                 {isActive && (
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-t-full" />
                 )}
@@ -254,7 +261,7 @@ const ProjectDetail = () => {
               ))}
             </div>
 
-            {/* Test Durum Özeti (İlerleme Çubukları) */}
+            {/* Test Durum Özeti */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm">
               <h3 className="text-base font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
                 <TrendingUp size={18} className="text-indigo-500" /> Test Durum Özeti

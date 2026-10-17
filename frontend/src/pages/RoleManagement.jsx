@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePermission } from '../hooks/usePermission';
+import { rolesApi, usersApi } from '../api';
 import {
   Shield, Users, Plus, Pencil, Trash2, X, Check,
   AlertCircle, CheckCircle2, Loader2, Lock, ChevronDown,
@@ -131,28 +132,22 @@ const RoleManagement = () => {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  // ✅ Dinamik API Base URL
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
-
   // ── Veri Çekme ─────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [rolesRes, permsRes, usersRes] = await Promise.all([
-        fetch(`${API_BASE}/roles`).catch(() => null),
-        fetch(`${API_BASE}/permissions`).catch(() => null),
-        fetch(`${API_BASE}/users`).catch(() => null),
+      const [rolesRes, permsRes, usersRes] = await Promise.allSettled([
+        rolesApi.getAll(),
+        rolesApi.getPermissions(),
+        usersApi.getAll(),
       ]);
-
-      const beOk = rolesRes?.ok && permsRes?.ok;
+      const beOk = rolesRes.status === 'fulfilled' && permsRes.status === 'fulfilled';
       setBackendAvailable(beOk);
-
       if (beOk) {
-        setRoles(await rolesRes.json());
-        setPermissions(await permsRes.json());
-        if (usersRes?.ok) setUsers(await usersRes.json());
+        setRoles(rolesRes.value.data);
+        setPermissions(permsRes.value.data);
+        if (usersRes.status === 'fulfilled') setUsers(usersRes.value.data);
       } else {
-        // Backend hazır değil — statik veri ile çalış
         setRoles(STATIC_ROLES);
         setPermissions(STATIC_PERMISSIONS);
         setUsers(STATIC_USERS);
@@ -164,7 +159,7 @@ const RoleManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -220,20 +215,12 @@ const RoleManagement = () => {
     try {
       if (backendAvailable) {
         // Gerçek API
-        const url    = panel === 'create' ? `${API_BASE}/roles` : `${API_BASE}/roles/${panelRole.id}`;
-        const method = panel === 'create' ? 'POST' : 'PUT';
-        const res = await fetch(url, {
-          method, headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: roleForm.name, display_name: roleForm.display_name, description: roleForm.description, color: roleForm.color }),
-        });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); setFormError(d.detail || 'Kaydedilemedi.'); return; }
-        const savedRole = await res.json();
-        
-        // İzinleri güncelle
-        await fetch(`${API_BASE}/roles/${savedRole.id}/permissions`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ permission_ids: selectedPermIds }),
-        });
+        const payload = { name: roleForm.name, display_name: roleForm.display_name, description: roleForm.description, color: roleForm.color };
+        const res = panel === 'create'
+          ? await rolesApi.create(payload)
+          : await rolesApi.update(panelRole.id, payload);
+        const savedRole = res.data;
+        await rolesApi.updatePermissions(savedRole.id, { permission_ids: selectedPermIds });
         await fetchData();
       } else {
         // Statik mod — local state güncelle
@@ -259,8 +246,7 @@ const RoleManagement = () => {
     setIsDeleting(true);
     try {
       if (backendAvailable) {
-        const res = await fetch(`${API_BASE}/roles/${id}`, { method: 'DELETE' });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); showToast('error', d.detail || 'Silinemedi.'); return; }
+        await rolesApi.remove(id);
         await fetchData();
       } else {
         setRoles(prev => prev.filter(r => r.id !== id));
@@ -278,10 +264,7 @@ const RoleManagement = () => {
     setSavingUserId(userId);
     try {
       if (backendAvailable) {
-        await fetch(`${API_BASE}/users/${userId}/role`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: newRole }),
-        });
+        await usersApi.updateRole(userId, newRole);
         await fetchData();
       } else {
         setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));

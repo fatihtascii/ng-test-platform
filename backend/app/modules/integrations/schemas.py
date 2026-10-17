@@ -1,4 +1,3 @@
-# backend/app/modules/integrations/schemas.py
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
@@ -9,7 +8,8 @@ class IntegrationUpsert(BaseModel):
 
 
 class IntegrationResponse(BaseModel):
-    id:        int
+    # FIX: id None olabilir — kayıt henüz DB'de olmayabilir (default response)
+    id:        Optional[int] = None
     provider:  str
     is_active: bool
     config:    Optional[Dict[str, Any]] = {}

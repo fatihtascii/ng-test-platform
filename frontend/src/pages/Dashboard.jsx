@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
+import api from '../api';
 import {
-  FolderKanban, Beaker, Clock, PlayCircle, ArrowRight, FileEdit, 
+  FolderKanban, Beaker, Clock, PlayCircle, ArrowRight, FileEdit,
   AlertCircle, RefreshCw, ClipboardList, TrendingUp, Plus, ChevronRight,
   Zap, Target, BarChart3
 } from 'lucide-react';
@@ -30,7 +31,6 @@ const Skeleton = ({ className }) => (
   <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`} />
 );
 
-// ── Özet Metrik Kartı ─────────────────────────────────────────
 const MetricCard = ({ icon, label, value, sub, color, badge, badgeColor, onClick, loading }) => {
   if (loading) return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl">
@@ -78,31 +78,32 @@ const Dashboard = () => {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
 
-  // ✅ Dinamik API Base URL (Geliştirme için .env veya window objesinden çekilmeli, şimdilik fallback eklendi)
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
-
+  // FIX: fetch → api (axios instance) — interceptorlar devreye giriyor
   const fetchAll = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      const [projRes, tcRes, plansRes, runsRes] = await Promise.all([
-        fetch(`${API_BASE}/projects`),
-        fetch(`${API_BASE}/test-cases`),
-        fetch(`${API_BASE}/test-plans`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/test-runs`).catch(() => ({ ok: false })),
+      const [projRes, tcRes, plansRes, runsRes] = await Promise.allSettled([
+        api.get('/projects'),
+        api.get('/test-cases'),
+        api.get('/test-plans'),
+        api.get('/test-runs'),
       ]);
-      if (projRes.ok)  setProjects(await projRes.json());
-      if (tcRes.ok)    setTestCases(await tcRes.json());
-      if (plansRes.ok) setTestPlans(await plansRes.json());
-      if (runsRes.ok)  setTestRuns(await runsRes.json());
-      
-      if (!projRes.ok || !tcRes.ok) setError('Bazı veriler yüklenemedi.');
+
+      if (projRes.status  === 'fulfilled') setProjects(projRes.value.data);
+      if (tcRes.status    === 'fulfilled') setTestCases(tcRes.value.data);
+      if (plansRes.status === 'fulfilled') setTestPlans(plansRes.value.data);
+      if (runsRes.status  === 'fulfilled') setTestRuns(runsRes.value.data);
+
+      if (projRes.status === 'rejected' || tcRes.status === 'rejected') {
+        setError('Bazı veriler yüklenemedi.');
+      }
     } catch {
       setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
     } finally {
       setLoading(false);
     }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -113,24 +114,19 @@ const Dashboard = () => {
     const failed   = testCases.filter(tc => tc.status === 'Başarısız').length;
     const draft    = testCases.filter(tc => tc.status === 'Taslak').length;
     const untested = testCases.filter(tc => tc.status === 'Test Edilmedi').length;
-    
     const testedCount = passed + failed;
     const successRate = testedCount > 0 ? Math.round((passed / testedCount) * 100) : 0;
-
     const activePlans    = testPlans.filter(p => p.status === 'Aktif').length;
     const completedPlans = testPlans.filter(p => p.status === 'Tamamlandı').length;
-
     const statusBar = [
       { label: 'Başarılı',      count: passed,   color: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
       { label: 'Başarısız',     count: failed,   color: 'bg-rose-500',    text: 'text-rose-600 dark:text-rose-400' },
       { label: 'Test Edilmedi', count: untested, color: 'bg-violet-400',  text: 'text-violet-600 dark:text-violet-400' },
       { label: 'Taslak',        count: draft,    color: 'bg-slate-300 dark:bg-slate-600', text: 'text-slate-500 dark:text-slate-400' },
     ].filter(i => i.count > 0);
-
     return { total, passed, failed, draft, untested, successRate, testedCount, activePlans, completedPlans, statusBar };
   }, [testCases, testPlans]);
 
-  // ✅ Performans Düzeltmesi: Proje istatistiklerini önden hesapla
   const projectStats = useMemo(() => {
     const stats = {};
     testCases.forEach(tc => {
@@ -149,8 +145,8 @@ const Dashboard = () => {
   const getProjectName = (id) => projects.find(p => p.id === id)?.name || '—';
 
   const firstName = user?.full_name?.split(' ')[0] || user?.username || 'Kullanıcı';
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Günaydın' : hour < 18 ? 'İyi günler' : 'İyi akşamlar';
+  const hour      = new Date().getHours();
+  const greeting  = hour < 12 ? 'Günaydın' : hour < 18 ? 'İyi günler' : 'İyi akşamlar';
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-8">
@@ -247,7 +243,6 @@ const Dashboard = () => {
                 Tümü <ArrowRight size={12}/>
               </button>
             </div>
-
             <div className="p-6">
               {loading ? (
                 <div className="space-y-3">{Array.from({length:4}).map((_,i)=><Skeleton key={i} className="h-8 w-full"/>)}</div>
@@ -276,7 +271,6 @@ const Dashboard = () => {
                       ))}
                     </div>
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     {metrics.statusBar.map(item => (
                       <div key={item.label} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
@@ -305,7 +299,6 @@ const Dashboard = () => {
                 Tümü <ArrowRight size={12}/>
               </button>
             </div>
-
             {loading ? (
               <div className="p-4 space-y-2">{Array.from({length:3}).map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div>
             ) : projects.length === 0 ? (
@@ -324,7 +317,6 @@ const Dashboard = () => {
                   const stats = projectStats[project.id] || { total: 0, passed: 0, failed: 0 };
                   const pTested = stats.passed + stats.failed;
                   const pRate   = pTested > 0 ? Math.round((stats.passed / pTested) * 100) : null;
-                  
                   return (
                     <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)}
                       className="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 group transition-colors text-left">
@@ -363,7 +355,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* SAĞ — Son Aktiviteler + Hızlı Aksiyonlar */}
+        {/* SAĞ */}
         <div className="space-y-6">
 
           {/* Son Aktiviteler */}
@@ -377,7 +369,6 @@ const Dashboard = () => {
                 Tümü <ArrowRight size={12}/>
               </button>
             </div>
-
             <div className="p-4">
               {loading ? (
                 <div className="space-y-4">
@@ -402,12 +393,11 @@ const Dashboard = () => {
                       'Test Edilmedi':'bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400',
                       'Taslak':       'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
                     }[tc.status] || 'bg-slate-100 dark:bg-slate-800 text-slate-500';
-
                     return (
                       <div key={tc.id}
                         className="flex gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
                         onClick={() => navigate('/test-cases')}>
-                        <div className="relative z-10 w-7 h-7 rounded-full bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <div className="w-7 h-7 rounded-full bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center shrink-0 mt-0.5">
                           <FileEdit size={11} className="text-indigo-500"/>
                         </div>
                         <div className="min-w-0 flex-1">
@@ -417,9 +407,7 @@ const Dashboard = () => {
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${statusCls}`}>{tc.status}</span>
                             <span className="text-[10px] text-slate-400 truncate">
-                              {getProjectName(tc.project_id)} 
-                              {/* ✅ EKLENDİ: Hayalet fonksiyon hayata döndü */}
-                              {tc.created_at && ` • ${timeAgo(tc.created_at)}`} 
+                              {getProjectName(tc.project_id)}{tc.created_at && ` • ${timeAgo(tc.created_at)}`}
                             </span>
                           </div>
                         </div>
@@ -445,12 +433,11 @@ const Dashboard = () => {
               </div>
               <div className="p-4 space-y-2">
                 {[
-                  { label: 'Toplam',     value: testPlans.length,         color: 'text-slate-600 dark:text-slate-300',       dot: 'bg-slate-400' },
-                  { label: 'Aktif',      value: metrics.activePlans,      color: 'text-amber-600 dark:text-amber-400',        dot: 'bg-amber-500' },
-                  { label: 'Tamamlandı', value: metrics.completedPlans,   color: 'text-emerald-600 dark:text-emerald-400',    dot: 'bg-emerald-500' },
-                  { label: 'Beklemede',  value: testPlans.filter(p => p.status === 'Beklemede').length, color: 'text-slate-400', dot: 'bg-slate-300' },
-                  // ✅ EKLENDİ: Unutulan state arayüze dahil edildi
-                  { label: 'Koşulan Testler', value: testRuns.length, color: 'text-indigo-600 dark:text-indigo-400', dot: 'bg-indigo-500' },
+                  { label: 'Toplam',      value: testPlans.length,       color: 'text-slate-600 dark:text-slate-300',    dot: 'bg-slate-400' },
+                  { label: 'Aktif',       value: metrics.activePlans,    color: 'text-amber-600 dark:text-amber-400',    dot: 'bg-amber-500' },
+                  { label: 'Tamamlandı',  value: metrics.completedPlans, color: 'text-emerald-600 dark:text-emerald-400',dot: 'bg-emerald-500' },
+                  { label: 'Beklemede',   value: testPlans.filter(p => p.status === 'Beklemede').length, color: 'text-slate-400', dot: 'bg-slate-300' },
+                  { label: 'Test Koşumu', value: testRuns.length,        color: 'text-indigo-600 dark:text-indigo-400',  dot: 'bg-indigo-500' },
                 ].map(row => (
                   <div key={row.label} className="flex items-center justify-between py-1">
                     <div className="flex items-center gap-2">
@@ -473,11 +460,12 @@ const Dashboard = () => {
             </div>
             <div className="p-3 space-y-1">
               {[
-                { label: 'Yeni Test Ekle',    icon: <Beaker size={15}/>,        path: '/test-cases',  perm: 'test_cases.create',  color: 'text-indigo-500' },
-                { label: 'Yeni Proje',         icon: <FolderKanban size={15}/>,  path: '/projects',    perm: 'projects.create',    color: 'text-blue-500' },
-                { label: 'Yeni Test Planı',    icon: <ClipboardList size={15}/>, path: '/test-plans',  perm: 'test_plans.create',  color: 'text-violet-500' },
-                { label: 'Raporları Görüntüle',icon: <TrendingUp size={15}/>,    path: '/reports',     perm: 'reports.view',       color: 'text-emerald-500' },
-                { label: 'Otomasyon Çalıştır', icon: <PlayCircle size={15}/>,    path: '/automation',  perm: 'automation.execute', color: 'text-rose-500' },
+                { label: 'Yeni Test Ekle',     icon: <Beaker size={15}/>,        path: '/test-cases',  perm: 'test_cases.create',  color: 'text-indigo-500' },
+                { label: 'Yeni Proje',          icon: <FolderKanban size={15}/>,  path: '/projects',    perm: 'projects.create',    color: 'text-blue-500' },
+                { label: 'Yeni Test Planı',     icon: <ClipboardList size={15}/>, path: '/test-plans',  perm: 'test_plans.create',  color: 'text-violet-500' },
+                { label: 'Raporları Görüntüle', icon: <TrendingUp size={15}/>,    path: '/reports',     perm: 'reports.view',       color: 'text-emerald-500' },
+                { label: 'Hataları İncele',      icon: <AlertCircle size={15}/>,   path: '/defects',     perm: 'defects.view',       color: 'text-rose-400' },
+                { label: 'Otomasyon Çalıştır',   icon: <PlayCircle size={15}/>,    path: '/automation',  perm: 'automation.execute', color: 'text-rose-500' },
               ].filter(a => !a.perm || can(a.perm)).map(action => (
                 <button key={action.label} onClick={() => navigate(action.path)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group text-left">

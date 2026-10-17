@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { usePermission } from '../hooks/usePermission';
+import { testRunsApi, testCasesApi, projectsApi, testPlansApi } from '../api';
 import PermissionGuard from '../components/PermissionGuard';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -69,9 +70,6 @@ const Reports = () => {
   const [toast, setToast]             = useState(null);
   const reportRef = useRef(null);
 
-  // ✅ Dinamik API Base URL
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
-
   const showToast = useCallback((type, message) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 3500);
@@ -82,28 +80,26 @@ const Reports = () => {
     setError(null);
     setLoading(true);
     try {
-      // ✅ Domino Etkisi Çözüldü: Her fetch kendi hatasını yakalar, diğerlerini bozmaz.
-      const [runsRes, casesRes, projsRes, plansRes] = await Promise.all([
-        fetch(`${API_BASE}/test-runs`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/test-plans`).catch(() => ({ ok: false })),
+      const [runsRes, casesRes, projsRes, plansRes] = await Promise.allSettled([
+        testRunsApi.getAll(),
+        testCasesApi.getAll(),
+        projectsApi.getAll(),
+        testPlansApi.getAll(),
       ]);
-      
       setRawData({
-        testRuns:  runsRes.ok  ? await runsRes.json()  : [],
-        testCases: casesRes.ok ? await casesRes.json() : [],
-        projects:  projsRes.ok ? await projsRes.json() : [],
-        testPlans: plansRes.ok ? await plansRes.json() : [],
+        testRuns:  runsRes.status  === 'fulfilled' ? runsRes.value.data  : [],
+        testCases: casesRes.status === 'fulfilled' ? casesRes.value.data : [],
+        projects:  projsRes.status === 'fulfilled' ? projsRes.value.data : [],
+        testPlans: plansRes.status === 'fulfilled' ? plansRes.value.data : [],
       });
-      
-      if (!runsRes.ok || !casesRes.ok || !projsRes.ok) setError('Bazı veriler yüklenemedi. Rapor eksik olabilir.');
+      if (runsRes.status !== 'fulfilled' || casesRes.status !== 'fulfilled' || projsRes.status !== 'fulfilled')
+        setError('Bazı veriler yüklenemedi. Rapor eksik olabilir.');
     } catch {
       setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
     } finally {
       setLoading(false);
     }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 

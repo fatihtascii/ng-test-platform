@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { authApi } from '../api';
 import { Eye, EyeOff, ShieldCheck, AlertCircle, CheckCircle2, Loader2, User, Mail, Lock, IdCard } from 'lucide-react';
 
 // --- Şifre güç göstergesi ---
@@ -35,8 +36,6 @@ const RegisterPage = () => {
 
   const update = (field) => (e) => setFormData(prev => ({ ...prev, [field]: e.target.value }));
 
-  // ✅ Dinamik API Base URL
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -58,27 +57,11 @@ const RegisterPage = () => {
 
     setIsLoading(true);
     try {
-      // ✅ Dinamik URL kullanıldı
-      const response = await fetch(`${API_BASE}/auth/register`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(formData),
-      });
-
-      if (response.ok) {
-        setSuccess(true);
-        setTimeout(() => navigate('/login'), 2000);
-      } else {
-        const data = await response.json().catch(() => ({}));
-        // ✅ FastAPI array (dizi) hata mesajlarını da düzgün okuması için zırh eklendi
-        const errorMessage = Array.isArray(data.detail) 
-          ? data.detail[0]?.msg 
-          : data.detail;
-        
-        setError(errorMessage || 'Kayıt sırasında bir hata oluştu.');
-      }
-    } catch {
-      setError('Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
+      await authApi.register(formData);
+      setSuccess(true);
+      setTimeout(() => navigate('/login'), 2000);
+    } catch (err) {
+      setError(err.message || 'Kayıt sırasında bir hata oluştu.');
     } finally {
       setIsLoading(false);
     }

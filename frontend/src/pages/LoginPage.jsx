@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { authApi } from '../api';
 import { Eye, EyeOff, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 
 const LoginPage = () => {
@@ -10,39 +11,24 @@ const LoginPage = () => {
   const [error, setError]           = useState('');
   const navigate = useNavigate();
 
-  // ✅ Dinamik API Base URL (Geliştirme için .env veya fallback)
-  const API_BASE = import.meta.env?.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, password }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Kullanıcı bilgisini kaydet
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // ✅ KRİTİK EKSİK GİDERİLDİ: Access Token Kaydediliyor!
-        // Eğer backend 'access_token' veya 'token' adında bir alan dönüyorsa yakala
-        if (data.access_token || data.token) {
-            localStorage.setItem('token', data.access_token || data.token);
-        }
-        
-        navigate('/');
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        setError(errorData.detail || 'Kullanıcı adı veya şifre hatalı.');
+      const { data } = await authApi.login({ identifier, password });
+      // Kullanıcı bilgisini kaydet
+      localStorage.setItem('user', JSON.stringify(data.user));
+      // FIX: JWT token'ı kaydet — api.js interceptor'ı bunu Authorization header'a ekler
+      if (data.access_token) {
+        localStorage.setItem('token', data.access_token);
+      } else if (data.token) {
+        localStorage.setItem('token', data.token);
       }
-    } catch {
-      setError('Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
+      navigate('/');
+    } catch (err) {
+      setError(err.message || 'Kullanıcı adı veya şifre hatalı.');
     } finally {
       setIsLoading(false);
     }
