@@ -35,6 +35,26 @@ echo "VITE_API_URL=http://localhost:8000" > .env
 npm run dev                 # http://localhost:3000
 ```
 
+## Arayüz
+
+Tasarım dili "hassas ölçüm aracı": soğuk grafit nötrler, ince çizgiler, kompakt satırlar.
+Renk yalnızca anlam taşır.
+
+| Renk ölçeği | Anlam |
+|-------------|-------|
+| `emerald`   | geçti |
+| `rose`      | kaldı / hata |
+| `amber`     | bloklu / uyarı |
+| `violet`    | bekliyor (nötr) |
+| `indigo`    | etkileşim (buton, link, odak) |
+
+- Token'lar `frontend/src/index.css` içindeki `@theme` bloğunda. Tailwind'in renk, köşe ve gölge
+  ölçekleri burada yeniden tanımlandığı için sayfalardaki sınıflar otomatik olarak bu dile uyar.
+- Ortak bileşenler `frontend/src/components/ui/`: `ResultBar` (geçti/kaldı/bekliyor şeridi),
+  `StatusBadge`, `Button`, `Panel`, `PageHeader`, `EmptyState`.
+- Yazı tipi IBM Plex Sans / Mono, projeye gömülü (`public/fonts`, SIL OFL); harici CDN gerekmez.
+- Geçme oranı her ekranda aynı tanımı kullanır: **geçen / koşulan** (henüz koşulmamış case'ler paydada yok).
+
 ## Yetkilendirme
 
 - `/auth/login` JWT döner; tüm API uç noktaları `Authorization: Bearer <token>` ister.

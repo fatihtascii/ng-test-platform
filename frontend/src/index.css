@@ -1,33 +1,226 @@
 @import "tailwindcss";
 
-/* Tailwind v4 Dark Mode Tetikleyici */
+/* Tema sınıfla (html.dark) değişir */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * NG Test tasarım sistemi
+ * ─────────────────────────────────────────────────────────────
+ * Yön: hassas ölçüm aracı. Nötrler soğuk grafit; renk yalnızca anlam taşır.
+ *
+ *   slate   → grafit nötrler (zemin, yüzey, çizgi, metin)
+ *   indigo  → etkileşim rengi (buton, link, odak, seçili)
+ *   emerald → geçti        rose  → kaldı / hata
+ *   amber   → bloklu / uyarı      violet → bekliyor (nötr)
+ *   blue    → bilgi
+ *
+ * Sayfalardaki dekoratif renkler (fuchsia, pink, teal, cyan, sky, orange…) aşağıda
+ * bu anlamlı ölçeklere bağlanır; böylece tüm uygulama tek bir dil konuşur.
+ */
+@theme {
+  /* ── Tipografi ─────────────────────────────────────────── */
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 600;
+  --font-weight-extrabold: 700;
+  --font-weight-black: 700;
+
+  /* ── Grafit nötrler ───────────────────────────────────── */
+  --color-slate-50:  #f6f7f9;
+  --color-slate-100: #eef0f3;
+  --color-slate-200: #e2e5ea;
+  --color-slate-300: #cbd0d8;
+  --color-slate-400: #9aa2af;
+  --color-slate-500: #6b7381;
+  --color-slate-600: #4e5562;
+  --color-slate-700: #383e49;
+  --color-slate-800: #262b34;
+  --color-slate-900: #181c23;
+  --color-slate-950: #0f1217;
+
+  /* ── Etkileşim: ultramarin ────────────────────────────── */
+  --color-indigo-50:  #eef2fd;
+  --color-indigo-100: #dce3fb;
+  --color-indigo-200: #bbc8f6;
+  --color-indigo-300: #8fa4ee;
+  --color-indigo-400: #6480e4;
+  --color-indigo-500: #3f5fd8;
+  --color-indigo-600: #2e4bc4;
+  --color-indigo-700: #263da0;
+  --color-indigo-800: #22357f;
+  --color-indigo-900: #1f2f66;
+  --color-indigo-950: #141d40;
+
+  /* ── Durum: geçti ─────────────────────────────────────── */
+  --color-emerald-50:  #ecf8f1;
+  --color-emerald-100: #d3f0df;
+  --color-emerald-200: #a8e0c0;
+  --color-emerald-300: #72c99a;
+  --color-emerald-400: #3fae74;
+  --color-emerald-500: #1f9458;
+  --color-emerald-600: #177a48;
+  --color-emerald-700: #13623b;
+  --color-emerald-800: #114e31;
+  --color-emerald-900: #0e3f28;
+  --color-emerald-950: #072416;
+
+  /* ── Durum: kaldı / hata ──────────────────────────────── */
+  --color-rose-50:  #fdf0f0;
+  --color-rose-100: #fadcdc;
+  --color-rose-200: #f4b8b8;
+  --color-rose-300: #ea8b8b;
+  --color-rose-400: #de5f5f;
+  --color-rose-500: #cc3e3e;
+  --color-rose-600: #b02e2e;
+  --color-rose-700: #8f2626;
+  --color-rose-800: #742222;
+  --color-rose-900: #5f1f1f;
+  --color-rose-950: #350d0d;
+
+  /* ── Durum: bloklu / uyarı (toprak sarısı) ────────────── */
+  --color-amber-50:  #fcf6e8;
+  --color-amber-100: #f8ebc8;
+  --color-amber-200: #f0d592;
+  --color-amber-300: #e5bb58;
+  --color-amber-400: #d9a032;
+  --color-amber-500: #c1861c;
+  --color-amber-600: #9e6a14;
+  --color-amber-700: #7d5213;
+  --color-amber-800: #644215;
+  --color-amber-900: #533715;
+  --color-amber-950: #2f1d07;
+
+  /* ── Bilgi: çelik mavisi ──────────────────────────────── */
+  --color-blue-50:  #eef5f9;
+  --color-blue-100: #d7e8f1;
+  --color-blue-200: #b0d1e3;
+  --color-blue-300: #7fb3cf;
+  --color-blue-400: #4f93b8;
+  --color-blue-500: #33789e;
+  --color-blue-600: #286184;
+  --color-blue-700: #224f6b;
+  --color-blue-800: #1e4158;
+  --color-blue-900: #1b3649;
+  --color-blue-950: #11222f;
+
+  /* ── Bekliyor / test edilmedi: soğuk nötr ─────────────── */
+  --color-violet-50:  #f1f3f7;
+  --color-violet-100: #e4e8ef;
+  --color-violet-200: #ccd3de;
+  --color-violet-300: #a9b3c3;
+  --color-violet-400: #8691a4;
+  --color-violet-500: #687387;
+  --color-violet-600: #525c6e;
+  --color-violet-700: #414959;
+  --color-violet-800: #2f3540;
+  --color-violet-900: #22272f;
+  --color-violet-950: #15181d;
+
+  /* ── Dekoratif renkler → anlamlı ölçeklere ────────────── */
+  --color-red-50: var(--color-rose-50);   --color-red-100: var(--color-rose-100);   --color-red-200: var(--color-rose-200);
+  --color-red-300: var(--color-rose-300); --color-red-400: var(--color-rose-400);   --color-red-500: var(--color-rose-500);
+  --color-red-600: var(--color-rose-600); --color-red-700: var(--color-rose-700);   --color-red-800: var(--color-rose-800);
+  --color-red-900: var(--color-rose-900); --color-red-950: var(--color-rose-950);
+
+  --color-green-50: var(--color-emerald-50);   --color-green-100: var(--color-emerald-100); --color-green-200: var(--color-emerald-200);
+  --color-green-300: var(--color-emerald-300); --color-green-400: var(--color-emerald-400); --color-green-500: var(--color-emerald-500);
+  --color-green-600: var(--color-emerald-600); --color-green-700: var(--color-emerald-700); --color-green-800: var(--color-emerald-800);
+  --color-green-900: var(--color-emerald-900); --color-green-950: var(--color-emerald-950);
+
+  --color-orange-50: var(--color-amber-50);   --color-orange-100: var(--color-amber-100); --color-orange-200: var(--color-amber-200);
+  --color-orange-300: var(--color-amber-300); --color-orange-400: var(--color-amber-400); --color-orange-500: var(--color-amber-500);
+  --color-orange-600: var(--color-amber-600); --color-orange-700: var(--color-amber-700); --color-orange-800: var(--color-amber-800);
+  --color-orange-900: var(--color-amber-900); --color-orange-950: var(--color-amber-950);
+  --color-yellow-50: var(--color-amber-50);   --color-yellow-100: var(--color-amber-100); --color-yellow-200: var(--color-amber-200);
+  --color-yellow-300: var(--color-amber-300); --color-yellow-400: var(--color-amber-400); --color-yellow-500: var(--color-amber-500);
+  --color-yellow-600: var(--color-amber-600); --color-yellow-700: var(--color-amber-700); --color-yellow-800: var(--color-amber-800);
+  --color-yellow-900: var(--color-amber-900); --color-yellow-950: var(--color-amber-950);
+
+  --color-sky-50: var(--color-blue-50);   --color-sky-100: var(--color-blue-100); --color-sky-200: var(--color-blue-200);
+  --color-sky-300: var(--color-blue-300); --color-sky-400: var(--color-blue-400); --color-sky-500: var(--color-blue-500);
+  --color-sky-600: var(--color-blue-600); --color-sky-700: var(--color-blue-700); --color-sky-800: var(--color-blue-800);
+  --color-sky-900: var(--color-blue-900); --color-sky-950: var(--color-blue-950);
+  --color-cyan-50: var(--color-blue-50);   --color-cyan-100: var(--color-blue-100); --color-cyan-200: var(--color-blue-200);
+  --color-cyan-300: var(--color-blue-300); --color-cyan-400: var(--color-blue-400); --color-cyan-500: var(--color-blue-500);
+  --color-cyan-600: var(--color-blue-600); --color-cyan-700: var(--color-blue-700); --color-cyan-800: var(--color-blue-800);
+  --color-cyan-900: var(--color-blue-900); --color-cyan-950: var(--color-blue-950);
+  --color-teal-50: var(--color-blue-50);   --color-teal-100: var(--color-blue-100); --color-teal-200: var(--color-blue-200);
+  --color-teal-300: var(--color-blue-300); --color-teal-400: var(--color-blue-400); --color-teal-500: var(--color-blue-500);
+  --color-teal-600: var(--color-blue-600); --color-teal-700: var(--color-blue-700); --color-teal-800: var(--color-blue-800);
+  --color-teal-900: var(--color-blue-900); --color-teal-950: var(--color-blue-950);
+
+  --color-purple-50: var(--color-indigo-50);   --color-purple-100: var(--color-indigo-100); --color-purple-200: var(--color-indigo-200);
+  --color-purple-300: var(--color-indigo-300); --color-purple-400: var(--color-indigo-400); --color-purple-500: var(--color-indigo-500);
+  --color-purple-600: var(--color-indigo-600); --color-purple-700: var(--color-indigo-700); --color-purple-800: var(--color-indigo-800);
+  --color-purple-900: var(--color-indigo-900); --color-purple-950: var(--color-indigo-950);
+  --color-fuchsia-50: var(--color-indigo-50);   --color-fuchsia-100: var(--color-indigo-100); --color-fuchsia-200: var(--color-indigo-200);
+  --color-fuchsia-300: var(--color-indigo-300); --color-fuchsia-400: var(--color-indigo-400); --color-fuchsia-500: var(--color-indigo-500);
+  --color-fuchsia-600: var(--color-indigo-600); --color-fuchsia-700: var(--color-indigo-700); --color-fuchsia-800: var(--color-indigo-800);
+  --color-fuchsia-900: var(--color-indigo-900); --color-fuchsia-950: var(--color-indigo-950);
+  --color-pink-50: var(--color-indigo-50);   --color-pink-100: var(--color-indigo-100); --color-pink-200: var(--color-indigo-200);
+  --color-pink-300: var(--color-indigo-300); --color-pink-400: var(--color-indigo-400); --color-pink-500: var(--color-indigo-500);
+  --color-pink-600: var(--color-indigo-600); --color-pink-700: var(--color-indigo-700); --color-pink-800: var(--color-indigo-800);
+  --color-pink-900: var(--color-indigo-900); --color-pink-950: var(--color-indigo-950);
+
+  /* ── Biçim: hiyerarşiye göre köşe yarıçapı ────────────── */
+  --radius-sm: 3px;
+  --radius-md: 4px;   /* küçük rozetler, etiketler */
+  --radius-lg: 5px;   /* butonlar, inputlar */
+  --radius-xl: 6px;
+  --radius-2xl: 8px;  /* paneller */
+  --radius-3xl: 10px; /* modallar */
+
+  /* ── Gölgeler: neredeyse yok; ayrım çizgiyle ──────────── */
+  --shadow-xs: 0 1px 0 rgb(15 18 23 / 0.03);
+  --shadow-sm: 0 1px 0 rgb(15 18 23 / 0.04);
+  --shadow:    0 1px 2px rgb(15 18 23 / 0.06);
+  --shadow-md: 0 1px 2px rgb(15 18 23 / 0.06);
+  --shadow-lg: 0 6px 16px -6px rgb(15 18 23 / 0.12);
+  --shadow-xl: 0 10px 24px -8px rgb(15 18 23 / 0.16);
+  --shadow-2xl: 0 20px 48px -16px rgb(15 18 23 / 0.28);
+  --shadow-inner: inset 0 1px 1px rgb(15 18 23 / 0.04);
+}
 
 @layer base {
   html {
-    /* Geçişlerin yumuşak olması için */
-    transition-property: color, background-color, border-color;
-    transition-duration: 300ms;
+    font-size: 15px;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
-    /* IŞIK MODU: Temiz bir gri/beyaz */
     @apply bg-slate-50 text-slate-900 antialiased;
+    font-feature-settings: "tnum" 1;   /* sayılar her yerde hizalı */
   }
 
   .dark body {
-    /* DARK MOD: Derin bir lacivert/siyah */
     @apply bg-slate-950 text-slate-100;
+    color-scheme: dark;
+  }
+
+  ::selection {
+    @apply bg-indigo-200 text-slate-900;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-indigo-500);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
-/* Scrollbar'ı da temaya uyduralım (Opsiyonel ama şıktır) */
-::-webkit-scrollbar {
-  width: 8px;
+/* İnce kaydırma çubuğu */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-slate-300) transparent;
 }
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 dark:bg-slate-800 rounded-full;
+.dark * {
+  scrollbar-color: var(--color-slate-700) transparent;
 }

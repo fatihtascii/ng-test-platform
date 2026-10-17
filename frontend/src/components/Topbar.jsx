@@ -1,123 +1,79 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { clearPermissionCache, usePermission } from '../hooks/usePermission';
-import {
-  Sun, Moon, Shield, ChevronRight,
-  User, Users, LogOut, Settings, ChevronDown
-} from 'lucide-react';
+import { Sun, Moon, ChevronRight, User, Users, Shield, LogOut, Menu, ChevronDown } from 'lucide-react';
 import { clearSession, USER_UPDATED_EVENT } from '../auth';
+import { Avatar } from './ui';
+import { ROLE_LABELS } from './ui/tokens';
 
-// ── Breadcrumb Haritası ───────────────────────────────────────
+// ── Konum başlıkları ──────────────────────────────────────────
 const PATH_MAP = {
-  '/':             ['Dashboard'],
-  '/projects':     ['Projeler'],
-  '/test-cases':   ['Test Senaryoları'],
-  '/test-runs':    ['Test Koşumları'],
-  '/test-plans':   ['Test Planları'],
-  '/users':        ['Kullanıcılar'],
-  '/roles':        ['Rol Yönetimi'],
-  '/profile':      ['Profilim'],
-  '/reports':      ['Raporlar'],
-  '/defects':      ['Hatalar'],
-  '/automation':   ['Otomasyon'],
-  '/environments': ['Ortamlar & Veri'],
-  '/integrations': ['Entegrasyonlar'],
+  '/projects':     'Projeler',
+  '/test-cases':   'Test case\'ler',
+  '/test-plans':   'Test planları',
+  '/test-runs':    'Koşumlar',
+  '/defects':      'Hatalar',
+  '/automation':   'Otomasyon',
+  '/reports':      'Raporlar',
+  '/environments': 'Ortamlar',
+  '/integrations': 'Entegrasyonlar',
+  '/users':        'Kullanıcılar',
+  '/roles':        'Roller',
+  '/profile':      'Profilim',
 };
 
-// /test-runs/42 → ['Test Koşumları', '#42']
-const getBreadcrumb = (pathname) => {
-  for (const [base, crumbs] of Object.entries(PATH_MAP)) {
-    if (base === '/') continue;
-    if (pathname === base) return crumbs;
+// "/test-runs/42" → [{ label: 'Koşumlar', to: '/test-runs' }, { label: '#42' }]
+const getCrumbs = (pathname) => {
+  if (pathname === '/') return [{ label: 'Genel durum' }];
+  for (const [base, label] of Object.entries(PATH_MAP)) {
+    if (pathname === base) return [{ label }];
     if (pathname.startsWith(base + '/')) {
-      const id = pathname.replace(base + '/', '').split('/')[0];
-      return [...crumbs, `#${id}`];
+      const id = decodeURIComponent(pathname.slice(base.length + 1).split('/')[0]);
+      return [{ label, to: base }, { label: /^\d+$/.test(id) ? `#${id}` : id }];
     }
   }
-  if (pathname === '/') return ['Dashboard'];
-  return ['Sayfa'];
+  return [{ label: 'Sayfa' }];
 };
 
-// ── Rol Renkleri ──────────────────────────────────────────────
-const ROLE_STYLES = {
-  admin:   'bg-rose-50  dark:bg-rose-500/10  text-rose-600  dark:text-rose-400',
-  manager: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  tester:  'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
-  viewer:  'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+const readUser = () => {
+  try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
 };
 
-const ROLE_LABELS = {
-  admin:   'Admin',
-  manager: 'Yönetici',
-  tester:  'Test Uzmanı',
-  viewer:  'İzleyici',
-};
-
-const AVATAR_COLORS = [
-  'bg-indigo-500','bg-violet-500','bg-blue-500',
-  'bg-emerald-500','bg-rose-500','bg-amber-500','bg-pink-500','bg-teal-500',
-];
-
-const getAvatarColor = (str = '') => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-};
-
-const getInitials = (name = '', username = '') => {
-  if (name?.trim()) {
-    const parts = name.trim().split(' ');
-    return parts.length >= 2 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : parts[0][0].toUpperCase();
-  }
-  return username?.[0]?.toUpperCase() || '?';
-};
-
-// ── Ana Bileşen ───────────────────────────────────────────────
-const Topbar = () => {
+const Topbar = ({ onMenu = () => {} }) => {
   const { can } = usePermission();
   const location = useLocation();
-  const navigate  = useNavigate();
+  const navigate = useNavigate();
 
-  // ✅ Düzeltildi: user state'e alındı, her render'da parse yok
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
-  });
-  // Profil sayfasında ad/e-posta değişince anında yansıt
+  const [user, setUser] = useState(readUser);
   useEffect(() => {
     const onUpdate = (e) => setUser(e.detail);
     window.addEventListener(USER_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(USER_UPDATED_EVENT, onUpdate);
   }, []);
 
-  // ✅ Düzeltildi: Sayfa ilk yüklendiğinde dark class var mı kontrol ediliyor
   const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    if (saved) return saved;
-    // Sistem tercihine bak
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+    } catch { /* depolama erişilemez */ }
+    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
   });
-
-  const [profileOpen, setProfileOpen] = useState(false);
-  const profileRef = useRef(null);
-
-  // ✅ Sayfa yüklendiğinde anında dark class uygula (flash önleme)
   useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') root.classList.add('dark');
-    else root.classList.remove('dark');
-    localStorage.setItem('theme', theme);
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    try { localStorage.setItem('theme', theme); } catch { /* depolama yoksa yalnızca bu oturum */ }
   }, [theme]);
 
-  // Dışarı tıklanınca dropdown kapat
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   useEffect(() => {
-    const handler = (e) => {
-      if (profileRef.current && !profileRef.current.contains(e.target)) {
-        setProfileOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const onDown = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const onKey  = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, []);
+
+  const go = (path) => { setMenuOpen(false); navigate(path); };
 
   const handleLogout = useCallback(() => {
     clearSession();
@@ -125,123 +81,82 @@ const Topbar = () => {
     window.location.href = '/login';
   }, []);
 
-  const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
-
-  const breadcrumb = getBreadcrumb(location.pathname);
-  const roleCls    = ROLE_STYLES[user?.role]  || ROLE_STYLES.viewer;
-  const roleLabel  = ROLE_LABELS[user?.role]  || (user?.role || 'İzleyici');
-  const avatarBg   = getAvatarColor(user?.username || '');
-  const initials   = getInitials(user?.full_name, user?.username);
+  const crumbs = getCrumbs(location.pathname);
 
   return (
-    <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-colors duration-300 flex items-center justify-between px-6 sticky top-0 z-40">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6 dark:border-slate-800 dark:bg-slate-900/90">
+      <button onClick={onMenu} className="-ml-1 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden dark:hover:bg-slate-800" aria-label="Menüyü aç">
+        <Menu size={18} />
+      </button>
 
-      {/* ✅ Geliştirilmiş Breadcrumb — çok seviyeli */}
-      <nav className="flex items-center gap-1.5 text-sm">
-        <span className="text-slate-400 dark:text-slate-500 font-medium">Platform</span>
-        {breadcrumb.map((crumb, i) => (
+      <nav aria-label="Konum" className="flex min-w-0 items-center gap-1.5 text-sm">
+        {crumbs.map((c, i) => (
           <React.Fragment key={i}>
-            <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 shrink-0"/>
-            <span className={
-              i === breadcrumb.length - 1
-                ? 'font-bold text-slate-900 dark:text-white'
-                : 'text-slate-400 dark:text-slate-500 font-medium'
-            }>
-              {crumb}
-            </span>
+            {i > 0 && <ChevronRight size={14} className="shrink-0 text-slate-300 dark:text-slate-600" aria-hidden />}
+            {c.to ? (
+              <Link to={c.to} className="truncate text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">{c.label}</Link>
+            ) : (
+              <span className={`truncate ${i === crumbs.length - 1 ? 'font-medium text-slate-900 dark:text-white' : 'text-slate-500'}`}>{c.label}</span>
+            )}
           </React.Fragment>
         ))}
       </nav>
 
-      <div className="flex items-center gap-2">
-
-        {/* Tema Değiştirici */}
-        <button onClick={toggleTheme} title={theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
-          className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
-          {theme === 'light' ? <Moon size={17}/> : <Sun size={17}/>}
+      <div className="ml-auto flex items-center gap-1">
+        <button
+          onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}
+          className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+          aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}
+          title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
+        >
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
         </button>
 
-        <div className="w-px h-6 bg-slate-200 dark:bg-slate-800"/>
-
-        {/* ✅ Yeni: Profil Dropdown */}
-        <div ref={profileRef} className="relative">
-          <button onClick={() => setProfileOpen(p => !p)}
-            className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all group">
-
-            {/* Kullanıcı bilgisi — md ve üstü */}
-            <div className="text-right hidden md:block">
-              <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
-                {user?.full_name || user?.username || 'Kullanıcı'}
-              </p>
-              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold ${roleCls}`}>
-                <Shield size={9}/>
-                {roleLabel}
-              </span>
-            </div>
-
-            {/* Avatar */}
-            <div className={`w-9 h-9 rounded-full ${avatarBg} flex items-center justify-center text-white text-sm font-bold shadow-md shrink-0 ring-2 ring-transparent group-hover:ring-indigo-500/30 transition-all`}>
-              {initials}
-            </div>
-
-            <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${profileOpen ? 'rotate-180' : ''}`}/>
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen(o => !o)}
+            className="flex items-center gap-2 rounded-lg py-1 pl-1 pr-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-haspopup="menu" aria-expanded={menuOpen}
+          >
+            <Avatar user={user} size="sm" />
+            <span className="hidden text-left leading-tight sm:block">
+              <span className="block text-sm font-medium text-slate-900 dark:text-white">{user?.full_name || user?.username}</span>
+            </span>
+            <ChevronDown size={14} className="text-slate-400" />
           </button>
 
-          {/* Dropdown Menü */}
-          {profileOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
-
-              {/* Kullanıcı özeti */}
-              <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-full ${avatarBg} flex items-center justify-center text-white text-sm font-bold shrink-0`}>
-                    {initials}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                      {user?.full_name || user?.username}
-                    </p>
-                    <p className="text-xs text-slate-400 truncate">@{user?.username}</p>
-                  </div>
-                </div>
-                <span className={`mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold ${roleCls}`}>
-                  <Shield size={10}/> {roleLabel}
-                </span>
+          {menuOpen && (
+            <div role="menu" className="absolute right-0 top-full mt-1.5 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="border-b border-slate-100 px-3 py-2.5 dark:border-slate-800">
+                <p className="truncate text-sm font-medium text-slate-900 dark:text-white">{user?.full_name || user?.username}</p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  @{user?.username} · {ROLE_LABELS[user?.role] || user?.role}
+                </p>
               </div>
-
-              {/* Aksiyonlar */}
-              <div className="p-1.5">
-                <button onClick={() => { navigate('/profile'); setProfileOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors font-medium">
-                  <User size={15} className="text-slate-400"/> Profilim
-                </button>
-                {can('users.view') && (
-                <button onClick={() => { navigate('/users'); setProfileOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors font-medium">
-                  <Users size={15} className="text-slate-400"/> Kullanıcılar
-                </button>
-                )}
-                {can('roles.view') && (
-                <button onClick={() => { navigate('/roles'); setProfileOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors font-medium">
-                  <Shield size={15} className="text-slate-400"/> Rol Yönetimi
-                </button>
-                )}
+              <div className="p-1">
+                <MenuItem icon={User} onClick={() => go('/profile')}>Profilim</MenuItem>
+                {can('users.view') && <MenuItem icon={Users} onClick={() => go('/users')}>Kullanıcılar</MenuItem>}
+                {can('roles.view') && <MenuItem icon={Shield} onClick={() => go('/roles')}>Roller</MenuItem>}
               </div>
-
-              <div className="h-px bg-slate-100 dark:bg-slate-800 mx-3"/>
-
-              <div className="p-1.5">
-                <button onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl transition-colors font-semibold">
-                  <LogOut size={15}/> Çıkış Yap
-                </button>
+              <div className="border-t border-slate-100 p-1 dark:border-slate-800">
+                <MenuItem icon={LogOut} onClick={handleLogout}>Çıkış yap</MenuItem>
               </div>
             </div>
           )}
         </div>
       </div>
     </header>
+  );
+};
+
+const MenuItem = ({ icon, children, onClick }) => {
+  const Icon = icon;
+  return (
+  <button role="menuitem" onClick={onClick}
+    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
+    <Icon size={15} strokeWidth={1.75} className="text-slate-400" />
+    {children}
+  </button>
   );
 };
 
