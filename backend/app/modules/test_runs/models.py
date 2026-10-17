@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, false
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, false
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.base import Base
+from app.core.types import UTCDateTime as DateTime  # UTC + saat dilimli
 
 
 class TestRun(Base):

@@ -1,10 +1,10 @@
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime,
-    ForeignKey, Index, CheckConstraint
+    Column, Integer, String, Text, ForeignKey, Index, CheckConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.base import Base
+from app.core.types import UTCDateTime as DateTime  # UTC + saat dilimli
 
 
 class TestCase(Base):

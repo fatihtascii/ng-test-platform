@@ -72,8 +72,16 @@ else:
             logger.warning(f"Geçersiz {key} değeri '{val}', varsayılan {default} kullanılıyor.")
             return default
 
+    # Oturum ayarları bağlantı açılırken "options" ile verilir. Önceden connect event'inde
+    # SET komutuyla yapılıyordu; o SET ilk transaction'ın içinde kaldığı için bağlantı havuza
+    # dönerken rollback ile geri alınıyor, saat dilimi ve timeout'lar fiilen uygulanmıyordu.
     engine = create_engine(
         DATABASE_URL,
+        connect_args={"options": (
+            "-c timezone=UTC "
+            "-c statement_timeout=60s "
+            "-c idle_in_transaction_session_timeout=30s"
+        )},
         poolclass=QueuePool,
         pool_size=_env_int("DB_POOL_SIZE", 5),
         max_overflow=_env_int("DB_MAX_OVERFLOW", 10),
@@ -105,21 +113,6 @@ if _is_sqlite:
 # PostgreSQL ÖZEL AYARLARI
 # ─────────────────────────────────────────
 if _is_postgresql:
-    @event.listens_for(engine, "connect")
-    def set_pg_options(dbapi_connection, connection_record):
-        """
-        PostgreSQL bağlantı başına güvenlik ayarları.
-        """
-        cursor = dbapi_connection.cursor()
-        # FIX: statement_timeout, SET ile değil SHOW ile okunmalı —
-        # ama burada sadece SET ediyoruz, doğrudan string literal güvenli.
-        cursor.execute("SET idle_in_transaction_session_timeout = '30s'")
-        cursor.execute("SET statement_timeout = '60s'")
-        # FIX: timezone ayarı eklendi — timestamp karışıklığını önler
-        cursor.execute("SET TIME ZONE 'UTC'")
-        cursor.close()
-
-    # FIX: PostgreSQL pool checkout event — bağlantı alındığında canlılık logu
     @event.listens_for(engine, "checkout")
     def pg_pool_checkout(dbapi_connection, connection_record, connection_proxy):
         logger.debug("DB pool'dan bağlantı alındı.")

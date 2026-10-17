@@ -1,7 +1,8 @@
 # backend/app/modules/integrations/models.py
-from sqlalchemy import Column, Integer, String, Boolean, JSON, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, JSON
 from sqlalchemy.sql import func
 from app.core.base import Base
+from app.core.types import UTCDateTime as DateTime  # UTC + saat dilimli
 
 
 class Integration(Base):

@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String
 from sqlalchemy.sql import func
 from app.core.base import Base
+from app.core.types import UTCDateTime as DateTime  # UTC + saat dilimli
 
 class User(Base):
     __tablename__ = "users"
