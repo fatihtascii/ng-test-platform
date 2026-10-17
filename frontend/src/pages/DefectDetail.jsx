@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { testRunsApi, projectsApi, testCasesApi } from '../api';
+import { defectsApi, testCasesApi } from '../api';
 import { usePermission } from '../hooks/usePermission';
 import {
   ArrowLeft, Bug, Target, Clock, Terminal,
@@ -21,22 +21,12 @@ const SEVERITY_CONFIG = {
   'Orta':   { bg: 'bg-amber-500/10 text-amber-600',   badge: 'bg-amber-500 text-white' },
   'Düşük':  { bg: 'bg-blue-500/10 text-blue-600',     badge: 'bg-blue-400 text-white' },
 };
-const LS_KEY = 'ng-defect-statuses';
 
 const getSev         = (s) => SEVERITY_CONFIG[s] || SEVERITY_CONFIG['Orta'];
 const getStatusOpt   = (s) => STATUS_OPTIONS.find(o => o.value === s);
 const getStatusCls   = (s) => getStatusOpt(s)?.cls || 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200';
 const getStatusLabel = (s) => { const o = getStatusOpt(s); return o ? `${o.emoji} ${o.label}` : s; };
 
-// ✅ FİX: JSON Güvenliği eklendi
-const safeJSON = (s) => { 
-  if (!s) return [];
-  if (Array.isArray(s)) return s;
-  try { 
-    const p = typeof s === 'string' ? JSON.parse(s) : s; 
-    return Array.isArray(p) ? p : []; 
-  } catch { return []; } 
-};
 
 const Skeleton = ({ className }) => (
   <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`} />
@@ -55,84 +45,63 @@ const DefectDetail = () => {
   const [saveMsg,     setSaveMsg]     = useState(null);
   const [expandedIdx, setExpandedIdx] = useState(null);
 
-  // localStorage'dan statü oku
-  useEffect(() => {
-    try { const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); setStatus(s[id] ?? 'Open'); } catch { setStatus('Open'); }
-  }, [id]);
+  // URL'deki "BUG-12" (eski bağlantılarda "BUG-12-0") → defect id 12
+  const defectId = String(id).match(/^BUG-(\d+)/)?.[1] ?? (/^\d+$/.test(String(id)) ? String(id) : null);
 
-  const handleStatusChange = useCallback((newStatus) => {
+  const handleStatusChange = useCallback(async (newStatus) => {
+    const prev = status;
     setStatus(newStatus);
-    const now = new Date().toISOString();
     try {
-      const ss = JSON.parse(localStorage.getItem(LS_KEY)            || '{}');
-      const ts = JSON.parse(localStorage.getItem(`${LS_KEY}-times`) || '{}');
-      localStorage.setItem(LS_KEY,             JSON.stringify({ ...ss, [id]: newStatus }));
-      localStorage.setItem(`${LS_KEY}-times`,  JSON.stringify({ ...ts, [id]: now }));
+      await defectsApi.update(defectId, { status: newStatus });
       setSaveMsg('saved'); setTimeout(() => setSaveMsg(null), 2000);
-    } catch { setSaveMsg('error'); setTimeout(() => setSaveMsg(null), 3000); }
-  }, [id]);
+    } catch {
+      setStatus(prev);
+      setSaveMsg('error'); setTimeout(() => setSaveMsg(null), 3000);
+    }
+  }, [defectId, status]);
 
-  // Veri çekme — BUG-{runId} formatından runId çıkar
   const fetchDetail = useCallback(async () => {
     setError(null); setLoading(true);
     try {
-      const match = String(id).match(/^BUG-(\d+)/);
-      if (!match) throw new Error('Geçersiz hata ID formatı.');
-      const runId = match[1];
+      if (!defectId) throw new Error('Geçersiz hata ID formatı.');
+      const { data: d } = await defectsApi.getOne(defectId);
 
-      const [runRes, projsRes, casesRes] = await Promise.allSettled([
-        testRunsApi.getOne(runId),
-        projectsApi.getAll(),
-        testCasesApi.getAll(),
-      ]);
-
-      if (runRes.status !== 'fulfilled') throw new Error('Test koşumu yüklenemedi veya silinmiş.');
-
-      const run       = runRes.value.data;
-      const projects  = projsRes.status === 'fulfilled' ? projsRes.value.data : [];
-      const testCases = casesRes.status === 'fulfilled' ? casesRes.value.data : [];
-
-      const failedItems = safeJSON(run.results).filter(r =>
-        r.status === 'Failed' || r.status === 'Başarısız' ||
-        r.run_status === 'Failed' || r.run_status === 'Başarısız'
+      // Hatalı case'lerin adım açıklamalarını göstermek için case detaylarını çek
+      const caseIds = [...new Set((d.failed_details || []).map(f => f.case_id).filter(Boolean))];
+      const caseRes = await Promise.allSettled(caseIds.map(cid => testCasesApi.getOne(cid)));
+      const caseMap = Object.fromEntries(
+        caseRes.filter(r => r.status === 'fulfilled').map(r => [r.value.data.id, r.value.data])
       );
 
-      const failedDetails = failedItems.map((r, idx) => {
-        const caseId = r.case_id ?? r.test_case_id ?? r.id ?? null;
-        const realTC = caseId != null ? testCases.find(tc => tc.id === caseId) : null;
-        return {
-          idx,
-          caseId,
-          title:        realTC?.title || r.test_case_title || (caseId != null ? `Test #${caseId}` : `Test ${idx + 1}`),
-          errorMessage: r.actual_result || r.error || null,
-          severity:     realTC?.priority || r.test_case_priority || 'Orta',
-          description:  realTC?.description || null,
-        };
-      });
-
-      const sevOrder  = { 'Kritik': 4, 'Yüksek': 3, 'Orta': 2, 'Düşük': 1 };
-      const topSev    = failedDetails.reduce((max, item) =>
-        (sevOrder[item.severity] || 2) > (sevOrder[max] || 2) ? item.severity : max, 'Orta'
-      );
-      const project   = projects.find(p => p.id === run.project_id);
-
+      setStatus(d.status);
       setDefectData({
-        id,
-        runId:       run.id,
-        runName:     run.name ?? 'İsimsiz Koşum',
-        projectName: project?.name ?? 'Bilinmeyen Proje',
-        projectId:   project?.id   ?? null,
-        severity:    topSev,
-        failedCount: failedDetails.length,
-        failedDetails,
-        detectedAt:  run.created_at
-          ? new Date(run.created_at).toLocaleString('tr-TR', { year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' })
+        id:          d.code,
+        title:       d.title,
+        description: d.description,
+        source:      d.source,
+        runId:       d.test_run_id,
+        runName:     d.test_run_name ?? (d.source === 'manual' ? 'Manuel Ekleme' : 'Silinmiş Koşum'),
+        projectName: d.project_name ?? 'Bilinmeyen Proje',
+        projectId:   d.project_id,
+        severity:    d.severity,
+        createdBy:   d.created_by_name,
+        failedCount: d.failed_count,
+        failedDetails: (d.failed_details || []).map((f, idx) => ({
+          idx,
+          caseId:       f.case_id,
+          title:        caseMap[f.case_id]?.title || f.title || `Test ${idx + 1}`,
+          errorMessage: f.error || null,
+          severity:     f.severity || caseMap[f.case_id]?.priority || 'Orta',
+          description:  caseMap[f.case_id]?.description || null,
+        })),
+        detectedAt:  d.created_at
+          ? new Date(d.created_at).toLocaleString('tr-TR', { year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' })
           : 'Bilinmiyor',
       });
     } catch (err) {
       setError(err.message || 'Detaylar yüklenemedi.');
     } finally { setLoading(false); }
-  }, [id]);
+  }, [defectId]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
@@ -189,13 +158,20 @@ const DefectDetail = () => {
               <span className="hidden sm:inline">{copied ? 'Kopyalandı' : 'Raporu Kopyala'}</span>
             </button>
           </div>
-          <p className="text-lg text-slate-700 dark:text-slate-200 font-bold leading-snug">{defectData.runName} — Hata Raporu</p>
+          <p className="text-lg text-slate-700 dark:text-slate-200 font-bold leading-snug">{defectData.title}</p>
+          {defectData.description && (
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 whitespace-pre-line">{defectData.description}</p>
+          )}
           <div className="flex items-center gap-3 mt-2 text-xs font-medium text-slate-500 dark:text-slate-400 flex-wrap">
             <span className="flex items-center gap-1"><Folder size={12}/> {defectData.projectName}</span>
             <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"/>
             <span className="flex items-center gap-1"><PlayCircle size={12}/> {defectData.runName}</span>
             <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"/>
             <span className="flex items-center gap-1"><Clock size={12}/> {defectData.detectedAt}</span>
+            {defectData.createdBy && (<>
+              <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"/>
+              <span>Açan: {defectData.createdBy}</span>
+            </>)}
           </div>
         </div>
       </div>
@@ -211,7 +187,7 @@ const DefectDetail = () => {
               <Bug size={18} className="text-white"/>
             </div>
             <div>
-              <p className="font-bold text-rose-700 dark:text-rose-400 text-sm">Bu koşumda {defectData.failedCount} test başarısız oldu</p>
+              <p className="font-bold text-rose-700 dark:text-rose-400 text-sm">{defectData.source === 'auto' ? `Bu koşumda ${defectData.failedCount} test başarısız oldu` : `${defectData.failedCount} test case ile ilişkili`}</p>
               <p className="text-xs text-rose-600/70 dark:text-rose-500 mt-0.5">Her hatalı testin detayını aşağıda inceleyebilirsiniz.</p>
             </div>
           </div>
@@ -325,7 +301,7 @@ const DefectDetail = () => {
                 </select>
                 {saveMsg === 'saved' && <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5 ml-1 animate-in fade-in duration-200"><CheckCircle2 size={12}/> Kaydedildi</p>}
                 {saveMsg === 'error' && <p className="text-[11px] text-rose-500 font-medium flex items-center gap-1.5 ml-1"><AlertCircle size={12}/> Kaydedilemedi</p>}
-                {!saveMsg && <p className="text-[11px] text-slate-400 font-medium mt-1 flex items-center gap-1.5 ml-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"/> Tarayıcıya kaydedilir.</p>}
+                {!saveMsg && <p className="text-[11px] text-slate-400 font-medium mt-1 flex items-center gap-1.5 ml-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"/> Değişiklik tüm ekibe yansır.</p>}
               </div>
             ) : (
               <p className="text-xs text-center text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl">Statü değiştirmek için yetki gerekli.</p>
@@ -354,11 +330,13 @@ const DefectDetail = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Hızlı Aksiyonlar</h3>
             <div className="space-y-2">
+              {defectData.runId && (
               <button onClick={() => navigate(`/test-runs/${defectData.runId}`)}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-100 dark:border-slate-800 group transition-colors text-left">
                 <PlayCircle size={15} className="text-emerald-500 shrink-0 group-hover:scale-110 transition-transform"/>
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Koşum Detayına Git</span>
               </button>
+              )}
               <button onClick={() => navigate('/defects')}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-100 dark:border-slate-800 group transition-colors text-left">
                 <ArrowLeft size={15} className="text-slate-400 shrink-0 group-hover:scale-110 transition-transform"/>

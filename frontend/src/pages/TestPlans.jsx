@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
-import { testPlansApi, projectsApi, testCasesApi } from '../api';
+import { testPlansApi, projectsApi, testCasesApi, defectsApi } from '../api';
 import PermissionGuard from '../components/PermissionGuard';
 import {
   ClipboardList, Plus, Search, MoreVertical, X, Pencil, Trash2,
@@ -62,7 +62,6 @@ const Skeleton = ({ className }) => (
 const TestPlans = () => {
   const { can } = usePermission();
   const navigate  = useNavigate();
-  const location  = useLocation();
 
   const [plans, setPlans]         = useState([]);
   const [projects, setProjects]   = useState([]);
@@ -347,18 +346,18 @@ const TestPlans = () => {
     }
     setIsDefectCreating(true);
     try {
-      const payload = {
-        title: `[Oto-Defect] ${tcTitle} - Plan Hatası`,
-        description: `**Bağlı Test Planı:** ${runPlan?.title}\n**Test Case ID:** #${tcId}\n\n**Bulgu / Hata Notu:**\n${note}`,
-        status: 'Açık',
-        priority: 'Yüksek',
-        project_id: projectId
-      };
-
-      await import('../api').then(m => m.default.post('/test-runs', payload));
+      // (Eski payload test-runs'a title/'Açık' gönderdiği için her zaman 422 alıyordu)
+      await defectsApi.create({
+        title:        `${tcTitle} — plan koşumu hatası`,
+        description:  `Test planı: ${runPlan?.title}\nTest case: #${tcId}\n\n${note}`,
+        severity:     'Yüksek',
+        status:       'Open',
+        project_id:   projectId,
+        test_case_id: tcId,
+      });
       showToast('success', '🔥 Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
-    } catch {
-      showToast('error', 'Defect API servisine ulaşılamadı.');
+    } catch (err) {
+      showToast('error', err.message || 'Defect oluşturulamadı.');
     } finally {
       setIsDefectCreating(false);
     }

@@ -144,8 +144,11 @@ export const variablesApi = {
 };
 
 export const defectsApi = {
-  // Defect'ler backend'de is_defect=true flag'i ile test-runs tablosunda tutulur
-  getAll: (params) => api.get('/test-runs', { params: { ...params, is_defect: true } }),
-  getOne: (id)     => api.get(`/test-runs/${id}`),
-  create: (data)   => api.post('/test-runs', { ...data, is_defect: true }),
+  // Defect'ler backend'de ayrı "defects" tablosunda tutulur (otomatik + manuel)
+  getAll:     (params)   => api.get('/defects', { params }),
+  getOne:     (id)       => api.get(`/defects/${id}`),
+  create:     (data)     => api.post('/defects', data),
+  update:     (id, data) => api.patch(`/defects/${id}`, data),
+  bulkStatus: (data)     => api.post('/defects/bulk-status', data),
+  remove:     (id)       => api.delete(`/defects/${id}`),
 };

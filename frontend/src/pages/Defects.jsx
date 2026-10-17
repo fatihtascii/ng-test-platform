@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
-import { testRunsApi, projectsApi, testCasesApi } from '../api';
+import { defectsApi, projectsApi } from '../api';
 import {
   Bug, Search, Filter, AlertCircle, CheckCircle2,
   Clock, ArrowRightCircle, Folder, X,
@@ -26,23 +26,91 @@ const SEVERITY_CONFIG  = {
   'Düşük':  { bg: 'bg-blue-500/10 text-blue-500',     badge: 'bg-blue-400 text-white' },
 };
 const PAGE_SIZE  = 10;
+// Eski sürüm defect verisini tarayıcıda tutuyordu; yalnızca sunucuya taşımak için okunur
 const LS_KEY     = 'ng-defect-statuses';
 const MANUAL_KEY = 'ng-manual-defects';
-const HIDDEN_KEY = 'ng-hidden-auto-defects'; // ✅ YENİ: Silinen otomatik defectler için
+const HIDDEN_KEY = 'ng-hidden-auto-defects';
 
 const getSev         = (s) => SEVERITY_CONFIG[s] || SEVERITY_CONFIG['Orta'];
 const getStatusOpt   = (s) => STATUS_OPTIONS.find(o => o.value === s);
 const getStatusCls   = (s) => getStatusOpt(s)?.cls || 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700';
 const getStatusLabel = (s) => { const o = getStatusOpt(s); return o ? `${o.emoji} ${o.label}` : s; };
 
-// ✅ FİX: Eğer backend array dönerse string parse etmeye çalışıp çökmesin diye düzeltildi
-const safeJSON = (s) => { 
-  if (!s) return [];
-  if (Array.isArray(s)) return s;
-  try { 
-    const p = typeof s === 'string' ? JSON.parse(s) : s; 
-    return Array.isArray(p) ? p : []; 
-  } catch { return []; } 
+
+// API kaydını liste/kart bileşenlerinin beklediği şekle çevirir
+const toUiDefect = (d) => ({
+  id:            d.code,                 // "BUG-12" — görünen ve URL'de kullanılan kimlik
+  dbId:          d.id,
+  type:          d.source,               // 'auto' | 'manual'
+  title:         d.title,
+  description:   d.description || '',
+  severity:      d.severity,
+  status:        d.status,
+  projectId:     d.project_id,
+  projectName:   d.project_name || 'Bilinmeyen Proje',
+  runId:         d.test_run_id,
+  runName:       d.test_run_name || (d.source === 'manual' ? 'Manuel Ekleme' : 'Silinmiş Koşum'),
+  failedCount:   d.failed_count,
+  failedDetails: (d.failed_details || []).map(f => ({
+    caseId: f.case_id, title: f.title, errorMessage: f.error, severity: f.severity || 'Orta',
+  })),
+  createdAt:     d.created_at,
+  updatedAt:     d.updated_at || d.created_at,
+});
+
+// Eski localStorage verisini (manuel defect'ler + statüler) bir kez sunucuya aktarır.
+// StrictMode effect'i iki kez çalıştırdığında (veya iki sekme açıkken) aynı kaydın iki kez
+// oluşmaması için: sayfa başına tek çalıştırma + veri okunur okunmaz tarayıcıdan "sahiplenilir".
+let legacyMigration = null;
+const migrateLegacyLocalDefects = () => {
+  if (!legacyMigration) legacyMigration = runLegacyMigration().finally(() => { legacyMigration = null; });
+  return legacyMigration;
+};
+
+const runLegacyMigration = async () => {
+  const LEGACY_KEYS = [LS_KEY, `${LS_KEY}-times`, MANUAL_KEY, HIDDEN_KEY];
+  const snapshot = Object.fromEntries(LEGACY_KEYS.map(k => [k, localStorage.getItem(k)]));
+  let manual = [], statuses = {};
+  try { manual   = JSON.parse(snapshot[MANUAL_KEY] || '[]'); } catch { manual = []; }
+  try { statuses = JSON.parse(snapshot[LS_KEY]     || '{}'); } catch { statuses = {}; }
+  if (!manual.length && !Object.keys(statuses).length) return 0;
+  LEGACY_KEYS.forEach(k => localStorage.removeItem(k));   // sahiplen
+
+  let moved = 0;
+  let processed = 0;   // sunucuya gönderilen veya geçersiz olduğu için atlanan manuel kayıt sayısı
+  try {
+    for (const m of manual) {
+      if (m?.title && m?.projectId) {
+        await defectsApi.create({
+          title: m.title, description: m.description || null,
+          severity: SEVERITY_OPTIONS.includes(m.severity) ? m.severity : 'Orta',
+          status: statuses[m.id] || m.status || 'Open', project_id: Number(m.projectId),
+        });
+        moved++;
+      }
+      processed++;
+    }
+    // Otomatik defect statüleri eskiden "BUG-{koşumId}" anahtarıyla tutuluyordu
+    const runStatuses = Object.entries(statuses)
+      .map(([k, v]) => [k.match(/^BUG-(\d+)$/)?.[1], v]).filter(([runId]) => runId);
+    if (runStatuses.length) {
+      const { data } = await defectsApi.getAll();
+      for (const [runId, status] of runStatuses) {
+        const d = data.find(x => x.source === 'auto' && String(x.test_run_id) === runId);
+        if (d && d.status !== status && STATUS_OPTIONS.some(o => o.value === status)) {
+          await defectsApi.update(d.id, { status });
+          moved++;
+        }
+      }
+    }
+  } catch (err) {
+    // Yarıda kalırsa: sunucuya ulaşmamış manuel kayıtları ve statüleri geri yaz,
+    // bir sonraki açılışta tekrar denensin (gönderilmiş olanlar tekrar oluşmaz).
+    Object.entries(snapshot).forEach(([k, v]) => { if (v !== null) localStorage.setItem(k, v); });
+    localStorage.setItem(MANUAL_KEY, JSON.stringify(manual.slice(processed)));
+    throw err;
+  }
+  return moved;
 };
 
 const Skeleton = ({ className }) => (
@@ -143,7 +211,7 @@ const Defects = () => {
   const navigate = useNavigate();
   const { can }  = usePermission();
 
-  const [rawData, setRawData] = useState({ testRuns: [], projects: [], testCases: [] });
+  const [rawData, setRawData] = useState({ defects: [], projects: [] });
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
   
@@ -164,89 +232,41 @@ const Defects = () => {
   const [deleteConfirm,  setDeleteConfirm]  = useState(null);
   const [isDeleting,     setIsDeleting]     = useState(false);
 
-  const [statuses,      setStatuses]      = useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY)            || '{}'); } catch { return {}; } });
-  const [statusTimes,   setStatusTimes]   = useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY + '-times') || '{}'); } catch { return {}; } });
-  const [manualDefects, setManualDefects] = useState(() => { try { return JSON.parse(localStorage.getItem(MANUAL_KEY)        || '[]'); } catch { return []; } });
-  
-  // ✅ YENİ: Otomatik oluşturulan hataların silinenlerini tutan state
-  const [hiddenAutoDefects, setHiddenAutoDefects] = useState(() => { try { return JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]'); } catch { return []; } });
-
   const showToast = useCallback((type, message) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 3000);
   }, []);
 
   // ── Veri Çekme ──────────────────────────────────────────────
+  // Defect'ler sunucuda tutulur; otomatik olanlar başarısız koşum sonuçlarından üretilir.
   const fetchAll = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [runsRes, projsRes, casesRes] = await Promise.allSettled([
-        testRunsApi.getAll(), projectsApi.getAll(), testCasesApi.getAll(),
-      ]);
+      const [defRes, projsRes] = await Promise.allSettled([defectsApi.getAll(), projectsApi.getAll()]);
       setRawData({
-        testRuns:  runsRes.status  === 'fulfilled' ? runsRes.value.data  : [],
-        projects:  projsRes.status === 'fulfilled' ? projsRes.value.data : [],
-        testCases: casesRes.status === 'fulfilled' ? casesRes.value.data : [],
+        defects:  defRes.status   === 'fulfilled' ? defRes.value.data   : [],
+        projects: projsRes.status === 'fulfilled' ? projsRes.value.data : [],
       });
-      if (runsRes.status !== 'fulfilled') setError('Test koşumları yüklenemedi.');
+      if (defRes.status !== 'fulfilled') setError('Defect kayıtları yüklenemedi.');
     } catch { setError('Sunucuya bağlanılamadı.'); }
     finally   { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    // Eski sürümde tarayıcıda (localStorage) tutulan defect verisini bir kez sunucuya taşı
+    (async () => {
+      if (can('defects.manage')) {
+        try {
+          const moved = await migrateLegacyLocalDefects();
+          if (moved > 0) showToast('success', `Tarayıcıda kalan ${moved} defect kaydı sunucuya taşındı.`);
+        } catch { /* taşınamazsa veriler yerinde kalır, bir sonraki açılışta tekrar denenir */ }
+      }
+      fetchAll();
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── Otomasyon defectlerini RUN bazlı grupla ─────────────────
-  const autoDefects = useMemo(() => {
-    const bugs = [];
-    (rawData.testRuns || []).forEach(run => {
-      const bugId = `BUG-${run.id}`;
-      
-      // ✅ FİX: Eğer bu otomatik hata daha önce silinmişse (gizlenmişse) pas geç!
-      if (hiddenAutoDefects.includes(bugId)) return;
-
-      const project     = (rawData.projects || []).find(p => p.id === run.project_id);
-      const failedItems = safeJSON(run.results).filter(r =>
-        r.status === 'Failed' || r.status === 'Başarısız' ||
-        r.run_status === 'Failed' || r.run_status === 'Başarısız'
-      );
-      if (failedItems.length === 0) return;
-
-      const sevOrder     = { 'Kritik': 4, 'Yüksek': 3, 'Orta': 2, 'Düşük': 1 };
-      const failedDetails = failedItems.map((r, idx) => {
-        const caseId = r.case_id ?? r.test_case_id ?? r.id ?? null;
-        const realTC = caseId != null ? (rawData.testCases || []).find(tc => tc.id === caseId) : null;
-        return {
-          caseId,
-          title:        realTC?.title || r.test_case_title || (caseId != null ? `Test #${caseId}` : `Test ${idx + 1}`),
-          errorMessage: r.actual_result || r.error || null,
-          severity:     realTC?.priority || r.test_case_priority || 'Orta',
-        };
-      });
-      const topSev = failedDetails.reduce((max, item) =>
-        (sevOrder[item.severity] || 2) > (sevOrder[max] || 2) ? item.severity : max, 'Orta'
-      );
-      bugs.push({
-        id: bugId, type: 'auto',
-        title:        `${run.name || 'İsimsiz Koşum'} — ${failedDetails.length} Hatalı Test`,
-        failedCount:  failedDetails.length,
-        failedDetails,
-        projectId:    project?.id   ?? null,
-        projectName:  project?.name ?? 'Bilinmeyen Proje',
-        runId:        run.id,
-        runName:      run.name ?? 'İsimsiz Koşum',
-        severity:     topSev,
-        status:       statuses[bugId]    ?? 'Open',
-        updatedAt:    statusTimes[bugId] ?? null,
-        createdAt:    run.created_at     ?? null,
-      });
-    });
-    return bugs.reverse();
-  }, [rawData, statuses, statusTimes, hiddenAutoDefects]);
-
-  const allDefects = useMemo(() => [
-    ...manualDefects.map(d => ({ ...d, type: 'manual', status: statuses[d.id] ?? d.status ?? 'Open' })),
-    ...autoDefects,
-  ], [autoDefects, manualDefects, statuses]);
+  const allDefects = useMemo(() => (rawData.defects || []).map(toUiDefect), [rawData.defects]);
 
   // ── Filtreleme ───────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -275,27 +295,34 @@ const Defects = () => {
     resolved:   allDefects.filter(d => d.status === 'Resolved').length,
   }), [allDefects]);
 
+  // Sunucudan dönen kaydı listede güncelle
+  const replaceDefect = useCallback((updated) => {
+    setRawData(prev => ({ ...prev, defects: prev.defects.map(d => d.id === updated.id ? updated : d) }));
+  }, []);
+
   // ── Statü Kaydet ─────────────────────────────────────────────
-  const saveStatus = useCallback((bugId, newStatus) => {
-    const now = new Date().toISOString();
-    const ns  = { ...statuses,    [bugId]: newStatus };
-    const nt  = { ...statusTimes, [bugId]: now };
-    setStatuses(ns); setStatusTimes(nt);
-    try { localStorage.setItem(LS_KEY, JSON.stringify(ns)); localStorage.setItem(LS_KEY + '-times', JSON.stringify(nt)); } catch { /* ignore */ }
-    showToast('success', 'Statü başarıyla güncellendi.');
-  }, [statuses, statusTimes]);
+  const saveStatus = useCallback(async (bugId, newStatus) => {
+    const bug = allDefects.find(b => b.id === bugId);
+    if (!bug) return;
+    try {
+      const { data } = await defectsApi.update(bug.dbId, { status: newStatus });
+      replaceDefect(data);
+      showToast('success', 'Statü başarıyla güncellendi.');
+    } catch (e) { showToast('error', e.message || 'Statü güncellenemedi.'); }
+  }, [allDefects, replaceDefect, showToast]);
 
   const handleBulkStatus = useCallback(async () => {
     if (!bulkStatus || !selected.size) return;
     setIsBulkSaving(true);
-    const now = new Date().toISOString();
-    const ns  = { ...statuses }; const nt = { ...statusTimes };
-    [...selected].forEach(id => { ns[id] = bulkStatus; nt[id] = now; });
-    setStatuses(ns); setStatusTimes(nt);
-    try { localStorage.setItem(LS_KEY, JSON.stringify(ns)); localStorage.setItem(LS_KEY + '-times', JSON.stringify(nt)); } catch { /* ignore */ }
-    setSelected(new Set()); setBulkStatus(''); setIsBulkSaving(false);
-    showToast('success', `${selected.size} adet kaydın statüsü güncellendi.`);
-  }, [bulkStatus, selected, statuses, statusTimes]);
+    const ids = allDefects.filter(b => selected.has(b.id)).map(b => b.dbId);
+    try {
+      const { data } = await defectsApi.bulkStatus({ ids, status: bulkStatus });
+      await fetchAll();
+      showToast('success', `${data.updated} adet kaydın statüsü güncellendi.`);
+      setSelected(new Set()); setBulkStatus('');
+    } catch (e) { showToast('error', e.message || 'Toplu güncelleme başarısız.'); }
+    finally { setIsBulkSaving(false); }
+  }, [bulkStatus, selected, allDefects, fetchAll, showToast]);
 
   // ── Seçim ────────────────────────────────────────────────────
   const toggleSelect    = useCallback((id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
@@ -305,55 +332,33 @@ const Defects = () => {
 
   // ── CRUD ─────────────────────────────────────────────────────
   const saveManualDefect = useCallback(async (form) => {
-    const proj = rawData.projects.find(p => String(p.id) === String(form.projectId));
+    const payload = {
+      title: form.title.trim(), description: form.description || null,
+      severity: form.severity, status: form.status, project_id: Number(form.projectId),
+    };
     if (modal?.mode === 'create') {
-      const nd = {
-        id: `BUG-M-${Date.now()}`, type: 'manual',
-        title: form.title.trim(), description: form.description || '',
-        severity: form.severity, projectId: Number(form.projectId),
-        projectName: proj?.name || 'Bilinmeyen', runId: null, runName: 'Manuel Ekleme',
-        failedCount: 0, failedDetails: [], status: form.status,
-        updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
-      };
-      const upd = [nd, ...manualDefects];
-      setManualDefects(upd);
-      saveStatus(nd.id, form.status);
-      try { localStorage.setItem(MANUAL_KEY, JSON.stringify(upd)); } catch { /* ignore */ }
+      const { data } = await defectsApi.create(payload);
+      setRawData(prev => ({ ...prev, defects: [data, ...prev.defects] }));
       showToast('success', 'Defect başarıyla eklendi.');
     } else {
-      const upd = manualDefects.map(d => d.id === modal.defect.id
-        ? { ...d, title: form.title.trim(), description: form.description || '', severity: form.severity, projectId: Number(form.projectId), projectName: proj?.name || d.projectName, status: form.status, updatedAt: new Date().toISOString() }
-        : d
-      );
-      setManualDefects(upd);
-      saveStatus(modal.defect.id, form.status);
-      try { localStorage.setItem(MANUAL_KEY, JSON.stringify(upd)); } catch { /* ignore */ }
+      const { data } = await defectsApi.update(modal.defect.dbId, payload);
+      replaceDefect(data);
       showToast('success', 'Defect detayları güncellendi.');
     }
-  }, [modal, manualDefects, rawData.projects, saveStatus]);
+  }, [modal, replaceDefect, showToast]);
 
-  // ✅ FİX: Silme işlemi artık hem manuel hem de otomatik hataları başarıyla siliyor!
   const handleDelete = useCallback(async () => {
     if (!deleteConfirm) return;
     setIsDeleting(true);
-    
-    if (deleteConfirm.id.startsWith('BUG-M-')) {
-      // Manuel eklenenleri direkt state ve local'den sil
-      const upd = manualDefects.filter(d => d.id !== deleteConfirm.id);
-      setManualDefects(upd);
-      try { localStorage.setItem(MANUAL_KEY, JSON.stringify(upd)); } catch { /* ignore */ }
-    } else {
-      // Otomatikleri "gizlenenler" listesine at (Çünkü koşum silinmiyor)
-      const upd = [...hiddenAutoDefects, deleteConfirm.id];
-      setHiddenAutoDefects(upd);
-      try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(upd)); } catch { /* ignore */ }
-    }
-    
-    setSelected(prev => { const n = new Set(prev); n.delete(deleteConfirm.id); return n; });
-    setIsDeleting(false); 
-    setDeleteConfirm(null);
-    showToast('success', 'Defect sistemden kaldırıldı.');
-  }, [deleteConfirm, manualDefects, hiddenAutoDefects]);
+    const bug = allDefects.find(b => b.id === deleteConfirm.id);
+    try {
+      if (bug) await defectsApi.remove(bug.dbId);
+      setRawData(prev => ({ ...prev, defects: prev.defects.filter(d => d.id !== bug?.dbId) }));
+      setSelected(prev => { const n = new Set(prev); n.delete(deleteConfirm.id); return n; });
+      showToast('success', 'Defect sistemden kaldırıldı.');
+    } catch (e) { showToast('error', e.message || 'Defect silinemedi.'); }
+    finally { setIsDeleting(false); setDeleteConfirm(null); }
+  }, [deleteConfirm, allDefects, showToast]);
 
   const handleCopyReport = useCallback(() => {
     if (!filtered.length) return;
@@ -552,7 +557,7 @@ const Defects = () => {
                         )}
 
                         {/* Expand butonu */}
-                        {bug.type === 'auto' && bug.failedCount > 0 && (
+                        {bug.failedCount > 0 && (
                           <button onClick={() => setExpandedId(isExpanded ? null : bug.id)}
                             className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 transition-colors">
                             {isExpanded ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
@@ -590,14 +595,14 @@ const Defects = () => {
                             <Trash2 size={16}/>
                           </button>
                         )}
-                        {bug.type === 'auto' && bug.runId && (
+                        {bug.runId && (
                           <button onClick={() => navigate(`/test-runs/${bug.runId}`)}
                             className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-all border border-slate-200 dark:border-slate-700" title="Koşum Detayı">
                             <PlayCircle size={16}/>
                           </button>
                         )}
-                        {bug.type === 'auto' && (
-                          <button onClick={() => navigate(`/defects/${bug.id}-0`)}
+                        {(
+                          <button onClick={() => navigate(`/defects/${bug.id}`)}
                             className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all border border-slate-200 dark:border-slate-700" title="Hata Detayı">
                             <ArrowRightCircle size={18}/>
                           </button>

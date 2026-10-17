@@ -8,6 +8,7 @@ import json
 import shutil
 import tempfile
 from app.modules.integrations.mobile_runner import router as mobile_router
+from app.modules.defects.router import router as defects_router
 from datetime import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -166,37 +167,51 @@ def _prepare_test_files(cases: list[int], db, run_dir: str) -> tuple[list, list]
 
 
 # ── YARDIMCI: Otomatik defect kaydı ─────────────────────────────
-def _save_defect_run(failed_cases: list[int], error_details: list[str]) -> bool:
-    """Yalnızca hata veren case'ler için tek bir defect kaydı oluşturur."""
-    cases = failed_cases
+def _save_automation_run(executed: list[int], failed: set[int], error_details: list[str]) -> tuple[int | None, str | None]:
+    """
+    Otomasyon koşumunu normal bir TestRun olarak kaydeder, case statülerini günceller
+    ve hata varsa koşuma bağlı otomatik defect üretir. (run_id, defect_kodu) döner.
+    """
+    from app.modules.defects.service import sync_run_defect
+
     db = SessionLocal()
     try:
-        crash_log      = "\n".join(error_details[-20:])
-        first_case_id  = cases[0] if cases else 0
-        tc             = db.query(test_case_models.TestCase).filter(
-            test_case_models.TestCase.id == first_case_id
-        ).first()
-        project_id = tc.project_id if tc else 1
+        crash_log = "\n".join(error_details[-20:])
+        cases = {
+            tc.id: tc for tc in db.query(test_case_models.TestCase)
+            .filter(test_case_models.TestCase.id.in_(executed)).all()
+        }
+        if not cases:
+            return None, None
+        project_id = cases[executed[0]].project_id if executed[0] in cases else next(iter(cases.values())).project_id
 
-        results_array = [
-            {"case_id": cid, "status": "Failed", "error": f"Otomasyon Çöküş Logu:\n{crash_log}"}
-            for cid in cases
-        ]
-        new_run = test_run_models.TestRun(
-            name=f"Oto-Defect Yakalaması ({datetime.now().strftime('%H:%M:%S')})",
+        results = []
+        for cid in executed:
+            is_failed = cid in failed
+            results.append({
+                "case_id": cid,
+                "status": "Failed" if is_failed else "Passed",
+                **({"error": f"Otomasyon çıktısı (son satırlar):\n{crash_log}"} if is_failed else {}),
+            })
+            if cid in cases:
+                cases[cid].status = "Başarısız" if is_failed else "Başarılı"
+
+        run = test_run_models.TestRun(
+            name=f"Otomasyon koşumu ({datetime.now().strftime('%d.%m %H:%M:%S')})",
+            description=f"{len(executed)} otomasyon testi koşuldu, {len(failed)} başarısız.",
             project_id=project_id,
-            status="Başarısız",
-            results=json.dumps(results_array),
-            is_defect=True,
+            status="Başarısız" if failed else "Tamamlandı",
+            results=json.dumps(results, ensure_ascii=False),
         )
-        db.add(new_run)
+        db.add(run)
+        db.flush()
+        defect = sync_run_defect(db, run)
         db.commit()
-        logger.info(f"Defect kaydı oluşturuldu: proje={project_id}")
-        return True
+        return run.id, (f"BUG-{defect.id}" if defect else None)
     except Exception as e:
-        logger.error(f"Defect kaydedilemedi: {e}", exc_info=True)
+        logger.error(f"Otomasyon koşumu kaydedilemedi: {e}", exc_info=True)
         db.rollback()
-        return False
+        return None, None
     finally:
         db.close()
 
@@ -399,22 +414,27 @@ async def websocket_run_test(websocket: WebSocket):
             logger.warning(f"Süreç PID={process.pid} timeout, öldürülüyor.")
             process.kill()
 
-        # 6. DEFECT KAYDI ─────────────────────────────────────────
-        # Pytest hatayla bittiyse (exit code != 0) veya satırlarda hata görüldüyse
+        # 6. KOŞUM + DEFECT KAYDI ────────────────────────────────
         # Çıkış kodu güvenilir kaynak; log satırlarındaki "error" kelimesi tek başına yanıltıcı olabilir
         exit_code = process.returncode
         run_failed = (exit_code != 0) if exit_code is not None else has_error
+        executed = [cid for _, _, cid in run_file_tuples]
+        failed: set[int] = set()
         if run_failed:
             # Hangi case'in patladığı tespit edilemediyse (ör. import/collection hatası)
             # koşulan tüm case'ler hatalı sayılır — atlananlar hariç
-            failed = sorted(failed_case_ids) or [cid for _, _, cid in run_file_tuples]
-            ok = _save_defect_run(failed, error_details)
-            if ok:
+            failed = set(failed_case_ids) or set(executed)
+        run_id, defect_code = await asyncio.to_thread(
+            _save_automation_run, executed, failed, error_details
+        )
+        if run_id is None:
+            await ws_send(websocket, "warn", "⚠️ [UYARI] Koşum sonucu veritabanına kaydedilemedi.")
+        else:
+            await ws_send(websocket, "info", f"[SİSTEM] Koşum kaydedildi (#{run_id}).", run_id=run_id)
+            if defect_code:
                 await ws_send(websocket, "error",
-                    "🔥 [SİSTEM] Hata yakalandı. Otomatik olarak Defect listesine eklendi.")
-            else:
-                await ws_send(websocket, "warn",
-                    "⚠️ [UYARI] Defect kaydedilirken veritabanı hatası oluştu.")
+                    f"🔥 [SİSTEM] {len(failed)} test başarısız. {defect_code} defect kaydı oluşturuldu.",
+                    defect=defect_code)
 
         # 7. DONE ─────────────────────────────────────────────────
         await ws_send(websocket, "done",
@@ -455,9 +475,39 @@ app.include_router(var_router)
 app.include_router(test_cases_router)
 app.include_router(test_plans_router)
 app.include_router(test_runs_router)
+app.include_router(defects_router)
 app.include_router(integrations_router)
 app.include_router(mobile_router, prefix="/api/mobile", tags=["Mobile Tests"])
 
+
+
+# ── SONDA "/" EKSİK İSTEKLER ─────────────────────────────────────
+# "/projects" gibi istekler FastAPI'de "/projects/"e 307 ile yönlendirilir: her istek iki kez
+# gider ve HTTPS arkasında (proxy) yönlendirme http:// adresine dönüp "mixed content" ile kırılır.
+# Yönlendirmek yerine yolu doğrudan "/projects/" olarak eşliyoruz.
+class _TrailingSlashMiddleware:
+    def __init__(self, asgi_app):
+        self.app = asgi_app
+        self._paths: set[str] | None = None
+
+    def _collection_paths(self) -> set[str]:
+        # OpenAPI şeması FastAPI sürümünden bağımsız olarak tüm HTTP yollarını içerir
+        if self._paths is None:
+            self._paths = {
+                path for path in app.openapi().get("paths", {})
+                if path.endswith("/") and path != "/" and "{" not in path
+            }
+        return self._paths
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope["path"]
+            if not path.endswith("/") and path + "/" in self._collection_paths():
+                scope = dict(scope, path=path + "/", raw_path=(path + "/").encode())
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_TrailingSlashMiddleware)
 
 
 # ── HEALTH CHECK ─────────────────────────────────────────────────

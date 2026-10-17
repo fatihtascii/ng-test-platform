@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from . import models, schemas
 from app.modules.projects.models import Project
 from app.modules.test_plans.models import TestPlan
+from app.modules.defects.service import sync_run_defect
 
 logger = logging.getLogger("ng-test.test_runs")
 
@@ -46,6 +47,8 @@ def create_test_run(db: Session, run: schemas.TestRunCreate) -> models.TestRun:
 
     db_run = models.TestRun(**run.model_dump())
     db.add(db_run)
+    db.flush()
+    sync_run_defect(db, db_run)   # başarısız sonuç varsa otomatik defect
     db.commit()
     db.refresh(db_run)
     logger.info(f"TestRun oluşturuldu: id={db_run.id} name={db_run.name!r}")
@@ -115,6 +118,7 @@ def update_test_run(
     for k, v in values.items():
         setattr(run, k, v)
 
+    sync_run_defect(db, run)
     db.commit()
     db.refresh(run)
     logger.info(f"TestRun güncellendi: id={run_id}")

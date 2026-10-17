@@ -13,3 +13,4 @@ from app.modules.test_runs    import models as test_run_models     # noqa: F401
 from app.modules.environments import models as env_models          # noqa: F401
 from app.modules.roles        import models as role_models         # noqa: F401
 from app.modules.integrations import models as int_models          # noqa: F401
+from app.modules.defects      import models as defect_models       # noqa: F401

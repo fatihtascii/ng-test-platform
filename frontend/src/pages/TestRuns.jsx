@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
-import { testRunsApi, projectsApi, testPlansApi, testCasesApi } from '../api';
+import { testRunsApi, projectsApi, testPlansApi, testCasesApi, defectsApi } from '../api';
 import PermissionGuard from '../components/PermissionGuard';
 import {
   PlayCircle, Search, MoreVertical, X, Pencil, Trash2, Folder,
@@ -35,13 +35,6 @@ const getCardBgStyle = (status, isExpanded) => {
 };
 
 // FIX: API hata mesajını güvenli parse et
-const parseApiError = async (res) => {
-  try {
-    const d = await res.json();
-    if (Array.isArray(d.detail)) return d.detail.map(e => e.msg || String(e)).join(', ');
-    return d.detail || 'Bir hata oluştu.';
-  } catch { return 'Sunucu hatası.'; }
-};
 
 const RunStatusBadge = ({ status }) => {
   if (status === 'Tamamlandı') return <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg font-semibold border border-emerald-200 dark:border-emerald-800/50 text-xs flex items-center gap-1"><CheckCircle2 size={12}/> Tamamlandı</span>;
@@ -153,7 +146,6 @@ const TestRuns = () => {
       setModalMode('create');
       setIsPanelOpen(true);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
 
   // ── CRUD İşlemleri ──────────────────────────────────────────────
@@ -227,7 +219,7 @@ const TestRuns = () => {
             planCaseIds = typeof plan.test_cases === 'string'
               ? JSON.parse(plan.test_cases)
               : (Array.isArray(plan.test_cases) ? plan.test_cases : []);
-          } catch {}
+          } catch { /* bozuk sonuç verisi → boş liste */ }
           if (planCaseIds.length > 0) {
             filtered = filtered.filter(tc => planCaseIds.includes(tc.id));
           }
@@ -315,18 +307,15 @@ const TestRuns = () => {
     if (!runningTestRun) return;
     setIsDefectCreating(true);
     try {
-      // Backend TestRun şeması: name zorunlu, status geçerli değerlerden biri olmalı.
-      // (Eski payload title/'Açık' gönderdiği için istek her zaman 422 alıyordu.)
-      const payload = {
-        name:         `[Oto-Defect] ${tcTitle} - Koşum Hatası`,
-        description:  `**Test Koşumu:** ${runningTestRun.name}\n**Test Case ID:** #${tcId}\n\n**Bulgu / Hata Notu:**\n${note}`,
-        status:       'Başarısız',
+      await defectsApi.create({
+        title:        `${tcTitle} — koşum hatası`,
+        description:  `Test koşumu: ${runningTestRun.name}\nTest case: #${tcId}\n\n${note}`,
+        severity:     'Yüksek',
+        status:       'Open',
         project_id:   runningTestRun.project_id,
-        test_plan_id: runningTestRun.test_plan_id ?? null,
-        is_defect:    true,
-        results:      JSON.stringify([{ case_id: tcId, status: 'Failed', error: note }]),
-      };
-      await testRunsApi.create(payload);
+        test_run_id:  runningTestRun.id,
+        test_case_id: tcId,
+      });
       showToast('success', '🔥 Hata (Defect) başarıyla oluşturuldu ve sisteme eklendi!');
     } catch (err) { showToast('error', err.message || 'Defect API servisine ulaşılamadı.'); }
     finally  { setIsDefectCreating(false); }
