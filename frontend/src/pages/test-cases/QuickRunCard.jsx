@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { MonitorPlay, Loader2, Square, X, RotateCcw, CheckCircle2, XCircle, AlertTriangle, ExternalLink } from 'lucide-react';
+import { MonitorPlay, Loader2, Square, X, RotateCcw, CheckCircle2, XCircle, AlertTriangle, ExternalLink, ListFilter } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { caseIdent } from './model';
 
@@ -17,10 +17,11 @@ const MAX_FAILS = 3;
 /**
  * Listeden case'lerin tarayıcı açık (headed) koşumu: sağ altta küçük canlı kart.
  * run: useAutomationRun() · testCases: koşulan case'ler · onDone: koşum kaydedilince (listeyi tazelemek için)
+ * onShowInList(runId): koşumun kalanlarını test case listesinde süzer
  * onRetry(ids): kalan / yarım kalan case'leri yeniden koşar (yeni koşum, yeni kart)
  * Tarayıcı penceresi backend'in çalıştığı makinede açılır; sayfadan çıkılırsa koşum durur.
  */
-const QuickRunCard = ({ run, testCases, onClose, onDone, onRetry }) => {
+const QuickRunCard = ({ run, testCases, onClose, onDone, onRetry, onShowInList }) => {
   const { phase, logs, progress, summary, error } = run;
   const live = phase === 'connecting' || phase === 'running';
   const single = testCases.length === 1 ? testCases[0] : null;
@@ -121,6 +122,12 @@ const QuickRunCard = ({ run, testCases, onClose, onDone, onRetry }) => {
         {live && <Button size="sm" icon={<Square size={13} />} onClick={run.stop} disabled={phase === 'connecting'}>Durdur</Button>}
         {!live && onRetry && retryIds.length > 0 && (
           <Button size="sm" variant="primary" icon={<RotateCcw size={13} />} onClick={() => onRetry(retryIds)} className="mr-auto">{retryLabel}</Button>
+        )}
+        {phase === 'finished' && !single && fails.length > 0 && summary?.run_id && onShowInList && (
+          <button type="button" onClick={() => onShowInList(summary.run_id)}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
+            <ListFilter size={12} /> Kalanları listede göster
+          </button>
         )}
         {!live && summary?.run_id && (
           <Link to={`/test-runs/${summary.run_id}`} title="Koşum kaydını aç"

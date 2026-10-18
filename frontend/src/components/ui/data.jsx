@@ -112,6 +112,7 @@ DebouncedSearchInput.displayName = 'DebouncedSearchInput';
  * options: [[value, label]]
  */
 export const FilterSelect = ({ label, value, onChange, options, className }) => {
+  // options: [değer, etiket, (isteğe bağlı) seçiliyken düğmede görünen kısa etiket]
   const current = options.find(([v]) => String(v) === String(value));
   return (
     <label className={cx(
@@ -121,7 +122,7 @@ export const FilterSelect = ({ label, value, onChange, options, className }) => 
         : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
       className,
     )}>
-      <span className="whitespace-nowrap">{label}{current && value ? <>: <span className="font-medium">{current[1]}</span></> : null}</span>
+      <span className="whitespace-nowrap">{label}{current && value ? <>: <span className="font-medium">{current[2] ?? current[1]}</span></> : null}</span>
       <ChevronDown size={14} className="pointer-events-none absolute right-2 opacity-60" aria-hidden />
       <select value={value} onChange={e => onChange(e.target.value)} aria-label={label}
         className="absolute inset-0 cursor-pointer opacity-0">

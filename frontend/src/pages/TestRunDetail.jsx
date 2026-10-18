@@ -213,7 +213,11 @@ const TestRunDetail = () => {
           </p>
           <p className="flex flex-wrap gap-x-4 tabular-nums text-slate-600 dark:text-slate-300">
             <span><span className="font-semibold text-emerald-700 dark:text-emerald-400">{summary.Passed}</span> geçti</span>
-            <span><span className="font-semibold text-rose-700 dark:text-rose-400">{summary.Failed}</span> kaldı</span>
+            {summary.Failed > 0 && can('test_cases.view')
+              ? <Link to={`/test-cases?run=${run.id}&runres=Failed`} title="Kalan case'leri test case listesinde aç" className="hover:underline">
+                  <span className="font-semibold text-rose-700 dark:text-rose-400">{summary.Failed}</span> kaldı
+                </Link>
+              : <span><span className="font-semibold text-rose-700 dark:text-rose-400">{summary.Failed}</span> kaldı</span>}
             <span><span className="font-semibold text-amber-700 dark:text-amber-400">{summary.Skipped}</span> atlandı</span>
             <span><span className="font-semibold text-slate-900 dark:text-white">{summary.Pending}</span> bekliyor</span>
           </p>

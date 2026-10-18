@@ -3,10 +3,14 @@ import { X } from 'lucide-react';
 import { DebouncedSearchInput, FilterSelect } from '../../components/ui/data';
 import { STATUSES, PRIORITIES, TEST_TYPES, EXECUTION_LABEL } from './model';
 
-const CaseFilters = ({ query, projects, tags, searchRef }) => {
+// Seçili koşumdaki sonuca göre süzme
+const RUN_RESULTS = [['Failed', 'Kaldı'], ['Passed', 'Geçti'], ['Skipped', 'Atlandı']];
+
+/** runOptions: son koşumlar (null = koşum filtresi gösterilmez) */
+const CaseFilters = ({ query, projects, tags, searchRef, runOptions }) => {
   const { q, filters, setQ, setFilter, clearFilters, hasFilter } = query;
   return (
-    <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+    <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
       <DebouncedSearchInput ref={searchRef} value={q} onChange={setQ} shortcut="/"
         placeholder="Başlık, TC-ID, etiket veya adım ara" className="lg:w-80" />
       <div className="flex flex-wrap items-center gap-2">
@@ -23,6 +27,12 @@ const CaseFilters = ({ query, projects, tags, searchRef }) => {
         {tags.length > 0 && (
           <FilterSelect label="Etiket" value={filters.tag} onChange={v => setFilter('tag', v)}
             options={tags.map(t => [t, t])} />
+        )}
+        {runOptions && (runOptions.length > 0 || filters.run) && (
+          <FilterSelect label="Koşum" value={filters.run} onChange={v => setFilter('run', v)} options={runOptions} />
+        )}
+        {runOptions && filters.run && (
+          <FilterSelect label="Koşumda" value={filters.runres} onChange={v => setFilter('runres', v)} options={RUN_RESULTS} />
         )}
         {hasFilter && (
           <button type="button" onClick={clearFilters}

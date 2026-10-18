@@ -28,6 +28,7 @@ import MobileRunDialog from './test-cases/MobileRunDialog';
 import AddToPlanDialog from './test-cases/AddToPlanDialog';
 import QuickRunCard from './test-cases/QuickRunCard';
 import { useAutomationRun } from './automation/useAutomationRun';
+import { useRunFilter, runOptions } from './test-cases/useRunFilter';
 import {
   STATUSES, compareCases, matchesQuery, isAutomatable, caseIdent, casesToCsv, downloadText,
   emptyForm, formFromCase, formFromAi, formSignature, validateForm, buildPayload, duplicatePayload, trLower,
@@ -62,15 +63,21 @@ const TestCases = () => {
     return [...set].sort((a, b) => a.localeCompare(b, 'tr'));
   }, [cases]);
 
+  // Koşum filtresi: seçili koşumda yer alan case'ler (isteğe bağlı: o koşumdaki sonuca göre)
+  const runFilter = useRunFilter(filters.run, can('test_runs.view'));
+  const runResults = filters.run ? runFilter.run?.results : null;
+  const runResultOf = useCallback((c) => runResults?.get(c.id)?.status || null, [runResults]);
+
   // Statü dışındaki tüm filtreler: özet şeridi bunun üzerinden sayar, statü filtresi şeritten seçilir
   const baseFiltered = useMemo(() => cases.filter(c =>
+    (!runResults || (runResults.has(c.id) && (!filters.runres || runResults.get(c.id).status === filters.runres))) &&
     (!filters.project || String(c.project_id) === filters.project) &&
     (!filters.priority || c.priority === filters.priority) &&
     (!filters.exec || c.execution_type === filters.exec) &&
     (!filters.type || c.type === filters.type) &&
     (!filters.tag || c.tagList.some(t => trLower(t) === trLower(filters.tag))) &&
     matchesQuery(c, query.q, projectName)
-  ), [cases, filters.project, filters.priority, filters.exec, filters.type, filters.tag, query.q, projectName]);
+  ), [cases, filters.project, filters.priority, filters.exec, filters.type, filters.tag, query.q, projectName, runResults, filters.runres]);
 
   const filtered = useMemo(() => {
     const list = filters.status ? baseFiltered.filter(c => c.status === filters.status) : baseFiltered.slice();
@@ -222,6 +229,9 @@ const TestCases = () => {
       return st === 'running' ? 'running' : !st || st === 'queued' ? 'queued' : 'done';
     },
   } : undefined;
+  const { reload: reloadCases } = data;
+  const { reload: reloadRuns } = runFilter;
+  const afterQuickRun = useCallback(() => { reloadCases(); reloadRuns(); }, [reloadCases, reloadRuns]);
   const closeQuick = () => { quick.reset(); setQuickCases([]); };
 
   const rowActions = (c) => {
@@ -324,7 +334,8 @@ const TestCases = () => {
         </section>
       )}
 
-      <CaseFilters query={query} projects={projects} tags={allTags} searchRef={searchRef} />
+      <CaseFilters query={query} projects={projects} tags={allTags} searchRef={searchRef}
+        runOptions={can('test_runs.view') ? runOptions(runFilter.recent, filters.run, filters.project) : null} />
 
       {selected.size > 0 && (
         <BulkBar count={selected.size} hiddenCount={[...selected].filter(id => !visibleIds.has(id)).length} busy={busy}
@@ -338,10 +349,11 @@ const TestCases = () => {
           onDelete={can('test_cases.delete') ? () => setDialog({ type: 'delete', ids: [...selected] }) : null} />
       )}
 
-      <CaseTable rows={rows} total={filtered.length} loading={loading && !cases.length}
+      <CaseTable rows={rows} total={filtered.length} loading={(loading && !cases.length) || runFilter.loading}
         selectable={selectable} selected={selected} onToggle={toggle} onTogglePage={togglePage}
         sort={sort} onSort={query.toggleSort} projectName={projectName}
         onOpen={(id) => openCase(id, { replace: Boolean(query.caseId) })} activeId={current?.id} rowActions={rowActions} quickRun={quickRun}
+        runResult={runResults ? runResultOf : null}
         page={page} pageSize={query.pageSize} onPage={query.setPage} onPageSize={query.setPageSize} empty={empty} />
 
       <p className="hidden text-xs text-slate-400 lg:block">
@@ -401,7 +413,8 @@ const TestCases = () => {
       {dialog?.type === 'mobile' && <MobileRunDialog testCase={dialog.testCase} onClose={() => setDialog(null)} />}
       {dialog?.type === 'plan' && <AddToPlanDialog cases={dialog.cases} projectName={projectName} onClose={() => setDialog(null)} />}
       {quickCases.length > 0 && quick.phase !== 'idle' && (
-        <QuickRunCard key={quick.startedAt} run={quick} testCases={quickCases} onClose={closeQuick} onDone={data.reload}
+        <QuickRunCard key={quick.startedAt} run={quick} testCases={quickCases} onClose={closeQuick} onDone={afterQuickRun}
+          onShowInList={can('test_runs.view') ? (runId) => query.showRun(runId, 'Failed') : null}
           onRetry={(ids) => runInBrowser(quickCases.filter(c => ids.includes(c.id)))} />
       )}
     </div>

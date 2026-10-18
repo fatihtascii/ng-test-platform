@@ -22,14 +22,27 @@ const RunButton = ({ c, quickRun }) => {
   );
 };
 
+const RUN_MARK = {
+  Passed: ['geçti', 'border-emerald-200 text-emerald-700 dark:border-emerald-500/30 dark:text-emerald-400'],
+  Failed: ['kaldı', 'border-rose-200 text-rose-700 dark:border-rose-500/30 dark:text-rose-400'],
+  Skipped: ['atlandı', 'border-amber-200 text-amber-700 dark:border-amber-500/30 dark:text-amber-400'],
+  Pending: ['bekliyor', 'border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400'],
+};
+// Koşum filtresi açıkken: case'in o koşumdaki sonucu (Son sonuç sütunu en son koşumu gösterir)
+const RunResultMark = ({ status }) => {
+  const [label, cls] = RUN_MARK[status] || RUN_MARK.Pending;
+  return <span title="Seçili koşumdaki sonuç" className={`rounded border px-1 text-[10px] font-medium leading-4 ${cls}`}>koşumda {label}</span>;
+};
+
 /**
  * rowActions(c) → [{ icon, label, onSelect, tone } | 'sep']
- * quickRun → { canRun(c), onRun(c), stateOf(id), busy }: otomasyon case'lerinde tarayıcıda koş düğmesi
+ * quickRun → { canRun(c), onRun(c), stateOf(id), busy }
+ * runResult(c) → seçili koşumdaki sonuç (koşum filtresi açıkken; başlığın altında gösterilir): otomasyon case'lerinde tarayıcıda koş düğmesi
  * Satıra tıklamak detayı açar; seçim kutusu, koş düğmesi ve menü tıklaması satırı açmaz.
  */
 const CaseTable = ({
   rows, total, loading, selectable, selected, onToggle, onTogglePage,
-  sort, onSort, projectName, onOpen, activeId, rowActions, quickRun,
+  sort, onSort, projectName, onOpen, activeId, rowActions, quickRun, runResult,
   page, pageSize, onPage, onPageSize, empty,
 }) => {
   const pageIds = rows.map(r => r.id);
@@ -91,8 +104,9 @@ const CaseTable = ({
                           {c.title}
                         </button>
                         <Ident className="sm:hidden">{caseIdent(c.id)}</Ident>
-                        {(c.tagList.length > 0 || c.gherkin_scenario || c.automation_script) && (
+                        {(c.tagList.length > 0 || c.gherkin_scenario || c.automation_script || runResult?.(c)) && (
                           <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {runResult?.(c) && <RunResultMark status={runResult(c)} />}
                             {c.automation_script && <Marker title="Otomasyon script'i var">script</Marker>}
                             {c.gherkin_scenario && <Marker title="BDD senaryosu var">bdd</Marker>}
                             <TagList tags={c.tagList} />

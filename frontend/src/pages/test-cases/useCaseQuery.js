@@ -5,7 +5,8 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-export const FILTER_KEYS = ['project', 'status', 'priority', 'exec', 'type', 'tag'];
+// run: koşum (KS-N) · runres: o koşumdaki sonuç (Failed | Passed | Skipped)
+export const FILTER_KEYS = ['project', 'status', 'priority', 'exec', 'type', 'tag', 'run', 'runres'];
 const DEFAULT_SORT = '-id';
 const PAGE_SIZES = [10, 25, 50, 100];
 
@@ -39,7 +40,11 @@ export const useCaseQuery = () => {
   }, [setParams]);
 
   const setQ = useCallback((q) => update({ q }), [update]);
-  const setFilter = useCallback((key, value) => update({ [key]: value }), [update]);
+  const setFilter = useCallback((key, value) => update(key === 'run' && !value ? { run: '', runres: '' } : { [key]: value }), [update]);
+  // Koşumdaki kalanları listede göstermek için: diğer filtreler temizlenir, panel kapanır
+  const showRun = useCallback((run, runres = '') => update(
+    { ...Object.fromEntries([...FILTER_KEYS, 'q'].map(k => [k, ''])), run, runres, case: '' },
+  ), [update]);
   const clearFilters = useCallback(() => update(Object.fromEntries([...FILTER_KEYS, 'q'].map(k => [k, '']))), [update]);
   const setPage = useCallback((page) => update({ page: page > 1 ? page : '' }, { resetPage: false }), [update]);
   const setPageSize = useCallback((size) => update({ size: size === 25 ? '' : size }), [update]);
@@ -57,5 +62,5 @@ export const useCaseQuery = () => {
 
   const hasFilter = Boolean(state.q) || FILTER_KEYS.some(k => state.filters[k]);
 
-  return { ...state, hasFilter, setQ, setFilter, clearFilters, setPage, setPageSize, toggleSort, openCase };
+  return { ...state, hasFilter, setQ, setFilter, showRun, clearFilters, setPage, setPageSize, toggleSort, openCase };
 };
