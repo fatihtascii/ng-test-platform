@@ -26,12 +26,17 @@ class Defect(Base):
     # [{"case_id": 3, "title": "...", "error": "...", "severity": "Yüksek"}]
     failed_details = Column(Text, nullable=False, default="[]", server_default="[]")
     created_by     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assignee_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    resolved_at    = Column(DateTime, nullable=True)
     created_at     = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at     = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     project  = relationship("Project")
     test_run = relationship("TestRun")
-    author   = relationship("User")
+    author   = relationship("User", foreign_keys=[created_by])
+    assignee = relationship("User", foreign_keys=[assignee_id])
+    activity = relationship("DefectActivity", back_populates="defect", cascade="all, delete-orphan",
+                            passive_deletes=True, order_by="DefectActivity.id")
 
     __table_args__ = (
         Index("ix_defects_project_status", "project_id", "status"),
@@ -39,3 +44,26 @@ class Defect(Base):
 
     def __repr__(self):
         return f"<Defect id={self.id} status={self.status!r} source={self.source!r}>"
+
+
+class DefectActivity(Base):
+    """
+    Defect geçmişi: yorumlar ve alan değişiklikleri tek akışta tutulur.
+      kind: comment | created | status | severity | assignee | title | reopened
+      comment → body dolu; diğerlerinde from_value / to_value.
+    user_id boşsa değişikliği sistem yapmıştır (ör. koşum tekrar başarısız oldu).
+    """
+    __tablename__ = "defect_activity"
+
+    id         = Column(Integer, primary_key=True)
+    defect_id  = Column(Integer, ForeignKey("defects.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    kind       = Column(String(20), nullable=False)
+    body       = Column(Text, nullable=True)
+    from_value = Column(String(200), nullable=True)
+    to_value   = Column(String(200), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, nullable=True)
+
+    defect = relationship("Defect", back_populates="activity")
+    user   = relationship("User")

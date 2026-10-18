@@ -96,13 +96,23 @@ Renk yalnızca anlam taşır.
 - **Admin koruması:** admin hesabının profilini, şifresini, durumunu ve kendisini yalnızca admin
   değiştirebilir/silebilir.
 
-## Defect takibi
+## Hata takibi (defect)
 
-Defect'ler `defects` tablosunda tutulur:
+Hata kayıtları `defects` tablosunda, geçmişleri `defect_activity` tablosunda tutulur:
 
-- **Otomatik:** Bir koşumda başarısız sonuç olduğunda o koşuma bağlı tek bir defect açılır/güncellenir.
-  Çözüldü (Resolved) denmiş bir defect'te hata tekrarlarsa yeniden "Açık" olur.
-- **Manuel:** Hatalar sayfasından veya koşum/plan ekranındaki "Defect aç" butonundan.
+- **Otomatik:** Bir koşumda Kaldı sonucu olduğunda o koşuma bağlı tek bir kayıt açılır/güncellenir.
+  Çözüldü denmiş bir kayıtta hata tekrarlarsa kayıt yeniden açılır ve bu, geçmişe "Sistem" adına yazılır.
+- **Manuel:** Hatalar sayfasından, koşum ekranındaki ve plan maddesindeki "Hata kaydı aç" düğmesinden.
+  Koşum notu, kaydın "gerçekleşen sonuç" alanına taşınır.
+- **İş akışı:** Açık → İnceleniyor → Tekrar test → Çözüldü. Detay sayfasındaki düğme bir sonraki adımı önerir;
+  çözülme zamanı (`resolved_at`) tutulur, açık kalma ve çözüm süresi buradan hesaplanır.
+- **Atama:** `assignee_id` ile kişiye atanır; liste "Bana atanan", "Atanmamış" ve kişi filtreleri sunar.
+  Atama listesi `GET /defects/assignees` (yalnızca aktif kullanıcılar, `users.view` gerekmez).
+- **Geçmiş ve yorumlar:** Durum, önem, atanan ve başlık değişiklikleri (toplu işlemler dahil) otomatik kaydedilir.
+  `GET /defects/{id}/activity`, `POST /defects/{id}/comments`; yorumu yalnızca sahibi düzenler, sahibi veya admin siler.
+- **Toplu işlemler:** `POST /defects/bulk-status`, `POST /defects/bulk-assign` (yalnızca değişen kayıtları sayar).
+- Liste filtreleri adres çubuğunda tutulur (`?status=active&assignee=me`); seçili kayıtlar CSV olarak indirilebilir
+  veya Jira/Slack'e yapıştırmaya uygun metin olarak kopyalanabilir.
 - Otomasyon koşumu (WebSocket) sonucu normal bir test koşumu olarak kaydedilir, case statüleri güncellenir.
 
 ## Testler
