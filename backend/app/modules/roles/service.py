@@ -44,6 +44,7 @@ DEFAULT_PERMISSIONS = [
     {"key": "reports.export",      "name": "Rapor İndir",        "module": "reports",       "description": "PDF/Excel export al"},
     {"key": "automation.view",     "name": "Otomasyonu Gör",     "module": "automation",    "description": "Otomasyon sayfasını gör"},
     {"key": "automation.execute",  "name": "Otomasyon Çalıştır", "module": "automation",    "description": "Otomasyon testleri başlat"},
+    {"key": "automation.manage",   "name": "Otomasyon Depolarını Yönet", "module": "automation", "description": "Otomasyon projesi (GitHub deposu) bağla, senkronize et"},
     {"key": "environments.view",   "name": "Ortamları Gör",      "module": "environments",  "description": "Ortam ve değişkenleri gör"},
     {"key": "environments.manage", "name": "Ortam Yönet",        "module": "environments",  "description": "Ortam/değişken ekle/sil"},
     {"key": "roles.view",          "name": "Rolleri Gör",        "module": "roles",         "description": "Rol listesini görüntüle"},
@@ -54,7 +55,7 @@ DEFAULT_PERMISSIONS = [
 
 DEFAULT_ROLES = [
     {"name": "admin",   "display_name": "Admin",           "color": "rose",   "is_system": True, "description": "Tüm işlemlere tam erişim.",   "permissions": "*"},
-    {"name": "manager", "display_name": "Test Yöneticisi", "color": "amber",  "is_system": True, "description": "Projeleri yönetir.",          "permissions": ["projects.view","projects.create","projects.edit","test_cases.view","test_cases.create","test_cases.edit","test_cases.delete","test_runs.view","test_runs.create","test_runs.execute","test_runs.delete","test_plans.view","test_plans.create","test_plans.edit","test_plans.delete","defects.view","defects.manage","users.view","reports.view","reports.export","automation.view","automation.execute","environments.view","environments.manage","roles.view"]},
+    {"name": "manager", "display_name": "Test Yöneticisi", "color": "amber",  "is_system": True, "description": "Projeleri yönetir.",          "permissions": ["projects.view","projects.create","projects.edit","test_cases.view","test_cases.create","test_cases.edit","test_cases.delete","test_runs.view","test_runs.create","test_runs.execute","test_runs.delete","test_plans.view","test_plans.create","test_plans.edit","test_plans.delete","defects.view","defects.manage","users.view","reports.view","reports.export","automation.view","automation.execute","automation.manage","environments.view","environments.manage","roles.view"]},
     {"name": "tester",  "display_name": "Test Uzmanı",     "color": "indigo", "is_system": True, "description": "Koşum yapabilir.",            "permissions": ["projects.view","test_cases.view","test_cases.create","test_cases.edit","test_runs.view","test_runs.create","test_runs.execute","test_plans.view","defects.view","defects.manage","reports.view","automation.view","environments.view"]},
     {"name": "viewer",  "display_name": "İzleyici",        "color": "slate",  "is_system": True, "description": "Sadece okuma yetkisi.",       "permissions": ["projects.view","test_cases.view","test_runs.view","test_plans.view","defects.view","reports.view","environments.view"]},
 ]

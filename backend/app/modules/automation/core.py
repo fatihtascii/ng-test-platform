@@ -78,6 +78,22 @@ def _load(config: dict):
         db.close()
 
 
+def _load_env(env_id: int) -> Optional[dict]:
+    from app.modules.environments.models import Environment
+    from app.modules.environments.service import resolve_variables
+    db = SessionLocal()
+    try:
+        row = db.query(Environment).filter(Environment.id == int(env_id)).first()
+        if row is None:
+            return None
+        resolved = resolve_variables(db, row)
+        return {"name": row.name, "url": row.url, "project_id": row.project_id,
+                "vars": {r["key"]: r["value"] for r in resolved},
+                "secrets": [r["value"] for r in resolved if r["is_secret"] and len(r["value"]) >= 4]}
+    finally:
+        db.close()
+
+
 def _acquire() -> bool:
     global _active
     with _lock:
@@ -96,16 +112,33 @@ def _release():
 async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asyncio.Event,
                   trigger: Optional[dict] = None) -> Optional[dict]:
     """Koşumu yürütür. Başlatılamazsa StartError fırlatır."""
-    try:
-        cases, missing, env = await asyncio.to_thread(_load, config)
-    except (TypeError, ValueError):
-        raise StartError("Geçersiz test case ID formatı.")
-    if not cases:
-        raise StartError("Çalıştırılacak test case bulunamadı.")
-    project_ids = {tc.project_id for tc in cases}
-    if len(project_ids) > 1:
-        raise StartError("Seçilen case'ler tek bir projeye ait olmalı.")
-    project_id = project_ids.pop()
+    from app.modules.suites import runtime as suite_runtime
+    profile_run = bool(config.get("suite_id")) and not (config.get("cases") or config.get("test_case_ids"))
+    if profile_run:
+        cases, missing, env = [], [], None
+    else:
+        try:
+            cases, missing, env = await asyncio.to_thread(_load, config)
+        except (TypeError, ValueError):
+            raise StartError("Geçersiz test case ID formatı.")
+        if not cases:
+            raise StartError("Çalıştırılacak test case bulunamadı.")
+    suite_plan = None
+    if profile_run or any(getattr(tc, "suite_id", None) for tc in cases):
+        try:
+            suite_plan = await asyncio.to_thread(suite_runtime.prepare, config, cases)
+        except suite_runtime.PrepareError as e:
+            raise StartError(str(e))
+        except Exception as e:      # keşif (collect) hatası vb.
+            raise StartError(f"Depo testleri hazırlanamadı: {e}")
+        project_id = suite_plan.project_id
+        if suite_plan.environment_id and not env:
+            env = await asyncio.to_thread(_load_env, suite_plan.environment_id)
+    else:
+        project_ids = {tc.project_id for tc in cases}
+        if len(project_ids) > 1:
+            raise StartError("Seçilen case'ler tek bir projeye ait olmalı.")
+        project_id = project_ids.pop()
     if env and env["project_id"] not in (None, project_id):
         raise StartError("Seçilen ortam bu projeye ait değil.")
     if not _acquire():
@@ -130,7 +163,15 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
             await emit("info", f"[SİSTEM] Ortam: {env['name']} ({env['url']}) · {len(env['vars'])} değişken yüklendi.")
 
         run_dir = tempfile.mkdtemp(prefix=runner.RUN_DIR_PREFIX)
-        ready, skipped = runner.prepare_files(cases, run_dir)
+        junit_path = os.path.join(run_dir, "junit.xml")
+        if suite_plan:
+            ready, skipped = suite_plan.ready, []
+            await emit("info", f"[SİSTEM] Depo: {suite_plan.suite_name}"
+                       + (f" · profil: {config.get('marker') or 'tümü'}" if profile_run else ""))
+            for note in suite_plan.notes:
+                await emit("warn", f"[UYARI] {note}")
+        else:
+            ready, skipped = runner.prepare_files(cases, run_dir)
         await emit("plan", f"{len(ready)} test koşulacak" + (f", {len(skipped)} atlandı" if skipped else ""),
                    cases=[{"case_id": r["case_id"], "title": r["title"], "status": "queued"} for r in ready]
                          + [{"case_id": s["case_id"], "title": s["title"], "status": "skipped", "reason": s["reason"]} for s in skipped])
@@ -139,25 +180,31 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
         if not ready:
             raise StartError("Otomasyon script'i olan test bulunamadı.")
 
-        junit_path = os.path.join(run_dir, "junit.xml")
-        cmd = runner.build_command(sys.executable, run_dir, [r["file"] for r in ready], browser, headless,
-                                   env["url"] if env else None, junit_path)
         proc_env = os.environ.copy()
         if env:
             proc_env.update(env["vars"])
             proc_env["NG_ENVIRONMENT"] = env["name"]
         proc_env["PYTHONUNBUFFERED"] = "1"
+        if suite_plan:
+            # Projenin kendi pytest.ini/conftest'i geçerli; NG Test yalnız JUnit raporunu ekler
+            cmd = [suite_plan.python, "-u", "-m", "pytest", "-v", "-p", "no:cacheprovider",
+                   f"--junitxml={junit_path}", "-o", "junit_family=xunit2"] + (["--headed"] if not headless else []) + suite_plan.args
+            cwd, timeout_sec = suite_plan.cwd, suite_plan.timeout_sec
+        else:
+            cmd = runner.build_command(sys.executable, run_dir, [r["file"] for r in ready], browser, headless,
+                                       env["url"] if env else None, junit_path)
+            cwd, timeout_sec = run_dir, runner.TIMEOUT_SEC
 
         log_path = os.path.join(run_dir, "execution.log")
         try:
             log_file = open(log_path, "w", encoding="utf-8")
             process = subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                       env=proc_env, cwd=run_dir)
+                                       env=proc_env, cwd=cwd)
         except FileNotFoundError:
             raise StartError("pytest veya playwright bulunamadı. Backend ortamını kontrol edin.")
-        await emit("running", f"[SİSTEM] {len(ready)} test başlatıldı · {browser}{'' if headless else ' (görünür)'}")
+        await emit("running", f"[SİSTEM] {len(ready)} test başlatıldı" + ("" if suite_plan else f" · {browser}") + ("" if headless else " (görünür)"))
 
-        tracker = runner.LiveTracker([r["case_id"] for r in ready])
+        tracker = suite_plan.tracker if suite_plan else runner.LiveTracker([r["case_id"] for r in ready])
         tail: list[str] = []
         started = time.monotonic()
         timed_out = False
@@ -166,7 +213,7 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
             while True:
                 if stop.is_set():
                     break
-                if time.monotonic() - started > runner.TIMEOUT_SEC:
+                if time.monotonic() - started > timeout_sec:
                     timed_out = True
                     break
                 pos = reader.tell()
@@ -210,14 +257,18 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
             await emit("stopped", "[SİSTEM] Koşum durduruldu; sonuçlar kaydedilmedi.")
             return None
         if timed_out:
-            await emit("error", f"[HATA] Koşum {runner.TIMEOUT_SEC} saniyede bitmedi ve sonlandırıldı.")
+            await emit("error", f"[HATA] Koşum {timeout_sec // 60} dakikada bitmedi ve sonlandırıldı.")
 
-        junit = runner.parse_junit(junit_path, redact)
+        junit = runner.parse_junit(junit_path, redact, suite_plan.junit_resolve) if suite_plan else runner.parse_junit(junit_path, redact)
         results = runner.merge_results(ready, skipped, junit, tracker.state, tail,
                                        process_failed=(process.returncode not in (0, None)), timed_out=timed_out)
         duration = round(time.monotonic() - started, 1)
-        meta = {"browser": browser, "headless": headless, "environment": env["name"] if env else None,
-                "duration": duration, "skipped": [s["case_id"] for s in skipped]}
+        meta = {"browser": "proje ayarı" if suite_plan else browser, "headless": headless,
+                "environment": env["name"] if env else None, "duration": duration, "skipped": [s["case_id"] for s in skipped]}
+        if suite_plan:
+            meta["suite"] = {"id": suite_plan.suite_id, "name": suite_plan.suite_name}
+            if profile_run:
+                meta["profile"] = config.get("marker") or ""
         if trigger:
             meta["trigger"] = trigger
 

@@ -42,6 +42,10 @@ class TestCase(Base):
     # Otomasyon sayfasından tetiklenecek saf Python/Playwright kodu
     automation_script = Column(Text, nullable=True)
 
+    # Bağlı otomasyon deposundaki test (suites modülü): parametresiz pytest node id'si
+    suite_id       = Column(Integer, ForeignKey("automation_suites.id", ondelete="SET NULL"), nullable=True)
+    automation_ref = Column(String(500), nullable=True)
+
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     updated_at = Column(

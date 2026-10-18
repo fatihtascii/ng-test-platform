@@ -15,6 +15,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_DB_DIR, 'test.db')}"
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-test-secret-key-test-secret-key"
 os.environ["APP_ENV"] = "test"
 os.environ["NG_SYNC_HOOKS"] = "1"          # entegrasyon işleri testte sırayla çalışsın
+os.environ["NG_DATA_DIR"] = tempfile.mkdtemp(prefix="ngtest_data_")   # otomasyon depoları buraya çekilir
+os.environ["NG_SUITE_ALLOW_LOCAL"] = "1"   # testte yerel git deposu kullanılabilsin
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402

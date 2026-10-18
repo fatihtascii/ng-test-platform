@@ -3,6 +3,7 @@ from app.modules.integrations.mobile_runner import router as mobile_router
 from app.modules.defects.router import router as defects_router
 from app.modules.automation.router import router as automation_router
 from app.modules.automation.trigger import router as automation_trigger_router
+from app.modules.suites.router import router as suites_router
 from app.modules.integrations import hooks as _integration_hooks  # noqa: F401  commit sonrası işleri kaydeder
 from app.modules.automation.runner import cleanup_stale_run_dirs
 from contextlib import asynccontextmanager
@@ -26,6 +27,7 @@ from app.modules.test_runs     import models as test_run_models
 from app.modules.environments  import models as env_models
 from app.modules.roles         import models as role_models
 from app.modules.integrations  import models as int_models
+from app.modules.suites        import models as suite_models  # noqa: F401
 
 # Router'lar
 from app.modules.projects.router      import router as projects_router
@@ -109,6 +111,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ── ROUTER KAYITLARI ──────────────────────────────────────────────
 app.include_router(automation_router)   # /ws/run-test
 app.include_router(automation_trigger_router)   # /automation/runs, /webhooks/github
+app.include_router(suites_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(role_router)

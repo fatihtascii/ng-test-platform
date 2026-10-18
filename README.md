@@ -148,6 +148,36 @@ Motor `backend/app/modules/automation` altındadır (`runner.py` saf yardımcıl
 - WebSocket sözleşmesi `router.py` başındaki açıklamada. Arayüz case bazında canlı durum, çıktı (filtre, kopyala,
   indir) ve son otomasyon koşumlarını gösterir; kalan case'ler tek tıkla yeniden koşulabilir.
 
+### Otomasyon depoları
+
+Mevcut bir pytest/Playwright projesi (ör. GitHub deposu) NG Test'e bağlanabilir; kodu kopyalamaya gerek yoktur.
+Modül: `backend/app/modules/suites` (migration `0009`).
+
+- **Bağlama:** Otomasyon → Depolar → *Depo bağla*. Adres `https://github.com/sahip/depo` biçimindedir. Özel depo için
+  yalnızca okuma izinli bir token girin (GitHub fine-grained token, *Contents: Read-only*). Token şifreli alanda tutulur,
+  API'de maskelenir, git'e `http.extraHeader` ile verilir; adreste, komut satırında veya günlükte görünmez.
+- **Senkronizasyon:** depo `NG_DATA_DIR` (varsayılan `~/.ng-test`) altındaki `suites/<id>/repo` klasörüne çekilir.
+  Ayrı bir sanal ortam (`suites/<id>/venv`) kurulur, `requirements.txt` değiştiğinde yeniden yüklenir. Requirements
+  playwright içeriyorsa Chromium da indirilir. Sunucuda `git` ve Python 3 bulunmalıdır.
+- **Case eşlemesi:** her test fonksiyonu bir case olur (`test_cases.suite_id` + `automation_ref` = pytest node id).
+  Parametre varyantları aynı case'te toplanır; varyantlardan biri kalırsa case kalır. Docstring açıklama/başlık,
+  pytest işaretleri (marker) etiket olur. `xfail` işaretli testler `bilinen-hata` etiketini alır. Yeniden
+  senkronizasyonda başlık, öncelik ve el ile eklenen etiketler korunur. Depodan silinen testler silinmez,
+  `depoda-yok` etiketi alır ve koşulmaz.
+- **Ortam değişkenleri:** depo `.env` dosyası yerine depoya seçilen NG Test ortamının değişkenleri kullanılır.
+  Örneğin `BASE_URL`, `ADMIN_EMAIL` normal; `ADMIN_PASSWORD`, `INVITED_PASSWORD` gibi değerler **sır** olarak
+  eklenir ve çıktıda maskelenir.
+- **Profiller:** pytest `-m` ifadesidir. Önerilenler: Smoke = `smoke`, Deploy sonrası = `deploy`,
+  Güvenli = `not data_producing` (kayıt bırakan testleri dışarıda bırakır). Profil boşsa tüm depo koşulur.
+- **Koşum:** Otomasyon → Koşum'da *Kaynak: Depo* seçilip profil ya da tek tek testler koşulur. Komut deponun kendi
+  `pytest.ini`/`conftest.py` ayarlarıyla depo klasöründe çalışır. Sonuçlar JUnit üzerinden case'lere eşlenir. Depo ve
+  script'li case'ler aynı koşumda karıştırılamaz.
+- **CI'dan:** `POST /automation/runs` gövdesine `{"suite_id": 1, "marker": "smoke"}` verilebilir.
+- **Yetki:** depo bağlama, düzenleme, silme ve senkronizasyon `automation.manage` iznini ister (admin ve yönetici
+  rollerinde varsayılan). Görüntülemek için `automation.view` yeterlidir.
+- Testlerde kullanılan bayraklar: `NG_SUITE_ALLOW_LOCAL=1` yerel klasörü depo adresi olarak kabul eder,
+  `NG_SUITE_SKIP_BROWSERS=1` tarayıcı indirmesini atlar.
+
 ## Projeler
 
 - Ad zorunlu, en fazla 200 karakter; fazla boşluklar temizlenir ve ad büyük/küçük harf (Türkçe İ/ı dahil)

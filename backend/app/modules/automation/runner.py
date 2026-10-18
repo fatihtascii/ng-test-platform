@@ -126,8 +126,16 @@ class LiveTracker:
         return sum(1 for v in self.state.values() if v in ("passed", "failed", "skipped"))
 
 
-def parse_junit(path: str, redact=lambda t: t) -> dict[int, dict]:
-    """JUnit raporundan case bazında {status, duration, message} çıkarır. Rapor yoksa {}."""
+def _case_from_filename(tc) -> Optional[int]:
+    m = CASE_FILE_RE.search(tc.get("classname", "") + " " + tc.get("file", "") + " " + tc.get("name", ""))
+    return int(m.group(1)) if m else None
+
+
+def parse_junit(path: str, redact=lambda t: t, resolve=_case_from_filename) -> dict[int, dict]:
+    """
+    JUnit raporundan case bazında {status, duration, message} çıkarır. Rapor yoksa {}.
+    resolve: <testcase> öğesinden case id'sini bulur (script case'lerinde dosya adı, depo testlerinde node id).
+    """
     if not os.path.exists(path):
         return {}
     try:
@@ -136,10 +144,9 @@ def parse_junit(path: str, redact=lambda t: t) -> dict[int, dict]:
         return {}
     out: dict[int, dict] = {}
     for tc in root.iter("testcase"):
-        m = CASE_FILE_RE.search(tc.get("classname", "") + " " + tc.get("file", "") + " " + tc.get("name", ""))
-        if not m:
+        cid = resolve(tc)
+        if cid is None:
             continue
-        cid = int(m.group(1))
         status, message = "passed", None
         for child in tc:
             if child.tag in ("failure", "error"):

@@ -139,6 +139,8 @@ class TestCaseUpdate(BaseModel):
 # ── Response ──────────────────────────────────────────────────────
 class TestCaseResponse(TestCaseBase):
     id: int
+    suite_id:       Optional[int] = None   # otomasyon deposuna bağlıysa
+    automation_ref: Optional[str] = None   # depodaki pytest node id'si
     created_at: datetime
     updated_at: Optional[datetime] = None
 

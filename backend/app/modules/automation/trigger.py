@@ -37,25 +37,31 @@ def project_case_ids(db, project_id: int, case_ids: Optional[list[int]] = None) 
 
 
 class TriggerBody(BaseModel):
-    project_id:     int = Field(..., gt=0)
+    project_id:     Optional[int] = Field(None, gt=0)
     case_ids:       Optional[list[int]] = None      # boşsa projenin tüm otomasyon case'leri
+    suite_id:       Optional[int] = None            # bağlı otomasyon deposu: profil koşumu
+    marker:         Optional[str] = None            # depo profili için pytest -m ifadesi (boş = tümü)
     environment_id: Optional[int] = None
     browser:        str = "Chrome"
 
 
 @router.post("/automation/runs")
 async def trigger_run(body: TriggerBody, current=Depends(require_permission("automation.execute"))):
-    db = SessionLocal()
+    if body.suite_id:
+        config = {"suite_id": body.suite_id, "marker": body.marker or "", "environment_id": body.environment_id, "headless": True}
+    else:
+        if not body.project_id:
+            raise HTTPException(status_code=422, detail="project_id ya da suite_id gerekli.")
+        db = SessionLocal()
+        try:
+            ids = project_case_ids(db, body.project_id, body.case_ids)
+        finally:
+            db.close()
+        if not ids:
+            raise HTTPException(status_code=422, detail="Projede koşulacak otomasyon case'i (script'i olan) yok.")
+        config = {"cases": ids, "browser": body.browser, "headless": True, "environment_id": body.environment_id}
     try:
-        ids = project_case_ids(db, body.project_id, body.case_ids)
-    finally:
-        db.close()
-    if not ids:
-        raise HTTPException(status_code=422, detail="Projede koşulacak otomasyon case'i (script'i olan) yok.")
-    try:
-        summary = await core.execute({"cases": ids, "browser": body.browser, "headless": True,
-                                      "environment_id": body.environment_id},
-                                     current.id, _log_emit, asyncio.Event(), trigger={"source": "api"})
+        summary = await core.execute(config, current.id, _log_emit, asyncio.Event(), trigger={"source": "api"})
     except core.StartError as e:
         raise HTTPException(status_code=409 if "sürüyor" in str(e) else 422, detail=str(e))
     if not summary:
