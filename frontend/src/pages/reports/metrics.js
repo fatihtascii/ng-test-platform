@@ -170,7 +170,7 @@ export const buildReport = ({ runs, cases, defects, projects, plans }, { project
     rate: rate(counts.Passed, counts.Failed),
     prevRate: previous.length ? rate(prevCounts.Passed, prevCounts.Failed) : null,
     runs: current.length, prevRuns: previous.length,
-    automationRuns: current.filter(r => /otomasyon|automation/i.test(`${r.name} ${r.description || ''}`)).length,
+    automationRuns: current.filter(r => r.source === 'automation').length,
     executedResults: counts.Passed + counts.Failed + counts.Skipped,
     totalCases: projCases.length, coveredCount,
     coverage: projCases.length ? (coveredCount / projCases.length) * 100 : null,
