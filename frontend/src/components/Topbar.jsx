@@ -85,7 +85,7 @@ const Topbar = ({ onMenu = () => {} }) => {
   const crumbs = getCrumbs(location.pathname);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6 dark:border-slate-800 dark:bg-slate-900/90">
+    <header className="sticky top-0 z-30 print:hidden flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6 dark:border-slate-800 dark:bg-slate-900/90">
       <button onClick={onMenu} className="-ml-1 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden dark:hover:bg-slate-800" aria-label="Menüyü aç">
         <Menu size={18} />
       </button>

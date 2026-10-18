@@ -1,583 +1,249 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { projectsApi, testPlansApi, fetchAllTestRuns, fetchAllTestCases } from '../api';
-import PermissionGuard from '../components/PermissionGuard';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, PieChart, Pie, Cell, Legend
-} from 'recharts';
-import {
-  Download, TrendingUp, CheckCircle2, AlertCircle, Target, Zap,
-  ChevronDown, BarChart3, Loader2, ArrowLeft, FileSpreadsheet,
-  Bug, ClipboardList, RefreshCw
-} from 'lucide-react';
+/**
+ * Raporlar: seçili dönem ve proje için geçme oranı, trend, kapsam, en çok kalan testler ve hatalar.
+ * Hesaplar ./reports/metrics.js içinde (saf fonksiyonlar); filtreler adres çubuğunda tutulur.
+ */
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { RefreshCw, Download, Printer, FileSpreadsheet, BarChart3 } from 'lucide-react';
+import { usePermission } from '../hooks/usePermission';
+import { useUrlFilters } from '../hooks/useUrlFilters';
+import { PageHeader, Button, Panel, ResultBar, ResultLegend, Skeleton, EmptyState, StatusBadge } from '../components/ui';
+import { FilterSelect } from '../components/ui/data';
+import { Menu, MenuItem } from '../components/ui/overlay';
+import { toast } from '../components/ui/toast';
+import { projectsApi, testPlansApi, defectsApi, fetchAllTestRuns, fetchAllTestCases } from '../api';
+import { planStats, planSegments, planIdent } from './test-plans/model';
+import { RANGES, DEFAULT_RANGE, rangeOf, prepareRuns, buildReport, fmtPct } from './reports/metrics';
+import { exportReportXlsx } from './reports/exportExcel';
+import { KpiTile, Meter } from './reports/parts';
+import TrendPanel from './reports/TrendPanel';
+import FailingCases from './reports/FailingCases';
+import ProjectTable from './reports/ProjectTable';
+import DefectSummary from './reports/DefectSummary';
 
-// ── Yardımcılar ────────────────────────────────────────────────
+const CASE_STATUS_TONE = { 'Başarılı': 'pass', 'Başarısız': 'fail', 'Test Edilmedi': 'pending', 'Taslak': 'draft' };
 
-/** Güvenli JSON parse — hatalı string'de [] döner */
-const safeParseResults = (str) => {
-  if (!str) return [];
-  try {
-    const p = JSON.parse(str);
-    return Array.isArray(p) ? p : [];
-  } catch { return []; }
-};
+const load = (withDefects) => Promise.all([
+  fetchAllTestRuns(), fetchAllTestCases(), projectsApi.getAll(), testPlansApi.getAll(),
+  withDefects ? defectsApi.getAll().then(r => r.data) : Promise.resolve([]),
+]).then(([runs, cases, p, pl, defects]) => ({ runs: prepareRuns(runs), cases, projects: p.data, plans: pl.data, defects }));
 
-const Skeleton = ({ className }) => (
-  <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`} />
-);
-
-// ── StatCard ───────────────────────────────────────────────────
-const colorMap = {
-  indigo:  'text-indigo-500 bg-indigo-500/10',
-  emerald: 'text-emerald-500 bg-emerald-500/10',
-  rose:    'text-rose-500 bg-rose-500/10',
-  amber:   'text-amber-500 bg-amber-500/10',
-  violet:  'text-violet-500 bg-violet-500/10',
-};
-
-const StatCard = ({ title, value, icon, color, sub }) => (
-  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all">
-    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${colorMap[color] || colorMap.indigo}`}>{icon}</div>
-    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
-    <h2 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{value ?? '—'}</h2>
-    {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
-  </div>
-);
-
-// ── Tooltip özelleştirme ───────────────────────────────────────
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 shadow-xl text-xs text-white space-y-1">
-      <p className="font-bold text-slate-300 mb-1">{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color }}>{p.name}: <span className="font-bold">{p.value}</span></p>
-      ))}
-    </div>
-  );
-};
-
-// ── Ana Bileşen ────────────────────────────────────────────────
 const Reports = () => {
+  const { can } = usePermission();
+  const canDefects = can('defects.view');
+  const canExport = can('reports.export');
+  const filters = useUrlFilters(['project', 'range']);
+  const project = filters.values.project;
+  const range = rangeOf(filters.values.range || DEFAULT_RANGE).value;
 
-  const [rawData, setRawData]         = useState({ testRuns: [], testCases: [], projects: [], testPlans: [] });
-  const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState(null);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [isExportingPdf, setIsExportingPdf]   = useState(false);
-  const [toast, setToast]             = useState(null);
-  const reportRef = useRef(null);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
-  const showToast = useCallback((type, message) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+  useEffect(() => {
+    let alive = true;
+    load(canDefects).then(d => { if (alive) { setData(d); setLoading(false); } })
+      .catch(e => { if (alive) { setError(e.message || 'Rapor verisi yüklenemedi.'); setLoading(false); } });
+    return () => { alive = false; };
+  }, [canDefects]);
 
-  // ── Veri Çekme ──────────────────────────────────────────────
-  const fetchAll = useCallback(async () => {
-    setError(null);
+  const reload = useCallback(() => {
     setLoading(true);
+    load(canDefects).then(d => { setData(d); setError(null); }).catch(e => setError(e.message)).finally(() => setLoading(false));
+  }, [canDefects]);
+
+  const report = useMemo(() => (data ? buildReport(data, { project, range }) : null), [data, project, range]);
+  const projectObj = data?.projects.find(p => String(p.id) === project);
+  const rangeLabel = rangeOf(range).label;
+
+  const exportXlsx = async () => {
+    setExporting(true);
     try {
-      const [runsRes, casesRes, projsRes, plansRes] = await Promise.allSettled([
-        fetchAllTestRuns().then(data => ({ data })),
-        fetchAllTestCases().then(data => ({ data })),
-        projectsApi.getAll(),
-        testPlansApi.getAll(),
-      ]);
-      setRawData({
-        testRuns:  runsRes.status  === 'fulfilled' ? runsRes.value.data  : [],
-        testCases: casesRes.status === 'fulfilled' ? casesRes.value.data : [],
-        projects:  projsRes.status === 'fulfilled' ? projsRes.value.data : [],
-        testPlans: plansRes.status === 'fulfilled' ? plansRes.value.data : [],
+      const pid = project ? Number(project) : null;
+      await exportReportXlsx(report, {
+        projectName: projectObj?.name, rangeLabel,
+        cases: data.cases.filter(c => pid == null || c.project_id === pid),
+        defects: data.defects.filter(d => pid == null || d.project_id === pid),
       });
-      if (runsRes.status !== 'fulfilled' || casesRes.status !== 'fulfilled' || projsRes.status !== 'fulfilled')
-        setError('Bazı veriler yüklenemedi. Rapor eksik olabilir.');
-    } catch {
-      setError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  // ── Global Metrikler ─────────────────────────────────────────
-  const globalMetrics = useMemo(() => {
-    let totalP = 0, totalF = 0, totalS = 0;
-    const recentBugs = [];
-
-    const projectStats = rawData.projects.map(proj => {
-      const projRuns = rawData.testRuns.filter(r => r.project_id === proj.id);
-      let p = 0, f = 0, s = 0;
-      projRuns.forEach(run => {
-        safeParseResults(run.results).forEach(res => {
-          if (res.status === 'Passed')  { p++; totalP++; }
-          if (res.status === 'Failed')  {
-            f++; totalF++;
-            // caseName yoksa run adını ve id'yi kullan
-            recentBugs.push({
-              id:      `BUG-${run.id}`,
-              title:   res.actual_result ? res.actual_result.slice(0, 60) : `${run.name} koşumunda hata`,
-              project: proj.name,
-            });
-          }
-          if (res.status === 'Skipped') { s++; totalS++; }
-        });
-      });
-      return { id: proj.id, name: proj.name, passed: p, failed: f, skipped: s, total: p + f + s };
-    });
-
-    // Son 8 koşum trendi
-    const trend = rawData.testRuns.slice(-8).map(run => {
-      const res = safeParseResults(run.results);
-      return {
-        name:   run.name.length > 12 ? run.name.slice(0, 12) + '…' : run.name,
-        Geçti:  res.filter(r => r.status === 'Passed').length,
-        Kaldı:  res.filter(r => r.status === 'Failed').length,
-        Atlandı:res.filter(r => r.status === 'Skipped').length,
-      };
-    });
-
-    // Test case durum dağılımı
-    const tcStatusDist = [
-      { name: 'Başarılı',     value: rawData.testCases.filter(tc => tc.status === 'Başarılı').length,     fill: '#1f9458' },
-      { name: 'Başarısız',    value: rawData.testCases.filter(tc => tc.status === 'Başarısız').length,    fill: '#cc3e3e' },
-      { name: 'Taslak',       value: rawData.testCases.filter(tc => tc.status === 'Taslak').length,       fill: '#9aa2af' },
-      { name: 'Test Edilmedi',value: rawData.testCases.filter(tc => tc.status === 'Test Edilmedi').length, fill: '#a9b3c3' },
-    ].filter(d => d.value > 0);
-
-    // Test planı metrikleri
-    const planStats = {
-      total:      rawData.testPlans.length,
-      active:     rawData.testPlans.filter(p => p.status === 'Aktif').length,
-      completed:  rawData.testPlans.filter(p => p.status === 'Tamamlandı').length,
-    };
-
-    return {
-      totalP, totalF, totalS, projectStats, trend, tcStatusDist, planStats,
-      recentBugs: recentBugs.slice(-6).reverse(),
-      successRate: totalP + totalF > 0 ? ((totalP / (totalP + totalF)) * 100).toFixed(1) : '0.0',
-    };
-  }, [rawData]);
-
-  // ── Proje Detay Metrikleri ───────────────────────────────────
-  const detailData = useMemo(() => {
-    if (!selectedProject) return [];
-    return rawData.testRuns
-      .filter(r => r.project_id === selectedProject.id)
-      .map(run => {
-        const res = safeParseResults(run.results);
-        return {
-          name:   run.name.length > 14 ? run.name.slice(0, 14) + '…' : run.name,
-          Geçti:  res.filter(r => r.status === 'Passed').length,
-          Kaldı:  res.filter(r => r.status === 'Failed').length,
-          Atlandı:res.filter(r => r.status === 'Skipped').length,
-        };
-      });
-  }, [selectedProject, rawData]);
-
-  const detailTotals = useMemo(() => ({
-    passed:  detailData.reduce((a, c) => a + c.Geçti,   0),
-    failed:  detailData.reduce((a, c) => a + c.Kaldı,   0),
-    skipped: detailData.reduce((a, c) => a + c.Atlandı, 0),
-  }), [detailData]);
-
-  // ── PDF Export ───────────────────────────────────────────────
-  const handleDownloadPDF = async () => {
-    if (!reportRef.current) return;
-    setIsExportingPdf(true);
-    try {
-      const { toPng }   = await import('html-to-image');
-      const { jsPDF }   = await import('jspdf');
-      const el          = reportRef.current;
-      const dataUrl     = await toPng(el, { quality: 0.95, backgroundColor: '#181c23', pixelRatio: 2 });
-      const pdf         = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth    = pdf.internal.pageSize.getWidth();
-      const pdfHeight   = (el.offsetHeight * pdfWidth) / el.offsetWidth;
-      pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`NG-TEST-Report-${selectedProject?.name || 'Genel'}.pdf`);
-      showToast('success', 'PDF başarıyla indirildi.');
-    } catch (err) {
-      console.error('PDF hatası:', err);
-      showToast('error', 'PDF oluşturulamadı. Konsolu kontrol edin.');
-    } finally {
-      setIsExportingPdf(false);
-    }
+      toast.success('Excel raporu indirildi.');
+    } catch (e) { toast.error(e.message || 'Excel oluşturulamadı.'); }
+    finally { setExporting(false); }
   };
 
-  // ── Excel Export ─────────────────────────────────────────────
-  const handleDownloadExcel = async () => {
-    try {
-      const XLSX = await import('xlsx');
-
-      // Birden fazla sekme
-      const wb = XLSX.utils.book_new();
-
-      // 1. Genel proje metrikleri
-      const projSheet = XLSX.utils.json_to_sheet(
-        globalMetrics.projectStats.map(p => ({
-          'Proje':       p.name,
-          'Geçen':       p.passed,
-          'Başarısız':   p.failed,
-          'Atlanan':     p.skipped,
-          'Toplam':      p.total,
-          'Başarı Oranı':p.total > 0 ? `%${((p.passed / p.total) * 100).toFixed(1)}` : '—',
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, projSheet, 'Proje Özeti');
-
-      // 2. Tüm test case'ler
-      const tcSheet = XLSX.utils.json_to_sheet(
-        rawData.testCases.map(tc => ({
-          'ID':    tc.id,
-          'Başlık':tc.title,
-          'Proje': rawData.projects.find(p => p.id === tc.project_id)?.name || '—',
-          'Durum': tc.status,
-          'Öncelik':tc.priority,
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, tcSheet, 'Test Senaryoları');
-
-      // 3. Test planları
-      if (rawData.testPlans.length > 0) {
-        const plansSheet = XLSX.utils.json_to_sheet(
-          rawData.testPlans.map(pl => ({
-            'ID':         pl.id,
-            'Plan Adı':   pl.title,
-            'Proje':      rawData.projects.find(p => p.id === pl.project_id)?.name || '—',
-            'Durum':      pl.status,
-            'Başlangıç':  pl.start_date || '—',
-            'Bitiş':      pl.end_date   || '—',
-            'Test Sayısı':pl.items?.length || 0,
-          }))
-        );
-        XLSX.utils.book_append_sheet(wb, plansSheet, 'Test Planları');
-      }
-
-      XLSX.writeFile(wb, `NG-TEST-Rapor-${Date.now()}.xlsx`);
-      showToast('success', 'Excel başarıyla indirildi.');
-    } catch (err) {
-      console.error('Excel hatası:', err);
-      showToast('error', 'Excel oluşturulamadı.');
-    }
-  };
-
-  // ── Render: Loading ──────────────────────────────────────────
-  if (loading) return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-8 w-48" />
-        <div className="flex gap-3">
-          <Skeleton className="h-9 w-28" />
-          <Skeleton className="h-9 w-32" />
-        </div>
+  if (error && !data) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Raporlar" />
+        <EmptyState icon={<BarChart3 size={24} />} title="Rapor yüklenemedi" description={error} action={<Button onClick={reload}>Tekrar dene</Button>} />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-3">
-            <Skeleton className="w-12 h-12 rounded-2xl" />
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-7 w-16" />
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Skeleton className="h-96 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl" />
-      </div>
-    </div>
-  );
+    );
+  }
 
-  // ── Render: Ana ──────────────────────────────────────────────
+  const r = report;
+  const weekly = r && (!r.period.days || r.period.days > 31);
+  const caseSegs = r ? r.caseStatus.map(s => ({ label: s.status, value: s.count, tone: CASE_STATUS_TONE[s.status] })) : [];
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20 relative">
+    <div className="space-y-5">
+      <PageHeader title="Raporlar"
+        description="Seçili dönemde koşumların sonucu, test kapsamı, en çok kalan testler ve hata durumu."
+        actions={<div className="flex items-center gap-2 print:hidden">
+          <Button variant="ghost" size="icon" onClick={reload} aria-label="Yenile" disabled={loading}>
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+          </Button>
+          {canExport && (
+            <Menu trigger={({ ref, toggle, open }) => (
+              <Button ref={ref} icon={<Download size={15} />} onClick={toggle} aria-haspopup="menu" aria-expanded={open} loading={exporting} disabled={!r}>Dışa aktar</Button>
+            )}>
+              <MenuItem icon={FileSpreadsheet} onSelect={exportXlsx} hint="7 sayfa">Excel (.xlsx)</MenuItem>
+              <MenuItem icon={Printer} onSelect={() => window.print()} hint="Yazdır → PDF">PDF / yazdır</MenuItem>
+            </Menu>
+          )}
+        </div>} />
 
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-6 right-6 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border animate-in fade-in slide-in-from-top-2 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/20 dark:border-rose-700 dark:text-rose-400' }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-          {toast.message}
-        </div>
-      )}
+      {/* Yazdırırken sayfanın başında hangi kapsamın raporu olduğu görünsün */}
+      <p className="hidden text-sm text-slate-600 print:block">
+        {projectObj?.name || 'Tüm projeler'} · {rangeLabel} · {new Date().toLocaleString('tr-TR')}
+      </p>
 
-      {/* HEADER */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          {selectedProject && (
-            <button onClick={() => setSelectedProject(null)}
-              className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-              <ArrowLeft size={20} />
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
+        <div role="radiogroup" aria-label="Dönem" className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
+          {RANGES.map(x => (
+            <button key={x.value} type="button" role="radio" aria-checked={range === x.value}
+              onClick={() => filters.set('range', x.value === DEFAULT_RANGE ? '' : x.value)}
+              className={`h-7 rounded-md px-2.5 text-sm ${range === x.value ? 'bg-slate-900 font-medium text-white dark:bg-slate-100 dark:text-slate-900' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}>
+              {x.label}
             </button>
-          )}
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
-              {selectedProject ? `${selectedProject.name} raporu` : 'Raporlar'}
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-              {selectedProject ? 'Projeye ait koşum verileri' : 'Koşum trendleri, statü dağılımı ve proje bazlı sonuçlar; PDF ya da Excel olarak indirilebilir.'}
-            </p>
-          </div>
+          ))}
         </div>
-
-        <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={fetchAll}
-            className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors"
-            title="Yenile">
-            <RefreshCw size={18} />
-          </button>
-          <button onClick={handleDownloadPDF} disabled={isExportingPdf}
-            className="px-3 h-8 bg-white hover:bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-800 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-50">
-            {isExportingPdf ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} PDF indir
-          </button>
-          <button onClick={handleDownloadExcel}
-            className="px-3 h-8 bg-white hover:bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-800 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
-            <FileSpreadsheet size={15} /> Excel indir
-          </button>
-        </div>
+        {data?.projects.length > 1 && (
+          <FilterSelect label="Proje" value={project} onChange={v => filters.set('project', v)} options={data.projects.map(p => [p.id, p.name])} />
+        )}
+        {project && <Button variant="ghost" size="sm" onClick={() => filters.set('project', '')}>Tüm projeler</Button>}
       </div>
 
-      {/* Hata Banner */}
-      {error && (
-        <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">
-          <AlertCircle size={16} className="shrink-0" /> {error}
-          <button onClick={fetchAll} className="ml-auto text-rose-600 hover:underline font-medium">Tekrar Dene</button>
+      {!r ? (
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}</div>
+          <Skeleton className="h-80" />
         </div>
-      )}
+      ) : (
+        <>
+          <section aria-label="Özet göstergeler" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <KpiTile label="Geçme oranı" value={fmtPct(r.rate, 1)} delta={r.rate != null && r.prevRate != null ? r.rate - r.prevRate : null} deltaUnit="pp"
+              sub={`${r.counts.Passed} geçti · ${r.counts.Failed} kaldı`} hint="Geçen / (geçen + kalan). Atlanan ve bekleyen sayılmaz." />
+            <KpiTile label="Koşum" value={r.runs} delta={r.period.days ? r.runs - r.prevRuns : null}
+              sub={`${r.executedResults} sonuç girildi`} />
+            <KpiTile label="Test kapsamı" value={fmtPct(r.coverage)} sub={`${r.coveredCount} / ${r.totalCases} case koşuldu`}
+              hint="Dönemde en az bir kez sonuç alan case oranı" />
+            {canDefects ? (
+              <KpiTile label="Açık hata" value={r.defects.open} goodWhen="down"
+                sub={r.defects.critical ? `${r.defects.critical} kritik` : 'kritik yok'} />
+            ) : (
+              <KpiTile label="Atlanan / bekleyen" value={`${r.counts.Skipped} / ${r.counts.Pending}`} />
+            )}
+          </section>
 
-      {/* PDF içeriği */}
-      <div ref={reportRef} className="space-y-6 p-2 rounded-2xl">
-
-        {/* STAT KARTLARI */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {!selectedProject ? (
-            <>
-              <StatCard title="Toplam Geçen"   value={globalMetrics.totalP}      icon={<CheckCircle2 size={22}/>} color="emerald" sub={`${rawData.testRuns.length} koşumdan`} />
-              <StatCard title="Toplam Başarısız" value={globalMetrics.totalF}    icon={<AlertCircle size={22}/>}  color="rose"    sub={`${globalMetrics.totalS} atlanan`} />
-              <StatCard title="Aktif Projeler"  value={rawData.projects.length}  icon={<Target size={22}/>}       color="indigo"  sub={`${rawData.testCases.length} test senaryosu`} />
-              <StatCard title="Genel Başarı"    value={`%${globalMetrics.successRate}`} icon={<TrendingUp size={22}/>} color="amber" sub={`${globalMetrics.planStats.completed} plan tamamlandı`} />
-            </>
-          ) : (
-            <>
-              <StatCard title="Koşum Sayısı"   value={detailData.length}           icon={<Zap size={22}/>}          color="indigo"  />
-              <StatCard title="Geçen Test"      value={detailTotals.passed}         icon={<CheckCircle2 size={22}/>} color="emerald" />
-              <StatCard title="Başarısız Test"  value={detailTotals.failed}         icon={<AlertCircle size={22}/>}  color="rose"    />
-              <StatCard title="Proje Başarısı"  value={`%${
-                detailTotals.passed + detailTotals.failed > 0
-                  ? ((detailTotals.passed / (detailTotals.passed + detailTotals.failed)) * 100).toFixed(1)
-                  : '0.0'
-              }`} icon={<TrendingUp size={22}/>} color="amber" />
-            </>
+          {r.runs === 0 && (
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+              {rangeLabel} içinde {projectObj ? `${projectObj.name} için ` : ''}koşum yok.
+              {range !== 'all' && <> <button type="button" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400" onClick={() => filters.set('range', 'all')}>Tüm zamanları göster</button></>}
+            </div>
           )}
-        </div>
 
-        {/* TEST PLAN METRİKLERİ (sadece genel görünümde) */}
-        {!selectedProject && rawData.testPlans.length > 0 && (
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: 'Toplam Plan',    value: globalMetrics.planStats.total,     color: 'text-slate-900 dark:text-white', bg: 'bg-white dark:bg-slate-900' },
-              { label: 'Aktif Plan',     value: globalMetrics.planStats.active,    color: 'text-slate-900 dark:text-white', bg: 'bg-white dark:bg-slate-900' },
-              { label: 'Tamamlanan Plan',value: globalMetrics.planStats.completed, color: 'text-slate-900 dark:text-white', bg: 'bg-white dark:bg-slate-900' },
-            ].map(({ label, value, color, bg }) => (
-              <div key={label} className={`${bg} border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center gap-4`}>
-                <ClipboardList size={18} className="text-slate-400" />
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+            <TrendPanel trend={r.trend} weekly={weekly} />
+            {canDefects ? <DefectSummary m={r.defects} periodLabel={rangeLabel} /> : (
+              <Panel title="Sonuç dağılımı" bodyClassName="p-4">
+                <ResultBar height="h-3" segments={[
+                  { label: 'Geçti', value: r.counts.Passed, tone: 'pass' }, { label: 'Kaldı', value: r.counts.Failed, tone: 'fail' },
+                  { label: 'Atlandı', value: r.counts.Skipped, tone: 'blocked' }, { label: 'Bekliyor', value: r.counts.Pending, tone: 'pending' },
+                ]} />
+              </Panel>
+            )}
+          </div>
+
+          <div className="grid items-start gap-5 lg:grid-cols-2">
+            <FailingCases items={r.failing} />
+            <Panel title="Case envanteri" bodyClassName="space-y-4 p-4" className="print:break-inside-avoid"
+              actions={<Link to={project ? `/test-cases?project=${project}` : '/test-cases'} className="text-xs font-medium text-indigo-600 hover:underline print:hidden dark:text-indigo-400">Case'ler</Link>}>
+              <div>
+                <p className="mb-2 text-sm text-slate-600 dark:text-slate-300"><b className="font-semibold tabular-nums text-slate-900 dark:text-white">{r.totalCases}</b> case · son sonuçlarına göre</p>
+                <ResultBar height="h-2.5" segments={caseSegs} />
+                <ResultLegend segments={caseSegs} className="mt-2 text-xs" />
+              </div>
+              <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 dark:border-slate-800">
                 <div>
-                  <p className={`text-xl font-bold ${color}`}>{value}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Otomasyon payı</p>
+                  <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900 dark:text-white">{r.totalCases ? fmtPct((r.automated / r.totalCases) * 100) : '—'}</p>
+                  <Meter value={r.totalCases ? (r.automated / r.totalCases) * 100 : 0} className="mt-1" />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{r.automated} otomasyon · {r.totalCases - r.automated} manuel</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Dönemde koşulan</p>
+                  <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900 dark:text-white">{fmtPct(r.coverage)}</p>
+                  <Meter value={r.coverage || 0} tone="bg-emerald-500" className="mt-1" />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{r.totalCases - r.coveredCount} case hiç koşulmadı</p>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* GRAFİKLER */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          {/* Performans Trendi */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
-            <h3 className="font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-2">
-              <TrendingUp size={17} className="text-indigo-500" />
-              {selectedProject ? 'Koşum Bazlı Performans' : 'Son 8 Koşum Trendi'}
-            </h3>
-            {(selectedProject ? detailData : globalMetrics.trend).length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-slate-400 text-sm">Veri bulunamadı.</div>
-            ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={selectedProject ? detailData : globalMetrics.trend} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
-                    <defs>
-                      <linearGradient id="gP" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor="#1f9458" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#1f9458" stopOpacity={0}   />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e5ea" className="dark:stroke-slate-800" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="Geçti"   stroke="#1f9458" fill="url(#gP)" strokeWidth={2.5} />
-                    <Area type="monotone" dataKey="Kaldı"   stroke="#cc3e3e" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" />
-                    <Area type="monotone" dataKey="Atlandı" stroke="#c1861c" fillOpacity={0} strokeWidth={1.5} strokeDasharray="3 3" />
-                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            </Panel>
           </div>
 
-          {/* Dağılım Grafiği */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
-            <h3 className="font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-2">
-              <BarChart3 size={17} className="text-amber-500" />
-              {selectedProject ? 'Koşum Sonuç Dağılımı' : 'Test Case Durum Dağılımı'}
-            </h3>
-            {(selectedProject
-              ? detailTotals.passed + detailTotals.failed === 0
-              : globalMetrics.tcStatusDist.length === 0
-            ) ? (
-              <div className="h-64 flex items-center justify-center text-slate-400 text-sm">Veri bulunamadı.</div>
-            ) : selectedProject ? (
-              // Proje detayında bar chart
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={detailData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e5ea" className="dark:stroke-slate-800" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#9aa2af' }} tickLine={false} axisLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />
-                    <Bar dataKey="Geçti"   fill="#1f9458" radius={[4,4,0,0]} />
-                    <Bar dataKey="Kaldı"   fill="#cc3e3e" radius={[4,4,0,0]} />
-                    <Bar dataKey="Atlandı" fill="#c1861c" radius={[4,4,0,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              // Genel görünümde pie chart
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={globalMetrics.tcStatusDist} innerRadius={60} outerRadius={90} dataKey="value" paddingAngle={6}>
-                      {globalMetrics.tcStatusDist.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                    </Pie>
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-        </div>
+          {r.activePlans.length > 0 && (
+            <Panel title="Süren planlar" bodyClassName="p-0" className="print:break-inside-avoid">
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {r.activePlans.slice(0, 6).map(p => {
+                  const s = planStats(p);
+                  return (
+                    <li key={p.id} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_14rem_6rem]">
+                      <Link to={`/test-plans/${p.id}`} className="min-w-0 truncate text-sm font-medium text-slate-900 hover:underline dark:text-white">
+                        <span className="mr-2 font-mono text-xs font-normal text-slate-500">{planIdent(p.id)}</span>{p.title}
+                      </Link>
+                      <ResultBar height="h-1.5" segments={planSegments(s)} className="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto" />
+                      <span className="col-start-2 row-start-1 text-right text-xs tabular-nums text-slate-500 sm:col-start-auto sm:row-start-auto dark:text-slate-400">
+                        %{s.progress} · {s.done}/{s.total}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Panel>
+          )}
 
-        {/* PROJE MATRİSİ + HATALAR (sadece genel görünüm) */}
-        {!selectedProject && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {!project && r.projectRows.length > 1 && <ProjectTable rows={r.projectRows} onSelect={id => filters.set('project', String(id))} />}
 
-            {/* Proje Matrisi */}
-            <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="font-bold text-slate-900 dark:text-white">Proje Performans Matrisi</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Detay için projeye tıklayın</p>
-              </div>
-              {globalMetrics.projectStats.length === 0 ? (
-                <div className="px-6 py-10 text-center text-slate-400 text-sm">Proje verisi yok.</div>
-              ) : (
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {globalMetrics.projectStats.map((proj) => {
-                    const rate = proj.total > 0 ? ((proj.passed / proj.total) * 100) : 0;
-                    return (
-                      <div key={proj.id}
-                        onClick={() => setSelectedProject(rawData.projects.find(p => p.id === proj.id))}
-                        className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-all group">
-                        <div className="flex items-center gap-4 min-w-0">
-                          <div className="w-10 h-10 bg-indigo-500/10 text-indigo-500 rounded-xl flex items-center justify-center font-bold text-sm group-hover:bg-indigo-500 group-hover:text-white transition-all shrink-0">
-                            {proj.name[0]?.toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">{proj.name}</h4>
-                            <div className="flex items-center gap-2 mt-1">
-                              <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${rate}%` }} />
-                              </div>
-                              <span className="text-xs text-slate-400">{proj.total} sonuç</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-6 shrink-0">
-                          <div className="text-right hidden sm:block">
-                            <p className={`text-sm font-black ${rate >= 80 ? 'text-emerald-500' : rate >= 50 ? 'text-amber-500' : 'text-rose-500'}`}>
-                              %{rate.toFixed(0)}
-                            </p>
-                            <p className="text-xs text-slate-400">başarı</p>
-                          </div>
-                          <ChevronDown size={15} className="text-slate-300 -rotate-90 group-hover:text-indigo-500 transition-colors" />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+          {r.recentRuns.length > 0 && (
+            <Panel title="Dönemin koşumları" bodyClassName="p-0" className="print:break-inside-avoid"
+              actions={<span className="text-xs text-slate-500 dark:text-slate-400">{r.recentRuns.length} koşum</span>}>
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {r.recentRuns.slice(0, 8).map(run => {
+                  const s = { Passed: 0, Failed: 0, Skipped: 0, Pending: 0 };
+                  run.results.forEach(x => { s[x.status] += 1; });
+                  return (
+                    <li key={run.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-4 py-2 sm:grid-cols-[minmax(0,1fr)_12rem_4rem]">
+                      <Link to={`/test-runs/${run.id}`} className="min-w-0 truncate text-sm text-slate-800 hover:underline dark:text-slate-100">
+                        <span className="mr-2 font-mono text-xs text-slate-500">KS-{run.id}</span>{run.name}
+                      </Link>
+                      <ResultBar height="h-1.5" className="hidden sm:flex" segments={[
+                        { label: 'Geçti', value: s.Passed, tone: 'pass' }, { label: 'Kaldı', value: s.Failed, tone: 'fail' },
+                        { label: 'Atlandı', value: s.Skipped, tone: 'blocked' }, { label: 'Bekliyor', value: s.Pending, tone: 'pending' },
+                      ]} />
+                      {s.Failed ? <StatusBadge tone="fail" className="justify-self-end">{s.Failed} kaldı</StatusBadge>
+                        : <span className="justify-self-end text-xs tabular-nums text-slate-500 dark:text-slate-400">{s.Passed + s.Failed ? `%${Math.round((s.Passed / (s.Passed + s.Failed)) * 100)}` : '—'}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+              {r.recentRuns.length > 8 && (
+                <Link to={project ? `/test-runs?project=${project}` : '/test-runs'} className="block border-t border-slate-100 px-4 py-2 text-xs font-medium text-indigo-600 hover:underline print:hidden dark:border-slate-800 dark:text-indigo-400">
+                  Tüm koşumlar
+                </Link>
               )}
-            </div>
-
-            {/* Son Hatalar */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
-              <h3 className="font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                <Bug size={17} className="text-rose-500" /> Son Bulunan Hatalar
-              </h3>
-              <div className="space-y-3">
-                {globalMetrics.recentBugs.length > 0 ? globalMetrics.recentBugs.map((bug, i) => (
-                  <div key={i} className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-transparent hover:border-rose-200 dark:hover:border-rose-800 transition-all">
-                    <div className="mt-1.5 w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-800 dark:text-white leading-snug truncate">{bug.title}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{bug.project}</p>
-                    </div>
-                  </div>
-                )) : (
-                  <div className="text-center py-6">
-                    <CheckCircle2 size={28} className="mx-auto text-emerald-400 mb-2" />
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Harika! Son koşumlarda hata yok.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PROJE DETAY — Test Case Listesi */}
-        {selectedProject && (() => {
-          const projTCs = rawData.testCases.filter(tc => tc.project_id === selectedProject.id);
-          return projTCs.length > 0 ? (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="font-bold text-slate-900 dark:text-white">Projeye Ait Test Senaryoları</h3>
-                <p className="text-xs text-slate-400 mt-0.5">{projTCs.length} senaryo</p>
-              </div>
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-950/50 text-xs text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800">
-                    <th className="px-6 py-3">Başlık</th>
-                    <th className="px-6 py-3">Öncelik</th>
-                    <th className="px-6 py-3">Durum</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {projTCs.map(tc => (
-                    <tr key={tc.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="px-6 py-3 text-sm text-slate-800 dark:text-slate-200 font-medium">{tc.title}</td>
-                      <td className="px-6 py-3">
-                        <span className={`text-xs font-bold ${ tc.priority === 'Kritik' ? 'text-rose-600' : tc.priority === 'Yüksek' ? 'text-orange-500' : tc.priority === 'Orta' ? 'text-indigo-500' : 'text-slate-400' }`}>{tc.priority}</span>
-                      </td>
-                      <td className="px-6 py-3">
-                        <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${ tc.status === 'Başarılı' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : tc.status === 'Başarısız' ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-400' : tc.status === 'Test Edilmedi'? 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' }`}>{tc.status}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null;
-        })()}
-      </div>
+            </Panel>
+          )}
+        </>
+      )}
     </div>
   );
 };

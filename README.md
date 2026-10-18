@@ -115,6 +115,22 @@ Hata kayıtları `defects` tablosunda, geçmişleri `defect_activity` tablosunda
   veya Jira/Slack'e yapıştırmaya uygun metin olarak kopyalanabilir.
 - Otomasyon koşumu (WebSocket) sonucu normal bir test koşumu olarak kaydedilir, case statüleri güncellenir.
 
+## Raporlar
+
+Raporlar sayfası seçili dönem (7 / 30 / 90 gün, tüm zamanlar) ve proje için hesaplanır; filtreler adres çubuğunda
+tutulur (`/reports?range=90&project=2`). Hesaplar `frontend/src/pages/reports/metrics.js` içindeki saf fonksiyonlardadır.
+
+- **Geçme oranı** her yerde geçen / (geçen + kalan); atlanan ve bekleyen paydaya girmez. Önceki eşit döneme göre
+  fark yüzde puan olarak gösterilir.
+- **Test kapsamı:** dönemde en az bir kez sonuç alan case oranı.
+- **Trend:** 31 güne kadar günlük, daha uzun dönemlerde haftalık; sonuç adetleri ve geçme oranı iki ayrı grafikte,
+  ayrıca tablo görünümü.
+- **En çok kalan testler:** kaldı / koşuldu sayısı ve son sonuçlar; dönem içinde geçip kalmaya devam eden testler
+  "kararsız" olarak işaretlenir.
+- **Hatalar:** açık kayıtların öneme göre dağılımı, dönemde açılan/çözülen ve ortalama çözüm süresi.
+- **Dışa aktarma** (`reports.export` izni): 7 sayfalı Excel ya da tarayıcının yazdırma penceresinden PDF
+  (yazdırırken menüler gizlenir).
+
 ## Testler
 
 ```bash

@@ -46,11 +46,11 @@ const AppLayout = () => {
   if (!user || !getToken()) return <Navigate to="/login" replace />;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 print:bg-white">
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
-      <div className="flex min-h-screen min-w-0 flex-col lg:pl-56">
+      <div className="flex min-h-screen min-w-0 flex-col lg:pl-56 print:pl-0">
         <Topbar onMenu={() => setNavOpen(true)} />
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 print:p-0">
           <div className="mx-auto max-w-[1360px]">
             <Outlet />
           </div>
