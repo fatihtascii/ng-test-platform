@@ -162,6 +162,7 @@ export const rolesApi = {
 
 export const environmentsApi = {
   getAll:  (params)   => api.get('/environments', { params }),
+  resolved: (id)      => api.get(`/environments/${id}/resolved`),
   create:  (data)     => api.post('/environments', data),
   update:  (id, data) => api.put(`/environments/${id}`, data),
   remove:  (id)       => api.delete(`/environments/${id}`),
@@ -169,6 +170,7 @@ export const environmentsApi = {
 
 export const variablesApi = {
   getAll:  (params)   => api.get('/variables', { params }),
+  reveal:  (id)       => api.get(`/variables/${id}/value`),
   create:  (data)     => api.post('/variables', data),
   update:  (id, data) => api.put(`/variables/${id}`, data),
   remove:  (id)       => api.delete(`/variables/${id}`),

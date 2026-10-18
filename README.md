@@ -83,6 +83,19 @@ Renk yalnızca anlam taşır.
   eklemeyi ve plana bağlı koşumları gösterir. Plan kalemi sonucu da case'in son sonucunu günceller.
 - Kimlikler: `TC-` case, `KS-` koşum, `TP-` plan, `BUG-` hata kaydı.
 
+## Ortamlar, değişkenler ve kullanıcılar
+
+- **Ortam değişkenleri otomasyona aktarılır:** Otomasyon ekranında seçilen ortamın adresi `BASE_URL`
+  ve Playwright `base_url` olarak, değişkenleri de ortam değişkeni olarak test sürecine verilir.
+  Kapsam önceliği: ortam > proje > global. `GET /environments/{id}/resolved` sonucu gösterir.
+- **Sırlar:** listede herkese maskeli döner; yönetici tek tek açar (`GET /variables/{id}/value`).
+  Koşum loglarında, WebSocket akışında ve hata kayıtlarında sır değerleri maskelenir. Maskeli
+  değerle yapılan güncelleme kayıtlı değeri korur.
+- **Kullanıcı devre dışı bırakma:** devre dışı hesap giriş yapamaz, açık oturumları hemen düşer,
+  kayıtları korunur (migration `0005`). Son giriş zamanı tutulur.
+- **Admin koruması:** admin hesabının profilini, şifresini, durumunu ve kendisini yalnızca admin
+  değiştirebilir/silebilir.
+
 ## Defect takibi
 
 Defect'ler `defects` tablosunda tutulur:

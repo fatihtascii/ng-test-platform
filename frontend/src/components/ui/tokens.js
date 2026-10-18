@@ -41,3 +41,10 @@ export const textareaCls =
   'block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 ' +
   'focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ' +
   'dark:border-slate-700 dark:bg-slate-900 dark:text-white';
+
+// Rol renkleri: anlam taşımayan kimlik rengi, yalnızca küçük bir nokta olarak kullanılır
+export const ROLE_DOT = {
+  rose: 'bg-rose-500', amber: 'bg-amber-500', indigo: 'bg-indigo-500',
+  emerald: 'bg-emerald-500', violet: 'bg-slate-500', slate: 'bg-slate-400',
+};
+export const ROLE_COLORS = Object.keys(ROLE_DOT);

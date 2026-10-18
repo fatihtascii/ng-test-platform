@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import { ResultBar } from '../components/ui';
-import { projectsApi, testRunsApi, fetchAllTestCases } from '../api';
+import { projectsApi, testRunsApi, environmentsApi, fetchAllTestCases } from '../api';
 import {
   Play, Terminal, Server, Globe, Cpu, FlaskConical,
   CheckSquare, Loader2, CheckCircle2, AlertCircle,
@@ -42,7 +42,9 @@ const AutomationRun = () => {
   const [loading,        setLoading]        = useState(true);
   const [error,          setError]          = useState(null);
   const [selectedProject, setSelectedProject] = useState('');
-  const [environment,    setEnvironment]    = useState('QA');
+  // Seçilen ortamın adresi ve değişkenleri koşuma aktarılır (Ortamlar sayfası)
+  const [environments,   setEnvironments]   = useState([]);
+  const [environmentId,  setEnvironmentId]  = useState('');
   const [browser,        setBrowser]        = useState('Chrome');
   const [headless,       setHeadless]       = useState(true);
   const [selectedCases,  setSelectedCases]  = useState([]);
@@ -85,7 +87,8 @@ const AutomationRun = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [pR, cR] = await Promise.allSettled([projectsApi.getAll(), fetchAllTestCases().then(data => ({ data }))]);
+        const [pR, cR, eR] = await Promise.allSettled([projectsApi.getAll(), fetchAllTestCases().then(data => ({ data })), environmentsApi.getAll()]);
+        if (eR.status === 'fulfilled') setEnvironments(eR.value.data || []);
         if (pR.status === 'fulfilled') setProjects(pR.value.data || []);
         else setError('Projeler yüklenemedi.');
         if (cR.status === 'fulfilled') {
@@ -115,6 +118,9 @@ const AutomationRun = () => {
     if (pr) setSelectedProject(pr);
     if (c) setSelectedCases(c.split(',').map(Number).filter(Boolean));
   }, [location.search]);
+
+  const projectEnvs = environments.filter(en => String(en.project_id) === String(selectedProject));
+  const projectEnv = projectEnvs.find(en => String(en.id) === String(environmentId)) || null;
 
   const projectCases = automatedCases.filter(tc =>
     !selectedProject || String(tc.project_id) === String(selectedProject)
@@ -158,7 +164,7 @@ const AutomationRun = () => {
       updWs('connected');
       addLog('◎ Bağlantı kuruldu — ortam hazırlanıyor...', 'info');
       ws.send(JSON.stringify({
-        environment, browser, headless,
+        environment_id: projectEnv ? projectEnv.id : null, browser, headless,
         project_id: parseInt(selectedProject, 10),
         cases: selectedCases.map(id => parseInt(id, 10)),
         test_case_ids: selectedCases.map(id => parseInt(id, 10)),
@@ -361,11 +367,14 @@ const AutomationRun = () => {
                 <div>
                   <label className="text-[11px] font-medium text-slate-500 block mb-1.5">Ortam</label>
                   <div className="relative">
-                    <select value={environment} onChange={e => setEnvironment(e.target.value)} disabled={isRunning} className={SEL}>
-                      <option value="QA">QA (Test)</option><option value="Staging">Staging</option><option value="Prod">Production</option>
+                    <select value={projectEnv ? String(projectEnv.id) : ''} onChange={e => setEnvironmentId(e.target.value)} disabled={isRunning || !projectEnvs.length} className={SEL}
+                      title={projectEnv?.url}>
+                      <option value="">{projectEnvs.length ? 'Ortam seçilmedi' : 'Bu projede ortam yok'}</option>
+                      {projectEnvs.map(en => <option key={en.id} value={String(en.id)}>{en.name}</option>)}
                     </select>
                     <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                   </div>
+                  {projectEnv && <p className="mt-1 truncate font-mono text-[11px] text-slate-500" title={projectEnv.url}>{projectEnv.url}</p>}
                 </div>
                 <div>
                   <label className="text-[11px] font-medium text-slate-500 block mb-1.5">Tarayıcı</label>
