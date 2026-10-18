@@ -115,6 +115,17 @@ Hata kayıtları `defects` tablosunda, geçmişleri `defect_activity` tablosunda
   veya Jira/Slack'e yapıştırmaya uygun metin olarak kopyalanabilir.
 - Otomasyon koşumu (WebSocket) sonucu normal bir test koşumu olarak kaydedilir, case statüleri güncellenir.
 
+## Projeler
+
+- Ad zorunlu, en fazla 200 karakter; fazla boşluklar temizlenir ve ad büyük/küçük harf (Türkçe İ/ı dahil)
+  gözetmeksizin benzersizdir (aynı ad → 409).
+- Statü: `Aktif`, `Beklemede`, `Tamamlandı`. `PATCH /projects/{id}` kısmi güncelleme yapar (`PUT` da aynı şekilde çalışır).
+- `GET /projects/?with_stats=true` her projeye case (duruma göre), otomasyon, plan, koşum, son koşum, açık/kritik hata
+  ve ortam sayılarını ekler. Sayılar gruplanmış sorgularla hesaplanır; proje sayısı arttıkça sorgu sayısı artmaz.
+  Varsayılan liste hafif kalır.
+- Proje silinince case, plan, koşum, ortam ve hata kayıtları (yorumları dahil) da silinir. Arayüz silinecekleri
+  sayar ve onay için proje adının yazılmasını ister.
+
 ## Raporlar
 
 Raporlar sayfası seçili dönem (7 / 30 / 90 gün, tüm zamanlar) ve proje için hesaplanır; filtreler adres çubuğunda
