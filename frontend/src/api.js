@@ -55,7 +55,9 @@ api.interceptors.response.use(
       message = error.message;
     }
 
-    return Promise.reject(new Error(message));
+    const err = new Error(message);
+    err.status = status;   // 404 gibi durumları ayırt etmek için
+    return Promise.reject(err);
   }
 );
 
@@ -183,5 +185,11 @@ export const defectsApi = {
   create:     (data)     => api.post('/defects', data),
   update:     (id, data) => api.patch(`/defects/${id}`, data),
   bulkStatus: (data)     => api.post('/defects/bulk-status', data),
+  bulkAssign: (data)     => api.post('/defects/bulk-assign', data),   // { ids, assignee_id|null }
   remove:     (id)       => api.delete(`/defects/${id}`),
+  assignees:  ()         => api.get('/defects/assignees'),
+  activity:   (id)       => api.get(`/defects/${id}/activity`),
+  addComment:    (id, body)      => api.post(`/defects/${id}/comments`, { body }),
+  updateComment: (id, cid, body) => api.patch(`/defects/${id}/comments/${cid}`, { body }),
+  removeComment: (id, cid)       => api.delete(`/defects/${id}/comments/${cid}`),
 };

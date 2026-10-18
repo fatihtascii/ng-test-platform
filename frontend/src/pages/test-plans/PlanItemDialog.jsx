@@ -32,6 +32,7 @@ const PlanItemDialog = ({ item, plan, readOnly, canDefect, onClose, onSave }) =>
         description: `${planIdent(plan.id)} planında kaldı.\n\n${note.trim()}`,
         severity: item.test_case_priority || 'Orta', status: 'Open',
         project_id: plan.project_id, test_case_id: item.test_case_id,
+        failed_details: [{ case_id: item.test_case_id, title: item.test_case_title, error: note.trim() || null, severity: item.test_case_priority }],
       });
       toast.success(`BUG-${data.id} açıldı.`);
     } catch (e) { toast.error(e.message || 'Hata kaydı açılamadı.'); }

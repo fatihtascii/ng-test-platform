@@ -29,7 +29,7 @@ const getCrumbs = (pathname) => {
     if (pathname === base) return [{ label }];
     if (pathname.startsWith(base + '/')) {
       const id = decodeURIComponent(pathname.slice(base.length + 1).split('/')[0]);
-      const prefix = { '/test-runs': 'KS-', '/test-plans': 'TP-' }[base];
+      const prefix = { '/test-runs': 'KS-', '/test-plans': 'TP-', '/defects': 'BUG-' }[base];
       return [{ label, to: base }, { label: /^\d+$/.test(id) ? `${prefix || '#'}${id}` : id }];
     }
   }

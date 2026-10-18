@@ -1,352 +1,239 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { defectsApi, testCasesApi } from '../api';
+/**
+ * Tek hata kaydı: açıklama, başarısız testler, yorumlar ve değişiklik geçmişi.
+ * Sağ panelde durum, önem ve atanan doğrudan değiştirilir; her değişiklik geçmişe yazılır.
+ */
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Copy, Pencil, Trash2, MoreHorizontal, Bug, ArrowRight, RotateCcw, CheckCircle2, Search as SearchIcon } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
+import { Button, StatusBadge, Ident, Skeleton, EmptyState, Panel } from '../components/ui';
+import { Menu, MenuItem, ConfirmDialog } from '../components/ui/overlay';
+import { toast } from '../components/ui/toast';
+import { defectsApi, projectsApi, testCasesApi } from '../api';
+import { formatDate, relativeTime } from './test-runs/model';
+import DefectFormDrawer from './defects/DefectFormDrawer';
+import FailedCaseList from './defects/FailedCaseList';
+import ActivityFeed from './defects/ActivityFeed';
 import {
-  ArrowLeft, Bug, Target, Clock, Terminal,
-  AlignLeft, PlayCircle, Folder, RefreshCw,
-  Copy, Check, AlertCircle, CheckCircle2,
-  ExternalLink, ChevronDown, ChevronUp
-} from 'lucide-react';
+  STATUSES, STATUS_LABEL, STATUS_TONE, SEVERITIES, SEVERITY_TONE, SOURCE_LABEL,
+  defectIdent, parseDefectParam, defectReport, currentUser, userName, ageDays,
+} from './defects/model';
 
-const STATUS_OPTIONS = [
-  { value: 'Open',        label: 'Açık', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' },
-  { value: 'In Progress', label: 'İnceleniyor', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
-  { value: 'Resolved',    label: 'Çözüldü', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
-  { value: 'Re-test',     label: 'Tekrar Test', cls: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' },
-];
-const SEVERITY_CONFIG = {
-  'Kritik': { bg: 'bg-rose-500/10 text-rose-600',     badge: 'bg-rose-500 text-white' },
-  'Yüksek': { bg: 'bg-orange-500/10 text-orange-600', badge: 'bg-orange-500 text-white' },
-  'Orta':   { bg: 'bg-amber-500/10 text-amber-600',   badge: 'bg-amber-500 text-white' },
-  'Düşük':  { bg: 'bg-blue-500/10 text-blue-600',     badge: 'bg-blue-400 text-white' },
+// Duruma göre önerilen sonraki adım (iş akışı: Açık → İnceleniyor → Tekrar test → Çözüldü)
+const NEXT_STEP = {
+  'Open':        { to: 'In Progress', label: 'İncelemeye al', icon: SearchIcon },
+  'In Progress': { to: 'Re-test',     label: 'Tekrar teste gönder', icon: ArrowRight },
+  'Re-test':     { to: 'Resolved',    label: 'Çözüldü olarak kapat', icon: CheckCircle2 },
+  'Resolved':    { to: 'Open',        label: 'Yeniden aç', icon: RotateCcw },
 };
 
-const getSev         = (s) => SEVERITY_CONFIG[s] || SEVERITY_CONFIG['Orta'];
-const getStatusOpt   = (s) => STATUS_OPTIONS.find(o => o.value === s);
-const getStatusCls   = (s) => getStatusOpt(s)?.cls || 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200';
-const getStatusLabel = (s) => { const o = getStatusOpt(s); return o ? o.label : s; };
+const selectCls = 'h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 
-
-const Skeleton = ({ className }) => (
-  <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`} />
+const Row = ({ label, children }) => (
+  <div className="grid grid-cols-[6.5rem_1fr] items-center gap-2 py-1.5 text-sm">
+    <dt className="text-slate-500 dark:text-slate-400">{label}</dt>
+    <dd className="min-w-0 text-slate-800 dark:text-slate-100">{children}</dd>
+  </div>
 );
 
 const DefectDetail = () => {
-  const { id }   = useParams();
+  const { id: param } = useParams();
   const navigate = useNavigate();
-  const { can }  = usePermission();
+  const { can } = usePermission();
+  const canManage = can('defects.manage');
+  const me = useMemo(currentUser, []);
+  const defectId = parseDefectParam(param);
 
-  const [defectData,  setDefectData]  = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [status,      setStatus]      = useState('Open');
-  const [copied,      setCopied]      = useState(false);
-  const [saveMsg,     setSaveMsg]     = useState(null);
-  const [expandedIdx, setExpandedIdx] = useState(null);
+  const [state, setState] = useState({ loading: true, defect: null, error: null, notFound: false });
+  const [cases, setCases] = useState({});
+  const [projects, setProjects] = useState([]);
+  const [assignees, setAssignees] = useState([]);
+  const [saving, setSaving] = useState(null);       // değişen alan adı
+  const [activityKey, setActivityKey] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  // URL'deki "BUG-12" (eski bağlantılarda "BUG-12-0") → defect id 12
-  const defectId = String(id).match(/^BUG-(\d+)/)?.[1] ?? (/^\d+$/.test(String(id)) ? String(id) : null);
-
-  const handleStatusChange = useCallback(async (newStatus) => {
-    const prev = status;
-    setStatus(newStatus);
-    try {
-      await defectsApi.update(defectId, { status: newStatus });
-      setSaveMsg('saved'); setTimeout(() => setSaveMsg(null), 2000);
-    } catch {
-      setStatus(prev);
-      setSaveMsg('error'); setTimeout(() => setSaveMsg(null), 3000);
-    }
-  }, [defectId, status]);
-
-  const fetchDetail = useCallback(async () => {
-    setError(null); setLoading(true);
-    try {
-      if (!defectId) throw new Error('Geçersiz hata ID formatı.');
-      const { data: d } = await defectsApi.getOne(defectId);
-
-      // Hatalı case'lerin adım açıklamalarını göstermek için case detaylarını çek
-      const caseIds = [...new Set((d.failed_details || []).map(f => f.case_id).filter(Boolean))];
-      const caseRes = await Promise.allSettled(caseIds.map(cid => testCasesApi.getOne(cid)));
-      const caseMap = Object.fromEntries(
-        caseRes.filter(r => r.status === 'fulfilled').map(r => [r.value.data.id, r.value.data])
-      );
-
-      setStatus(d.status);
-      setDefectData({
-        id:          d.code,
-        title:       d.title,
-        description: d.description,
-        source:      d.source,
-        runId:       d.test_run_id,
-        runName:     d.test_run_name ?? (d.source === 'manual' ? 'Manuel Ekleme' : 'Silinmiş Koşum'),
-        projectName: d.project_name ?? 'Bilinmeyen Proje',
-        projectId:   d.project_id,
-        severity:    d.severity,
-        createdBy:   d.created_by_name,
-        failedCount: d.failed_count,
-        failedDetails: (d.failed_details || []).map((f, idx) => ({
-          idx,
-          caseId:       f.case_id,
-          title:        caseMap[f.case_id]?.title || f.title || `Test ${idx + 1}`,
-          errorMessage: f.error || null,
-          severity:     f.severity || caseMap[f.case_id]?.priority || 'Orta',
-          description:  caseMap[f.case_id]?.description || null,
-        })),
-        detectedAt:  d.created_at
-          ? new Date(d.created_at).toLocaleString('tr-TR', { year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' })
-          : 'Bilinmiyor',
-      });
-    } catch (err) {
-      setError(err.message || 'Detaylar yüklenemedi.');
-    } finally { setLoading(false); }
+  useEffect(() => {
+    let alive = true;
+    if (!defectId) return undefined;
+    defectsApi.getOne(defectId).then(async ({ data }) => {
+      if (!alive) return;
+      setState({ loading: false, defect: data, error: null, notFound: false });
+      // Adımları göstermek için hatalı case'lerin ayrıntıları (en fazla 40)
+      const ids = [...new Set((data.failed_details || []).map(f => f.case_id).filter(Boolean))].slice(0, 40);
+      const res = await Promise.allSettled(ids.map(cid => testCasesApi.getOne(cid)));
+      if (alive) setCases(Object.fromEntries(res.filter(r => r.status === 'fulfilled').map(r => [r.value.data.id, r.value.data])));
+    }).catch(e => {
+      if (alive) setState({ loading: false, defect: null, error: e.message || 'Kayıt yüklenemedi.', notFound: e.status === 404 || /bulunamadı/i.test(e.message || '') });
+    });
+    defectsApi.assignees().then(({ data }) => { if (alive) setAssignees(data); }).catch(() => {});
+    projectsApi.getAll().then(({ data }) => { if (alive) setProjects(data); }).catch(() => {});
+    return () => { alive = false; };
   }, [defectId]);
 
-  useEffect(() => { fetchDetail(); }, [fetchDetail]);
+  const d = state.defect;
 
-  const handleCopy = useCallback(() => {
-    if (!defectData) return;
-    const lines = [`Hata ID: ${defectData.id}`, `Koşum: ${defectData.runName}`, `Proje: ${defectData.projectName}`, `Hatalı Test Sayısı: ${defectData.failedCount}`, ''];
-    defectData.failedDetails.forEach((item, i) => {
-      lines.push(`[${i+1}] ${item.title}`);
-      if (item.errorMessage) lines.push(`    Hata: ${item.errorMessage}`);
-    });
-    navigator.clipboard.writeText(lines.join('\n'));
-    setCopied(true); setTimeout(() => setCopied(false), 2000);
-  }, [defectData]);
+  const update = useCallback(async (field, body, message) => {
+    setSaving(field);
+    try {
+      const { data } = await defectsApi.update(d.id, body);
+      setState(s => ({ ...s, defect: data }));
+      setActivityKey(k => k + 1);
+      if (message) toast.success(message);
+    } catch (e) { toast.error(e.message || 'Güncellenemedi.'); }
+    finally { setSaving(null); }
+  }, [d]);
 
-  if (loading) return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center gap-4 mb-8"><Skeleton className="w-10 h-10 rounded-xl"/><div className="space-y-2"><Skeleton className="h-7 w-48"/><Skeleton className="h-4 w-64"/></div></div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="lg:col-span-2 space-y-4"><Skeleton className="h-48 rounded-2xl"/><Skeleton className="h-64 rounded-2xl"/></div><Skeleton className="h-80 rounded-2xl"/></div>
-    </div>
-  );
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(defectReport(d)); toast.success('Rapor panoya kopyalandı.'); }
+    catch { toast.error('Panoya kopyalanamadı.'); }
+  };
 
-  if (error || !defectData) return (
-    <div className="flex flex-col items-center justify-center min-h-[50vh] text-center space-y-5 animate-in fade-in duration-300">
-      <div className="w-16 h-16 bg-rose-100 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800 rounded-3xl flex items-center justify-center"><Bug size={32} className="text-rose-500"/></div>
-      <div><h2 className="text-xl font-black text-slate-900 dark:text-white mb-2">Detaylara Ulaşılamadı</h2><p className="text-slate-500 dark:text-slate-400 text-sm max-w-md mx-auto">{error}</p></div>
-      <div className="flex gap-3">
-        <button onClick={() => navigate('/defects')} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-50 transition-colors">Listeye Dön</button>
-        <button onClick={fetchDetail} className="px-5 py-2.5 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 transition-colors flex items-center gap-2"><RefreshCw size={15}/> Tekrar Dene</button>
+  const remove = async () => {
+    setDeleting(true);
+    try {
+      await defectsApi.remove(d.id);
+      toast.success(`${defectIdent(d.id)} silindi.`);
+      navigate('/defects');
+    } catch (e) { toast.error(e.message || 'Silinemedi.'); setDeleting(false); }
+  };
+
+  if (!defectId || state.notFound || (state.error && !d)) {
+    return (
+      <EmptyState icon={<Bug size={24} />} className="py-20"
+        title={!defectId || state.notFound ? 'Hata kaydı bulunamadı' : 'Kayıt yüklenemedi'}
+        description={!defectId ? `"${param}" geçerli bir hata kimliği değil.` : state.notFound ? 'Kayıt silinmiş olabilir.' : state.error}
+        action={<Button onClick={() => navigate('/defects')} icon={<ArrowLeft size={14} />}>Hatalara dön</Button>} />
+    );
+  }
+
+  if (state.loading || !d) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-4 w-24" /><Skeleton className="h-8 w-2/3" />
+        <div className="grid gap-5 lg:grid-cols-[1fr_20rem]"><Skeleton className="h-64" /><Skeleton className="h-64" /></div>
       </div>
-    </div>
-  );
+    );
+  }
 
-  const sevConfig = getSev(defectData.severity);
+  const next = NEXT_STEP[d.status];
+  const age = ageDays(d);
+  const NextIcon = next?.icon;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20 max-w-7xl mx-auto">
-
-      {/* HEADER */}
-      <div className="flex items-start gap-4">
-        <button onClick={() => navigate('/defects')}
-          className="p-2.5 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition-all shrink-0 shadow-sm">
-          <ArrowLeft size={18}/>
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2.5 flex-wrap mb-2">
-            <h1 className="text-sm font-bold text-slate-900 dark:text-white font-mono bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0">{defectData.id}</h1>
-            <span className={`text-[11px] font-medium px-2.5 py-1 rounded-md shrink-0 ${sevConfig.badge}`}>{defectData.severity}</span>
-            <span className={`text-[11px] font-medium px-2.5 py-1 rounded-md border shrink-0 ${getStatusCls(status)}`}>{getStatusLabel(status)}</span>
-            <span className="text-[11px] font-bold px-2.5 py-1 rounded-md bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shrink-0">
-              {defectData.failedCount} Hatalı Test
-            </span>
-            <button onClick={handleCopy} className="ml-auto text-slate-400 hover:text-indigo-500 transition-colors flex items-center gap-1.5 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2.5 py-1 rounded-lg shrink-0">
-              {copied ? <Check size={14} className="text-emerald-500"/> : <Copy size={14}/>}
-              <span className="hidden sm:inline">{copied ? 'Kopyalandı' : 'Raporu Kopyala'}</span>
-            </button>
-          </div>
-          <p className="text-lg text-slate-700 dark:text-slate-200 font-bold leading-snug">{defectData.title}</p>
-          {defectData.description && (
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 whitespace-pre-line">{defectData.description}</p>
-          )}
-          <div className="flex items-center gap-3 mt-2 text-xs font-medium text-slate-500 dark:text-slate-400 flex-wrap">
-            <span className="flex items-center gap-1"><Folder size={12}/> {defectData.projectName}</span>
-            <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"/>
-            <span className="flex items-center gap-1"><PlayCircle size={12}/> {defectData.runName}</span>
-            <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"/>
-            <span className="flex items-center gap-1"><Clock size={12}/> {defectData.detectedAt}</span>
-            {defectData.createdBy && (<>
-              <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"/>
-              <span>Açan: {defectData.createdBy}</span>
-            </>)}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-
-        {/* SOL KOLON: Hatalı Test Listesi */}
-        <div className="lg:col-span-2 space-y-4">
-
-          {/* Özet banner */}
-          <div className="bg-rose-50 dark:bg-rose-500/5 border border-rose-200 dark:border-rose-800/50 rounded-2xl p-4 flex items-center gap-3">
-            <div className="w-10 h-10 bg-rose-500 rounded-xl flex items-center justify-center shrink-0">
-              <Bug size={18} className="text-white"/>
+    <div className="space-y-5">
+      <div>
+        <Link to="/defects" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+          <ArrowLeft size={14} /> Hatalar
+        </Link>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Ident>{defectIdent(d.id)}</Ident>
+              <StatusBadge tone={STATUS_TONE[d.status]}>{STATUS_LABEL[d.status] || d.status}</StatusBadge>
+              <StatusBadge tone={SEVERITY_TONE[d.severity]}>{d.severity}</StatusBadge>
+              <span className="text-xs text-slate-500 dark:text-slate-400">{SOURCE_LABEL[d.source] || d.source}</span>
             </div>
-            <div>
-              <p className="font-bold text-rose-700 dark:text-rose-400 text-sm">{defectData.source === 'auto' ? `Bu koşumda ${defectData.failedCount} test başarısız oldu` : `${defectData.failedCount} test case ile ilişkili`}</p>
-              <p className="text-xs text-rose-600/70 dark:text-rose-500 mt-0.5">Her hatalı testin detayını aşağıda inceleyebilirsiniz.</p>
-            </div>
+            <h1 className="mt-1 break-words text-xl font-semibold text-slate-900 dark:text-white">{d.title}</h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              {d.project_name || '—'} · {d.created_by_name ? `${d.created_by_name} açtı` : 'Koşum açtı'} · <span title={formatDate(d.created_at, true)}>{relativeTime(d.created_at)}</span>
+            </p>
           </div>
-
-          {/* Hatalı test kartları */}
-          <div className="space-y-3">
-            {defectData.failedDetails.map((item, idx) => {
-              const is         = getSev(item.severity);
-              const isExpanded = expandedIdx === idx;
-              return (
-                <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all">
-                  {/* Kart başlığı */}
-                  <button onClick={() => setExpandedIdx(isExpanded ? null : idx)}
-                    className="w-full flex items-center gap-4 p-4 md:p-5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black shrink-0 ${is.badge}`}>{idx + 1}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md shrink-0 ${is.badge}`}>{item.severity}</span>
-                        {item.caseId && (
-                          <span className="text-[10px] font-bold text-slate-400 font-mono">#{item.caseId}</span>
-                        )}
-                      </div>
-                      <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{item.title}</p>
-                      {item.errorMessage && !isExpanded && (
-                        <p className="text-xs font-mono text-rose-500 dark:text-rose-400 mt-0.5 truncate opacity-80">⚠ {item.errorMessage}</p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-500/10 px-2 py-1 rounded-lg border border-rose-200 dark:border-rose-500/30">Başarısız</span>
-                      {isExpanded ? <ChevronUp size={16} className="text-slate-400"/> : <ChevronDown size={16} className="text-slate-400"/>}
-                    </div>
-                  </button>
-
-                  {/* Genişletilmiş içerik */}
-                  {isExpanded && (
-                    <div className="border-t border-slate-100 dark:border-slate-800 animate-in fade-in duration-200">
-                      {/* Hata log */}
-                      <div className="bg-[#0d1117] p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Terminal size={13} className="text-rose-400"/>
-                          <span className="text-xs font-bold font-mono text-slate-400">runtime_error.log</span>
-                        </div>
-                        {item.errorMessage ? (
-                          <pre className="text-rose-400/90 font-mono text-xs whitespace-pre-wrap break-words leading-relaxed">
-                            {item.errorMessage}
-                          </pre>
-                        ) : (
-                          <span className="text-slate-500 italic text-xs">Hata mesajı bulunamadı.</span>
-                        )}
-                      </div>
-
-                      {/* Test adımları (varsa) */}
-                      {item.description && (() => {
-                        let steps = null;
-                        try {
-                          const parsed = JSON.parse(item.description);
-                          if (Array.isArray(parsed?.steps)) steps = parsed.steps;
-                        } catch { /* düz metin */ }
-                        if (steps) return (
-                          <div className="p-4 space-y-2">
-                            <p className="text-[11px] font-medium text-slate-400 mb-3">Test Adımları</p>
-                            {steps.map((step, si) => (
-                              <div key={si} className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl p-3">
-                                <p className="text-[11px] font-medium text-slate-400 mb-2">Adım {si + 1}</p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                                  <div><p className="text-[10px] font-bold text-slate-400 mb-1">AKSİYON</p><p className="text-slate-700 dark:text-slate-300 font-medium">{step.action || '—'}</p></div>
-                                  <div><p className="text-[10px] font-bold text-slate-400 mb-1">BEKLENEN</p><p className="text-slate-700 dark:text-slate-300 font-medium">{step.expectedResult || '—'}</p></div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                        if (item.description && !item.description.startsWith('{')) return (
-                          <div className="p-4"><p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">{item.description}</p></div>
-                        );
-                        return null;
-                      })()}
-
-                      {/* Test case'e git */}
-                      {item.caseId && (
-                        <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-                          <button onClick={() => navigate('/test-cases')}
-                            className="flex items-center gap-1.5 text-xs font-bold text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors hover:underline underline-offset-2">
-                            <ExternalLink size={13}/> Test Case #{item.caseId} Görüntüle
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* SAĞ KOLON */}
-        <div className="space-y-5">
-
-          {/* Statü */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-            <h3 className="text-xs font-medium text-slate-400 mb-4 flex items-center gap-2"><Target size={14} className="text-indigo-400"/> Statü</h3>
-            <div className={`px-4 py-3 rounded-xl border-2 flex items-center justify-center font-black text-sm mb-4 ${getStatusCls(status)}`}>
-              {getStatusLabel(status)}
-            </div>
-            {can('defects.manage') ? (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-1">Durumu Güncelle</label>
-                <select value={status} onChange={e => handleStatusChange(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 dark:text-white text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer">
-                  {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                {saveMsg === 'saved' && <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5 ml-1 animate-in fade-in duration-200"><CheckCircle2 size={12}/> Kaydedildi</p>}
-                {saveMsg === 'error' && <p className="text-[11px] text-rose-500 font-medium flex items-center gap-1.5 ml-1"><AlertCircle size={12}/> Kaydedilemedi</p>}
-                {!saveMsg && <p className="text-[11px] text-slate-400 font-medium mt-1 flex items-center gap-1.5 ml-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"/> Değişiklik tüm ekibe yansır.</p>}
-              </div>
-            ) : (
-              <p className="text-xs text-center text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl">Statü değiştirmek için yetki gerekli.</p>
+          <div className="flex shrink-0 items-center gap-2">
+            {canManage && next && (
+              <Button variant={d.status === 'Resolved' ? 'secondary' : 'primary'} icon={<NextIcon size={14} />} loading={saving === 'status'}
+                onClick={() => update('status', { status: next.to }, `${defectIdent(d.id)} → ${STATUS_LABEL[next.to]}`)}>{next.label}</Button>
+            )}
+            <Button icon={<Copy size={14} />} onClick={copy}>Kopyala</Button>
+            {canManage && (
+              <Menu trigger={({ ref, toggle, open }) => (
+                <Button ref={ref} size="icon" onClick={toggle} aria-label="Diğer işlemler" aria-haspopup="menu" aria-expanded={open}><MoreHorizontal size={16} /></Button>
+              )}>
+                <MenuItem icon={Pencil} onSelect={() => setEditing(true)}>Düzenle</MenuItem>
+                <MenuItem icon={Trash2} tone="danger" onSelect={() => setConfirm(true)}>Sil</MenuItem>
+              </Menu>
             )}
           </div>
-
-          {/* Künye */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-            <h3 className="text-xs font-medium text-slate-400 mb-4">Künye</h3>
-            <div className="space-y-4">
-              {[
-                { icon:<Folder size={16} className="text-indigo-400"/>,     label:'Proje',         value:defectData.projectName },
-                { icon:<PlayCircle size={16} className="text-emerald-400"/>, label:'Koşum',        value:defectData.runName },
-                { icon:<Clock size={16} className="text-amber-400"/>,        label:'Tespit Tarihi', value:defectData.detectedAt },
-                { icon:<Bug size={16} className="text-rose-400"/>,           label:'Hatalı Test',   value:`${defectData.failedCount} test` },
-              ].map(({ icon, label, value }) => (
-                <div key={label}>
-                  <span className="text-slate-500 dark:text-slate-400 flex items-center gap-2 text-[11px] font-medium">{icon} {label}</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm ml-6 break-words">{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Aksiyonlar */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-            <h3 className="text-xs font-medium text-slate-400 mb-4">Hızlı Aksiyonlar</h3>
-            <div className="space-y-2">
-              {defectData.runId && (
-              <button onClick={() => navigate(`/test-runs/${defectData.runId}`)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-100 dark:border-slate-800 group transition-colors text-left">
-                <PlayCircle size={15} className="text-emerald-500 shrink-0 group-hover:scale-110 transition-transform"/>
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Koşum Detayına Git</span>
-              </button>
-              )}
-              <button onClick={() => navigate('/defects')}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-100 dark:border-slate-800 group transition-colors text-left">
-                <ArrowLeft size={15} className="text-slate-400 shrink-0 group-hover:scale-110 transition-transform"/>
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Hata Listesine Dön</span>
-              </button>
-            </div>
-          </div>
-
         </div>
       </div>
+
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="min-w-0 space-y-5">
+          <Panel title="Açıklama" bodyClassName="px-4 py-3" actions={canManage && <Button size="sm" variant="ghost" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Düzenle</Button>}>
+            {d.description
+              ? <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700 dark:text-slate-200">{d.description}</p>
+              : <p className="text-sm text-slate-500 dark:text-slate-400">Açıklama yok. Tekrar etme adımlarını ve beklenen sonucu eklemek, düzeltecek kişinin işini hızlandırır.</p>}
+          </Panel>
+
+          {d.failed_details?.length > 0 && (
+            <Panel title={d.source === 'auto' ? `Başarısız testler (${d.failed_count})` : `İlgili testler (${d.failed_count})`} bodyClassName="p-0"
+              actions={d.test_run_id && <Link to={`/test-runs/${d.test_run_id}`} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">KS-{d.test_run_id} koşumunu aç</Link>}>
+              <FailedCaseList details={d.failed_details} cases={cases} runId={d.test_run_id} manual={d.source === 'manual'} />
+            </Panel>
+          )}
+
+          <ActivityFeed defectId={d.id} refreshKey={activityKey} canComment={canManage} me={me} />
+        </div>
+
+        <aside className="space-y-5 lg:sticky lg:top-4">
+          <Panel title="Ayrıntılar" bodyClassName="px-4 py-1.5">
+            <dl className="divide-y divide-slate-100 dark:divide-slate-800">
+              <Row label="Durum">
+                {canManage ? (
+                  <select aria-label="Durum" value={d.status} disabled={saving === 'status'} className={selectCls}
+                    onChange={e => update('status', { status: e.target.value })}>
+                    {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                ) : <StatusBadge tone={STATUS_TONE[d.status]}>{STATUS_LABEL[d.status]}</StatusBadge>}
+              </Row>
+              <Row label="Önem">
+                {canManage ? (
+                  <select aria-label="Önem" value={d.severity} disabled={saving === 'severity'} className={selectCls}
+                    onChange={e => update('severity', { severity: e.target.value })}>
+                    {SEVERITIES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : <StatusBadge tone={SEVERITY_TONE[d.severity]}>{d.severity}</StatusBadge>}
+              </Row>
+              <Row label="Atanan">
+                {canManage ? (
+                  <div>
+                    <select aria-label="Atanan" value={d.assignee_id ?? ''} disabled={saving === 'assignee'} className={selectCls}
+                      onChange={e => update('assignee', { assignee_id: e.target.value ? Number(e.target.value) : null })}>
+                      <option value="">Atanmamış</option>
+                      {assignees.map(u => <option key={u.id} value={u.id}>{userName(u)}</option>)}
+                      {d.assignee_id && !assignees.some(u => u.id === d.assignee_id) && <option value={d.assignee_id}>{d.assignee_name} (devre dışı)</option>}
+                    </select>
+                    {me && d.assignee_id !== me.id && (
+                      <button type="button" className="mt-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                        onClick={() => update('assignee', { assignee_id: me.id }, 'Kayıt size atandı.')}>Bana ata</button>
+                    )}
+                  </div>
+                ) : (d.assignee_name || <span className="text-slate-400">Atanmamış</span>)}
+              </Row>
+              <Row label="Proje">{d.project_name || '—'}</Row>
+              <Row label="Koşum">
+                {d.test_run_id
+                  ? <Link to={`/test-runs/${d.test_run_id}`} className="block truncate text-indigo-600 hover:underline dark:text-indigo-400">KS-{d.test_run_id} {d.test_run_name}</Link>
+                  : <span className="text-slate-400">{d.source === 'auto' ? 'Koşum silinmiş' : 'Yok'}</span>}
+              </Row>
+              <Row label="Açan">{d.created_by_name || <span className="text-slate-500">Sistem (koşum)</span>}</Row>
+              <Row label="Açıldı"><span title={formatDate(d.created_at, true)}>{formatDate(d.created_at, true)}</span></Row>
+              {d.resolved_at && <Row label="Çözüldü">{formatDate(d.resolved_at, true)}</Row>}
+              {age != null && <Row label={d.status === 'Resolved' ? 'Çözüm süresi' : 'Açık süre'}>{age === 0 ? '1 günden az' : `${age} gün`}</Row>}
+              <Row label="Güncellendi"><span title={formatDate(d.updated_at, true)}>{relativeTime(d.updated_at || d.created_at)}</span></Row>
+            </dl>
+          </Panel>
+        </aside>
+      </div>
+
+      {editing && (
+        <DefectFormDrawer defect={d} projects={projects.length ? projects : [{ id: d.project_id, name: d.project_name }]} assignees={assignees}
+          onClose={() => setEditing(false)}
+          onSaved={(saved) => { setEditing(false); setState(s => ({ ...s, defect: saved })); setActivityKey(k => k + 1); }} />
+      )}
+      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={remove} loading={deleting} confirmLabel="Sil"
+        title={`${defectIdent(d.id)} silinsin mi?`} description="Kayıt, yorumları ve geçmişiyle silinir. Bu işlem geri alınamaz." />
     </div>
   );
 };

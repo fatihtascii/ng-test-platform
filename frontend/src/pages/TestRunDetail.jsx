@@ -43,7 +43,8 @@ const TestRunDetail = () => {
 
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState(null);
+  // ?case=12 ile gelindiyse (ör. hata kaydından) o case seçili açılır
+  const [selected, setSelected] = useState(() => Number(new URLSearchParams(window.location.search).get('case')) || null);
   const [mobileDetail, setMobileDetail] = useState(false);
   const [dialog, setDialog] = useState(null);       // 'complete' | 'delete' | 'edit'
   const [busy, setBusy] = useState(null);
@@ -137,6 +138,7 @@ const TestRunDetail = () => {
         description: current.result.note,
         severity: SEVERITY_BY_PRIORITY[tc?.priority] || 'Orta',
         status: 'Open', project_id: run.project_id, test_run_id: run.id, test_case_id: current.result.caseId,
+        failed_details: [{ case_id: current.result.caseId, title: tc?.title, error: current.result.note || null, severity: tc?.priority }],
       });
       toast.success(`BUG-${data.id} açıldı.`);
     } catch (e) { toast.error(e.message || 'Hata kaydı açılamadı.'); }
