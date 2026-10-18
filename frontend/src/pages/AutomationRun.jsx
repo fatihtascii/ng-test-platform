@@ -15,6 +15,7 @@ import { projectsApi, environmentsApi, fetchAllTestCases, fetchAllTestRuns, suit
 import { useAutomationRun } from './automation/useAutomationRun';
 import CasePicker from './automation/CasePicker';
 import LiveCaseList from './automation/LiveCaseList';
+import DefectLinks from './automation/DefectLinks';
 import RunConsole from './automation/RunConsole';
 import RecentRuns from './automation/RecentRuns';
 import SuitesTab from './automation/SuitesTab';
@@ -300,7 +301,7 @@ const AutomationRun = () => {
                     {run.summary?.run_id && (
                       <Link to={`/test-runs/${run.summary.run_id}`} className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"><ExternalLink size={13} /> KS-{run.summary.run_id} koşumunu aç</Link>
                     )}
-                    {run.summary?.defect && (
+                    {run.summary?.defects ? <DefectLinks defects={run.summary.defects} /> : run.summary?.defect && (
                       <Link to={`/defects/${run.summary.defect}`} className="inline-flex items-center gap-1 font-medium text-rose-700 hover:underline dark:text-rose-400"><Bug size={13} /> {run.summary.defect}</Link>
                     )}
                     {!run.busy && canRun && failedIds.length > 0 && (

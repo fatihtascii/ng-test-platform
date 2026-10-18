@@ -206,11 +206,12 @@ def merge_results(ready: list[dict], skipped: list[dict], junit: dict, live: dic
 
 
 def save_run(db, *, project_id: int, results: list[dict], user_id: Optional[int], meta: dict,
-             env_name: Optional[str]) -> tuple[Optional[int], Optional[str]]:
-    """Koşumu source='automation' olarak kaydeder, case statülerini günceller, hata varsa defect açar."""
+             env_name: Optional[str]) -> tuple[Optional[int], Optional[dict]]:
+    """Koşumu source='automation' olarak kaydeder, case statülerini günceller, kalan her case için bug açar
+    (geçen case'in açık bug'ını çözer). Dönüş: (run_id, sync_case_defects özeti)"""
     from app.modules.test_runs.models import TestRun
     from app.modules.test_cases.models import TestCase
-    from app.modules.defects.service import sync_run_defect
+    from app.modules.defects.service import sync_case_defects
 
     passed = sum(r["status"] == "Passed" for r in results)
     failed = sum(r["status"] == "Failed" for r in results)
@@ -232,8 +233,8 @@ def save_run(db, *, project_id: int, results: list[dict], user_id: Optional[int]
     )
     db.add(run)
     db.flush()
-    defect = sync_run_defect(db, run)
+    defects = sync_case_defects(db, run)
     from app.modules.integrations import hooks, notify
     hooks.on_commit(db, notify.run_finished, run.id)
     db.commit()
-    return run.id, (f"BUG-{defect.id}" if defect else None)
+    return run.id, defects

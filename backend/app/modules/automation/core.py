@@ -5,7 +5,7 @@ Otomasyon koşumunun çekirdeği — taşıma katmanından bağımsız.
   config: {"cases": [id...], "browser", "headless", "environment_id"}
   emit:   async (type, message="", **extra) — WebSocket'e gönderir ya da yalnızca günlüğe yazar
   stop:   asyncio.Event — kurulursa süreç sonlandırılır, koşum kaydedilmez
-Dönüş: {"run_id", "defect", "counts", "duration"} ya da None (koşum başlamadı/durduruldu).
+Dönüş: {"run_id", "defect", "defects", "counts", "duration"} ya da None (koşum başlamadı/durduruldu).
 
 Kullananlar: WebSocket (router.py), CI uç noktası ve GitHub webhook'u (trigger.py).
 """
@@ -101,6 +101,21 @@ def _acquire() -> bool:
             return False
         _active += 1
         return True
+
+
+def defect_message(d: dict) -> str:
+    """Koşum sonu hata kaydı özeti: "2 yeni bug açıldı (BUG-4, BUG-5) · 1 bug çözüldü (BUG-2)"."""
+    def ids(xs):
+        shown = ", ".join(f"BUG-{i}" for i in xs[:5])
+        return shown + (f" +{len(xs) - 5}" if len(xs) > 5 else "")
+    parts = []
+    if d.get("grouped"):
+        parts.append(f"çok sayıda test ilk kez kaldı, tek toplu kayıt açıldı (BUG-{d['grouped']})")
+    for key, label in (("opened", "yeni bug açıldı"), ("reopened", "bug yeniden açıldı"),
+                       ("updated", "açık bug'a not düşüldü"), ("resolved", "bug otomatik çözüldü")):
+        if d.get(key):
+            parts.append(f"{len(d[key])} {label} ({ids(d[key])})")
+    return " · ".join(parts)
 
 
 def _release():
@@ -284,7 +299,8 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
             finally:
                 db.close()
 
-        run_id, defect = await asyncio.to_thread(_save)
+        run_id, defects = await asyncio.to_thread(_save)
+        defects = defects or {}
         counts = {k: sum(r["status"] == v for r in results) for k, v in (("passed", "Passed"), ("failed", "Failed"), ("skipped", "Skipped"))}
         for r in results:   # canlı çıktıda görünmeyenler dahil son durumlar
             await emit("case", case_id=r["case_id"], status=r["status"].lower(), duration=r.get("duration"),
@@ -293,9 +309,13 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
             await emit("warn", "[UYARI] Koşum sonucu veritabanına kaydedilemedi.")
         else:
             await emit("info", f"[SİSTEM] Koşum kaydedildi: KS-{run_id}.")
-            if defect:
-                await emit("error", f"[SİSTEM] {counts['failed']} test kaldı; {defect} hata kaydı güncellendi.")
-        summary = {"run_id": run_id, "defect": defect, "counts": counts, "duration": duration, "project_id": project_id}
+            msg = defect_message(defects)
+            if msg:
+                await emit("error" if defects.get("opened") or defects.get("reopened") or defects.get("grouped") else "info", f"[SİSTEM] {msg}")
+        # Tek kayıt varsa geriye dönük "defect" alanı (BUG-N) da dolu
+        touched = defects.get("opened", []) + defects.get("reopened", []) + defects.get("updated", []) + ([defects["grouped"]] if defects.get("grouped") else [])
+        defect = f"BUG-{touched[0]}" if len(touched) == 1 else None
+        summary = {"run_id": run_id, "defect": defect, "defects": defects, "counts": counts, "duration": duration, "project_id": project_id}
         await emit("summary", progress=100, **summary)
         await emit("done", "[SİSTEM] Koşum tamamlandı. Geçici dosyalar silindi.")
         return summary

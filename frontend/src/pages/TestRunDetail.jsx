@@ -165,7 +165,9 @@ const TestRunDetail = () => {
     <EmptyState title="Koşum açılamadı" description={session.error} action={<Button onClick={() => navigate('/test-runs')}>Koşumlara dön</Button>} />
   );
 
-  const autoDefect = defects?.find(d => d.source === 'auto');
+  // Otomatik kayıtlar: koşum başına tek kayıt (elle koşum / toplu kayıt) ya da otomasyonda kalan her case'e ayrı kayıt
+  const autoDefect = defects?.find(d => d.source === 'auto' && !d.test_case_id);
+  const caseDefects = (defects || []).filter(d => d.source === 'auto' && d.test_case_id);
   return (
     <div className="space-y-4">
       {/* Başlık */}
@@ -228,7 +230,20 @@ const TestRunDetail = () => {
             <Bug size={13} className="text-rose-500" />
             Kaldı sonucu alan case'ler <Link to={`/defects/BUG-${autoDefect.id}`} className="font-medium hover:underline">BUG-{autoDefect.id}</Link> kaydında
             ({DEFECT_LABEL[autoDefect.status] || autoDefect.status})
-            {defects.length > 1 && <> · {defects.length - 1} ayrı hata kaydı</>}
+            {defects.length > 1 + caseDefects.length && <> · {defects.length - 1 - caseDefects.length} ayrı hata kaydı</>}
+          </p>
+        )}
+        {caseDefects.length > 0 && (
+          <p className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+            <Bug size={13} className="text-rose-500" />
+            Kalan case'ler için {caseDefects.length} hata kaydı:
+            {caseDefects.slice(0, 6).map((d, i) => (
+              <span key={d.id}>
+                <Link to={`/defects/BUG-${d.id}`} className="font-medium hover:underline">BUG-{d.id}</Link>
+                {' '}({DEFECT_LABEL[d.status] || d.status}){i < Math.min(caseDefects.length, 6) - 1 && ','}
+              </span>
+            ))}
+            {caseDefects.length > 6 && <span>+{caseDefects.length - 6}</span>}
           </p>
         )}
       </section>

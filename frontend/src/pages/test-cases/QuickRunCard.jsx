@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { MonitorPlay, Loader2, Square, X, RotateCcw, CheckCircle2, XCircle, AlertTriangle, ExternalLink, ListFilter } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { caseIdent } from './model';
+import DefectLinks from '../automation/DefectLinks';
 
 // pytest hatasından tek satırlık özet: ilk "E   …" satırı, yoksa ilk satır
 const shortError = (err) => {
@@ -118,6 +119,7 @@ const QuickRunCard = ({ run, testCases, onClose, onDone, onRetry, onShowInList }
         )
       )}
 
+      {phase === 'finished' && summary?.defects && <DefectLinks defects={summary.defects} className="mt-2" />}
       <div className="mt-3 flex flex-wrap justify-end gap-2">
         {live && <Button size="sm" icon={<Square size={13} />} onClick={run.stop} disabled={phase === 'connecting'}>Durdur</Button>}
         {!live && onRetry && retryIds.length > 0 && (

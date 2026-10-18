@@ -113,7 +113,12 @@ Hata kayıtları `defects` tablosunda, geçmişleri `defect_activity` tablosunda
 - **Toplu işlemler:** `POST /defects/bulk-status`, `POST /defects/bulk-assign` (yalnızca değişen kayıtları sayar).
 - Liste filtreleri adres çubuğunda tutulur (`?status=active&assignee=me`); seçili kayıtlar CSV olarak indirilebilir
   veya Jira/Slack'e yapıştırmaya uygun metin olarak kopyalanabilir.
-- Otomasyon koşumunda kalan testler, o koşuma bağlı otomatik hata kaydına düşer (bkz. Otomasyon).
+- **Otomasyonda case başına bug:** otomasyon koşumunda kalan her case için ayrı otomatik kayıt açılır
+  (başlık: case adı, açıklamada test yolu ve hata özeti). Case'in açık kaydı varsa yenisi açılmaz, kayda
+  "KS-N koşumunda yine kaldı" notu düşülür; çözülmüş kayıt yeniden açılır. Case sonraki koşumda geçerse açık kaydı
+  otomatik "Çözüldü" yapılır. Bir koşumda ilk kez kalan test sayısı `NG_AUTO_BUG_LIMIT`'i (varsayılan 30) aşarsa
+  (genellikle ortam/giriş sorunu) bunlar tek toplu kayıtta toplanır.
+- Elle yürütülen koşumda kalan sonuçlar koşum başına tek otomatik kayıtta toplanır.
 
 ## Entegrasyonlar
 
@@ -141,7 +146,7 @@ Motor `backend/app/modules/automation` altındadır (`runner.py` saf yardımcıl
 - Script'i olmayan case "atlandı" olarak koşuma eklenir. Bir case'teki sözdizimi/import hatası yalnız o case'i
   etkiler (`--continue-on-collection-errors`).
 - Koşumu **yalnızca sunucu** kaydeder (`test_runs.source = 'automation'`, `meta`: tarayıcı, ortam, süre).
-  Kalan testler için otomatik hata kaydı açılır, case statüleri güncellenir.
+  Kalan her case için hata kaydı açılır (geçenlerin açık kaydı çözülür; bkz. Hatalar), case statüleri güncellenir.
 - "Durdur" veya bağlantının kopması pytest sürecini sonlandırır; durdurulan koşum kaydedilmez.
 - Ortam seçilirse adres `--base-url` ve `BASE_URL`, değişkenler ortam değişkeni olarak verilir; sırlar çıktıda maskelenir.
 - Ayarlar: `AUTOMATION_TIMEOUT_SEC` (varsayılan 1800), `AUTOMATION_MAX_PARALLEL` (varsayılan 2 eşzamanlı koşum).

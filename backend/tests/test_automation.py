@@ -48,6 +48,7 @@ def test_kosum_kaydi_defect_ve_temizlik(client, admin, project):
     assert len(runs) == 1 and runs[0]["status"] == "Başarısız" and not runs[0]["is_defect"]
     defects = client.get("/defects/", headers=admin).json()
     assert len(defects) == 1 and [d["case_id"] for d in defects[0]["failed_details"]] == [bad]
+    assert defects[0]["test_case_id"] == bad and defects[0]["source"] == "auto" and "Patlayan" in defects[0]["title"]
     statuses = {c["id"]: c["status"] for c in client.get("/test-cases/", headers=admin).json()}
     assert statuses == {ok: "Başarılı", bad: "Başarısız"}
 
@@ -55,6 +56,49 @@ def test_kosum_kaydi_defect_ve_temizlik(client, admin, project):
     _run(client, token, [ok])
     assert len(client.get("/test-runs/", headers=admin).json()) == 2
     assert len(client.get("/defects/", headers=admin).json()) == 1
+
+
+def _summary(msgs):
+    return next(m for m in msgs if m["type"] == "summary")
+
+
+def test_case_bazinda_bug_yasam_dongusu(client, admin, project, tmp_path):
+    """kalır → bug açılır · yine kalır → aynı bug'a not · geçer → otomatik çözülür · yine kalır → yeniden açılır"""
+    token = admin["Authorization"][7:]
+    flag = tmp_path / "gecsin"
+    cid = _mk(client, admin, project, "Sepet toplamı", f"import os\ndef test_t():\n    assert os.path.exists({str(flag)!r}), 'toplam yanlış'\n")
+    s1 = _summary(_run(client, token, [cid]))
+    assert len(s1["defects"]["opened"]) == 1 and s1["defect"] == f"BUG-{s1['defects']['opened'][0]}"
+    bug = s1["defects"]["opened"][0]
+
+    s2 = _summary(_run(client, token, [cid]))
+    assert s2["defects"]["opened"] == [] and s2["defects"]["updated"] == [bug]
+    assert len(client.get("/defects/", headers=admin).json()) == 1
+
+    flag.write_text("1")
+    s3 = _summary(_run(client, token, [cid]))
+    assert s3["defects"]["resolved"] == [bug]
+    d = client.get(f"/defects/{bug}", headers=admin).json()
+    assert d["status"] == "Resolved"
+
+    flag.unlink()
+    s4 = _summary(_run(client, token, [cid]))
+    assert s4["defects"]["reopened"] == [bug] and s4["defects"]["opened"] == []
+    d = client.get(f"/defects/{bug}", headers=admin).json()
+    assert d["status"] == "Open" and d["test_run_id"] == s4["run_id"]
+    kinds = [a["kind"] for a in client.get(f"/defects/{bug}/activity", headers=admin).json()]
+    assert kinds.count("run_failed") == 1 and kinds.count("auto_resolved") == 1 and kinds.count("reopened") == 1
+
+
+def test_cok_sayida_yeni_hata_tek_kayitta_toplanir(client, admin, project, monkeypatch):
+    monkeypatch.setenv("NG_AUTO_BUG_LIMIT", "1")
+    token = admin["Authorization"][7:]
+    ids = [_mk(client, admin, project, f"Kalan {i}", "def test_t():\n    assert False\n") for i in range(2)]
+    s = _summary(_run(client, token, ids))
+    assert s["defects"]["opened"] == [] and s["defects"]["grouped"]
+    defects = client.get("/defects/", headers=admin).json()
+    assert len(defects) == 1 and defects[0]["test_case_id"] is None
+    assert sorted(d["case_id"] for d in defects[0]["failed_details"]) == sorted(ids)
 
 
 def test_ortam_degiskenleri_teste_aktarilir_ve_sirlar_maskelenir(client, admin, project):
@@ -100,7 +144,8 @@ def test_sonuclar_case_bazinda_ve_tek_kosum(client, admin, project):
     live = [(m["case_id"], m["status"]) for m in msgs if m["type"] == "case"]
     assert (ok, "running") in live and (bad, "failed") in live
     summary = next(m for m in msgs if m["type"] == "summary")
-    assert summary["counts"] == {"passed": 1, "failed": 2, "skipped": 2} and summary["run_id"] and summary["defect"]
+    assert summary["counts"] == {"passed": 1, "failed": 2, "skipped": 2} and summary["run_id"]
+    assert len(summary["defects"]["opened"]) == 2 and summary["defect"] is None   # kalan her case'e ayrı bug
     # sonuç mesajları "başarısız test" sayılmasın diye ayrı tipte
     assert not any(m["type"] == "case" and m["status"] == "failed" and m["case_id"] == ok for m in msgs)
 

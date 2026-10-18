@@ -47,8 +47,10 @@ def run_message(run, project_name: str, defect_code=None) -> tuple[str, list]:
     lines = [f"*{icon} <{url}|KS-{run.id} {run.name}>*", f"{project_name} · {kind.lower()}",
              f"*{c['passed']}* geçti · *{c['failed']}* kaldı" + (f" · {c['skipped']} atlandı" if c["skipped"] else "")
              + (f" · {c['pending']} bekliyor" if c["pending"] else "") + f" · geçme oranı *{rate}*"]
-    if defect_code:
-        lines.append(f"Hata kaydı: <{service.app_url()}/defects/{defect_code}|{defect_code}>")
+    codes = [defect_code] if isinstance(defect_code, str) else list(defect_code or [])
+    if codes:
+        links = ", ".join(f"<{service.app_url()}/defects/{c}|{c}>" for c in codes[:5]) + (" …" if len(codes) > 5 else "")
+        lines.append(("Hata kaydı: " if len(codes) == 1 else "Hata kayıtları: ") + links)
     return text, [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
 
 
@@ -66,8 +68,8 @@ def run_finished(run_id: int):
         c = _counts(run.results)
         if cfg.get("notifyOn") == "failures" and not c["failed"]:
             return
-        defect = db.query(Defect.id).filter(Defect.test_run_id == run.id, Defect.source == "auto").first()
-        text, blocks = run_message(run, run.project.name if run.project else "—", f"BUG-{defect.id}" if defect else None)
+        ids = [d.id for d in db.query(Defect.id).filter(Defect.test_run_id == run.id, Defect.source == "auto").order_by(Defect.id).limit(6)]
+        text, blocks = run_message(run, run.project.name if run.project else "—", [f"BUG-{i}" for i in ids])
         try:
             clients.slack_post(cfg, text, blocks)
             service.log_event(db, "slack", "run_finished", True, text, f"KS-{run.id}")

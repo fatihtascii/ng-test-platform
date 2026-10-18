@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { MessageSquare, Pencil, Trash2, RotateCcw, CircleDot, UserRound, Flag, Type, Sparkles, Ticket } from 'lucide-react';
+import { MessageSquare, Pencil, Trash2, RotateCcw, CheckCircle2, CircleDot, UserRound, Flag, Type, Sparkles, Ticket } from 'lucide-react';
 import { Avatar, Button, Skeleton, StatusBadge } from '../../components/ui';
 import { ConfirmDialog } from '../../components/ui/overlay';
 import { textareaCls } from '../../components/ui/tokens';
@@ -29,6 +29,14 @@ const ChangeLine = ({ a }) => {
       icon = RotateCcw;
       text = <>kaydı yeniden açtı{a.body && <span className="text-slate-500 dark:text-slate-400"> — {a.body}</span>}</>;
       break;
+    case 'run_failed':
+      icon = RotateCcw;
+      text = <>otomasyon sonucunu ekledi{a.body && <span className="text-slate-500 dark:text-slate-400"> — {a.body}</span>}</>;
+      break;
+    case 'auto_resolved':
+      icon = CheckCircle2;
+      text = <>kaydı otomatik <StatusBadge tone={STATUS_TONE.Resolved}>{STATUS_LABEL.Resolved || 'Çözüldü'}</StatusBadge> yaptı{a.body && <span className="text-slate-500 dark:text-slate-400"> — {a.body}</span>}</>;
+      break;
     case 'severity':
       icon = Flag;
       text = <>önemi <StatusBadge tone={SEVERITY_TONE[a.from_value]}>{a.from_value}</StatusBadge> → <StatusBadge tone={SEVERITY_TONE[a.to_value]}>{a.to_value}</StatusBadge> yaptı</>;
@@ -53,7 +61,7 @@ const ChangeLine = ({ a }) => {
   const Icon = icon;
   return (
     <li className="relative flex gap-3 pl-1">
-      <span className={`relative z-10 mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700 ${a.kind === 'reopened' ? 'text-rose-500' : 'text-slate-400'}`}>
+      <span className={`relative z-10 mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700 ${a.kind === 'reopened' || a.kind === 'run_failed' ? 'text-rose-500' : a.kind === 'auto_resolved' ? 'text-emerald-500' : 'text-slate-400'}`}>
         <Icon size={12} />
       </span>
       <p className="min-w-0 flex-1 py-0.5 text-sm leading-6 text-slate-600 dark:text-slate-300">

@@ -1,13 +1,15 @@
 """
 Defect servisi.
 
-Otomatik defect'ler sync_run_defect() ile üretilir: bir koşumun results
-alanında başarısız case varsa o koşuma bağlı tek bir "auto" defect oluşturulur
-veya güncellenir. Statü kullanıcıya aittir; yalnızca çözülmüş (Resolved) bir
-defect'e yeni hata gelirse tekrar "Open" yapılır.
+Otomatik ("auto") defect'ler iki yoldan üretilir:
+  - sync_case_defects(): otomasyon koşumu — kalan her case'e ayrı kayıt (case başına tek açık kayıt),
+    geçen case'in açık kaydı otomatik çözülür; çok sayıda yeni hata tek toplu kayıtta toplanır.
+  - sync_run_defect(): elle yürütülen koşum — koşum başına tek kayıt. Statü kullanıcıya aittir;
+    yalnızca çözülmüş (Resolved) bir defect'e yeni hata gelirse tekrar "Open" yapılır.
 """
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -385,3 +387,123 @@ def sync_run_defect(db: Session, run) -> Optional[models.Defect]:
     _log(db, d, "created", None, body=f"{run.name or 'Koşum'} {len(details)} hatalı test raporladı.")
     logger.info(f"Otomatik defect oluşturuldu: run={run.id} hatalı={len(details)}")
     return d
+
+
+# ── Otomasyon: kalan her case'e ayrı defect ─────────────────────
+
+ACTIVE_STATUSES = ("Open", "In Progress", "Re-test")
+
+
+def auto_bug_limit() -> int:
+    """Bir koşumda açılabilecek en fazla yeni case bug'ı; aşılırsa tek toplu kayıt açılır (ortam çökmüş olabilir)."""
+    try:
+        return max(1, int(os.environ.get("NG_AUTO_BUG_LIMIT", "30")))
+    except ValueError:
+        return 30
+
+
+def _short_error(text: Optional[str], limit: int = 160) -> str:
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    e = next((ln for ln in lines if ln.startswith("E ")), None)
+    line = (e[1:].strip() if e else (lines[0] if lines else ""))
+    return line[:limit] + ("…" if len(line) > limit else "")
+
+
+def _case_defect(db: Session, case_id: int) -> Optional[models.Defect]:
+    """Case'in otomasyonun açtığı en son bug'ı."""
+    return (db.query(models.Defect)
+              .filter(models.Defect.test_case_id == case_id, models.Defect.source == "auto")
+              .order_by(models.Defect.id.desc()).first())
+
+
+def sync_case_defects(db: Session, run) -> dict:
+    """
+    Otomasyon koşumunun sonuçlarını case bazında hata kayıtlarına yansıtır. Commit çağırana aittir.
+      kalan case  → açık bug'ı varsa ona not düşülür (çözülmüşse yeniden açılır), yoksa yeni bug açılır
+      geçen case  → açık bug'ı otomatik "Çözüldü" yapılır
+    Yeni bug sayısı sınırı aşarsa (ör. ortam çöktü) bunlar için tek toplu kayıt açılır.
+    Dönüş: {"opened": [id], "reopened": [id], "updated": [id], "resolved": [id], "grouped": id|None}
+    """
+    out = {"opened": [], "reopened": [], "updated": [], "resolved": [], "grouped": None}
+    results = [r for r in _loads(run.results) if isinstance(r, dict)]
+    by_case = {}
+    for r in results:
+        cid = r.get("case_id") or r.get("test_case_id")
+        if cid:
+            by_case[cid] = r
+    if not by_case:
+        return out
+    cases = {c.id: c for c in db.query(TestCase).filter(TestCase.id.in_(by_case)).all()}
+    ks = f"KS-{run.id}"
+    new_failures = []
+
+    for cid, r in by_case.items():
+        failed = r.get("status") in FAILED_VALUES
+        passed = r.get("status") in ("Passed", "Başarılı")
+        if not (failed or passed):
+            continue
+        existing = _case_defect(db, cid)
+        tc = cases.get(cid)
+        if passed:
+            if existing and existing.status in ACTIVE_STATUSES:
+                old = existing.status
+                _set_status(existing, "Resolved")
+                _log(db, existing, "auto_resolved", None, old, "Resolved", body=f"{ks} koşumunda geçti.")
+                out["resolved"].append(existing.id)
+            continue
+
+        error = r.get("actual_result") or r.get("error") or ""
+        detail = {"case_id": cid, "title": tc.title if tc else f"Test #{cid}", "error": error or None,
+                  "severity": (tc.priority if tc else None) or "Orta", "run_id": run.id}
+        if existing is None:
+            new_failures.append(detail)
+            continue
+        existing.failed_details = json.dumps([detail], ensure_ascii=False)
+        existing.test_run_id = run.id
+        note = f"{ks} koşumunda yine kaldı" + (f": {_short_error(error)}" if error else ".")
+        if existing.status == "Resolved":
+            _log(db, existing, "reopened", None, "Resolved", "Open", body=note)
+            _set_status(existing, "Open")
+            out["reopened"].append(existing.id)
+        else:
+            _log(db, existing, "run_failed", None, body=note)
+            out["updated"].append(existing.id)
+
+    if len(new_failures) > auto_bug_limit():
+        severity = max((d["severity"] for d in new_failures), key=lambda s: SEVERITY_ORDER.get(s, 2))
+        d = models.Defect(
+            title=f"{run.name or 'Otomasyon koşumu'} — {len(new_failures)} test kaldı (toplu kayıt)",
+            description=(f"Bu koşumda {len(new_failures)} test ilk kez kaldı; tek tek kayıt açmak yerine burada toplandı. "
+                         "Çok sayıda testin birden kalması genellikle ortam ya da giriş sorunudur."),
+            severity=severity, status="Open", source="auto", project_id=run.project_id, test_run_id=run.id,
+            failed_details=json.dumps(new_failures, ensure_ascii=False),
+        )
+        db.add(d)
+        db.flush()
+        _after_create(db, d)
+        _log(db, d, "created", None, body=f"{ks} koşumunda {len(new_failures)} test kaldı (sınır: {auto_bug_limit()}).")
+        out["grouped"] = d.id
+        return out
+
+    for det in new_failures:
+        tc = cases.get(det["case_id"])
+        ref = (tc.automation_ref if tc else None) or ""
+        desc = [f"Otomasyon testi {ks} koşumunda kaldı."]
+        if ref:
+            desc.append(f"Test: {ref}")
+        if det["error"]:
+            desc.append(f"Hata: {_short_error(det['error'], 300)}")
+        d = models.Defect(
+            title=f"{det['title']} — otomasyon testi kaldı"[:500], description="\n".join(desc),
+            severity=det["severity"], status="Open", source="auto", project_id=run.project_id,
+            test_run_id=run.id, test_case_id=det["case_id"], failed_details=json.dumps([det], ensure_ascii=False),
+        )
+        db.add(d)
+        db.flush()
+        _after_create(db, d)
+        _log(db, d, "created", None, body=f"{ks} koşumunda kaldı.")
+        out["opened"].append(d.id)
+    if new_failures or out["reopened"]:
+        logger.info(f"Otomasyon bug'ları: run={run.id} açılan={len(out['opened'])} yeniden={len(out['reopened'])} "
+                    f"çözülen={len(out['resolved'])}")
+    return out
