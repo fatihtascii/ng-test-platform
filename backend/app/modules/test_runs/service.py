@@ -114,7 +114,7 @@ def _get_or_404(db: Session, run_id: int) -> models.TestRun:
     return run
 
 
-def create_test_run(db: Session, run: schemas.TestRunCreate) -> models.TestRun:
+def create_test_run(db: Session, run: schemas.TestRunCreate, user_id: Optional[int] = None) -> models.TestRun:
     # Proje kontrolü
     if not db.query(Project).filter(Project.id == run.project_id).first():
         raise HTTPException(status_code=404, detail="Bağlı proje bulunamadı.")
@@ -131,7 +131,7 @@ def create_test_run(db: Session, run: schemas.TestRunCreate) -> models.TestRun:
                 detail="Test planı seçilen projeye ait değil.",
             )
 
-    db_run = models.TestRun(**run.model_dump())
+    db_run = models.TestRun(**run.model_dump(), created_by=user_id)
     seed_results(db, db_run)
     db.add(db_run)
     db.flush()
@@ -152,6 +152,7 @@ def get_test_runs(
     skip:       int = 0,
     limit:      int = 200,
     test_plan_id: Optional[int] = None,
+    source:     Optional[str] = None,
 ) -> list[models.TestRun]:
     """
     FIX: project_id ve status filtresi eklendi.
@@ -167,6 +168,8 @@ def get_test_runs(
         q = q.filter(models.TestRun.is_defect == is_defect)
     if test_plan_id is not None:
         q = q.filter(models.TestRun.test_plan_id == test_plan_id)
+    if source is not None:
+        q = q.filter(models.TestRun.source == source)
 
     return (
         q.order_by(models.TestRun.id.desc())

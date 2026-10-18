@@ -113,7 +113,24 @@ Hata kayıtları `defects` tablosunda, geçmişleri `defect_activity` tablosunda
 - **Toplu işlemler:** `POST /defects/bulk-status`, `POST /defects/bulk-assign` (yalnızca değişen kayıtları sayar).
 - Liste filtreleri adres çubuğunda tutulur (`?status=active&assignee=me`); seçili kayıtlar CSV olarak indirilebilir
   veya Jira/Slack'e yapıştırmaya uygun metin olarak kopyalanabilir.
-- Otomasyon koşumu (WebSocket) sonucu normal bir test koşumu olarak kaydedilir, case statüleri güncellenir.
+- Otomasyon koşumunda kalan testler, o koşuma bağlı otomatik hata kaydına düşer (bkz. Otomasyon).
+
+## Otomasyon
+
+Motor `backend/app/modules/automation` altındadır (`runner.py` saf yardımcılar, `router.py` WebSocket akışı).
+
+- Her case'in script'i geçici klasörde `test_case_{id}_{rastgele}.py` dosyasına yazılır ve pytest ile koşulur.
+  Sonuçlar case'lere dosya adından eşlenir: canlı durum `pytest -v` çıktısından, kesin sonuç (süre ve hata mesajıyla)
+  JUnit raporundan okunur. Bir dosyada birden fazla test fonksiyonu varsa biri kalırsa case kalmış sayılır.
+- Script'i olmayan case "atlandı" olarak koşuma eklenir. Bir case'teki sözdizimi/import hatası yalnız o case'i
+  etkiler (`--continue-on-collection-errors`).
+- Koşumu **yalnızca sunucu** kaydeder (`test_runs.source = 'automation'`, `meta`: tarayıcı, ortam, süre).
+  Kalan testler için otomatik hata kaydı açılır, case statüleri güncellenir.
+- "Durdur" veya bağlantının kopması pytest sürecini sonlandırır; durdurulan koşum kaydedilmez.
+- Ortam seçilirse adres `--base-url` ve `BASE_URL`, değişkenler ortam değişkeni olarak verilir; sırlar çıktıda maskelenir.
+- Ayarlar: `AUTOMATION_TIMEOUT_SEC` (varsayılan 1800), `AUTOMATION_MAX_PARALLEL` (varsayılan 2 eşzamanlı koşum).
+- WebSocket sözleşmesi `router.py` başındaki açıklamada. Arayüz case bazında canlı durum, çıktı (filtre, kopyala,
+  indir) ve son otomasyon koşumlarını gösterir; kalan case'ler tek tıkla yeniden koşulabilir.
 
 ## Projeler
 

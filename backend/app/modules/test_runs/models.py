@@ -28,6 +28,11 @@ class TestRun(Base):
     results    = Column(Text,     nullable=True, default="[]")
     # Defect kayıtları (otomasyon hatası veya manuel) normal koşumlardan bu alanla ayrılır
     is_defect  = Column(Boolean,  nullable=False, default=False, server_default=false(), index=True)
+    # manual: kullanıcının açtığı koşum, automation: otomasyon motorunun kaydettiği koşum
+    source     = Column(String(20), nullable=False, default="manual", server_default="manual", index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # JSON: {"browser", "headless", "environment", "duration", "skipped": [...]} (otomasyon)
+    meta       = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

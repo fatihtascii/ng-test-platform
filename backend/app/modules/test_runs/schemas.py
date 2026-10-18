@@ -1,3 +1,5 @@
+import json
+
 from pydantic import BaseModel, field_validator
 from typing import Optional
 from datetime import datetime
@@ -43,8 +45,22 @@ class TestRunResponse(BaseModel):
     test_plan_id: Optional[int] = None   # FIX: eklendi
     results:      Optional[str] = "[]"
     is_defect:    bool          = False
+    source:       str           = "manual"
+    created_by:   Optional[int] = None
+    meta:         Optional[dict] = None
     created_at:   Optional[datetime] = None
     updated_at:   Optional[datetime] = None
+
+    @field_validator("meta", mode="before")
+    @classmethod
+    def _meta(cls, v):
+        if v is None or isinstance(v, dict):
+            return v
+        try:
+            value = json.loads(v)
+            return value if isinstance(value, dict) else None
+        except (TypeError, ValueError):
+            return None
 
     class Config:
         from_attributes = True

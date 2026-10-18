@@ -17,9 +17,9 @@ logger = logging.getLogger("ng-test.test_runs")
 router = APIRouter(prefix="/test-runs", tags=["Test Runs"])
 
 
-@router.post("/", dependencies=[Depends(require_permission("test_runs.create"))], response_model=schemas.TestRunResponse, status_code=201)
-def create_test_run(run: schemas.TestRunCreate, db: Session = Depends(get_db)):
-    return service.create_test_run(db, run)
+@router.post("/", response_model=schemas.TestRunResponse, status_code=201)
+def create_test_run(run: schemas.TestRunCreate, current=Depends(require_permission("test_runs.create")), db: Session = Depends(get_db)):
+    return service.create_test_run(db, run, current.id)
 
 
 @router.get("/", dependencies=[Depends(require_permission("test_runs.view"))], response_model=list[schemas.TestRunResponse])
@@ -30,10 +30,11 @@ def get_test_runs(
     status:     Optional[str] = Query(None, description="Statüye göre filtrele"),
     is_defect:  Optional[bool] = Query(None, description="true: sadece defect kayıtları, false: sadece koşumlar"),
     test_plan_id: Optional[int] = Query(None, description="Plana bağlı koşumlar"),
+    source:     Optional[str] = Query(None, description="manual | automation"),
     skip:       int           = Query(0,    ge=0,  description="Kaç kayıt atla"),
     limit:      int           = Query(200,  ge=1, le=500, description="Max kayıt"),
 ):
-    return service.get_test_runs(db, project_id=project_id, status=status, is_defect=is_defect, skip=skip, limit=limit, test_plan_id=test_plan_id)
+    return service.get_test_runs(db, project_id=project_id, status=status, is_defect=is_defect, skip=skip, limit=limit, test_plan_id=test_plan_id, source=source)
 
 
 @router.get("/{run_id}", dependencies=[Depends(require_permission("test_runs.view"))], response_model=schemas.TestRunResponse)
