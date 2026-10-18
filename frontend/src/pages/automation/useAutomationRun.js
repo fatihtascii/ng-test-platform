@@ -81,10 +81,15 @@ export const useAutomationRun = () => {
       }));
     };
     ws.onmessage = (e) => {
-      try { handle(JSON.parse(e.data)); } catch { pushLog('warn', 'Sunucudan okunamayan bir mesaj geldi.'); }
+      let d;
+      try { d = JSON.parse(e.data); } catch { pushLog('warn', 'Sunucudan okunamayan bir mesaj geldi.'); return; }
+      handle(d);
+      // Koşum bitti: bağlantı hemen bırakılır, hemen ardından yeni koşum (ör. "kalanları tekrar koş") başlatılabilsin
+      if ((d.type === 'done' || d.type === 'stopped') && wsRef.current === ws) { wsRef.current = null; ws.close(); }
     };
-    ws.onerror = () => pushLog('error', '✕ Bağlantı hatası.');
+    ws.onerror = () => { if (wsRef.current === ws) pushLog('error', '✕ Bağlantı hatası.'); };
     ws.onclose = (e) => {
+      if (wsRef.current && wsRef.current !== ws) return;   // eski bağlantı; yeni koşumun durumuna dokunmaz
       wsRef.current = null;
       setState(s => {
         if (['finished', 'stopped', 'error'].includes(s.phase)) return s;

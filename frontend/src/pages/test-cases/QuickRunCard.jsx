@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { MonitorPlay, Loader2, Square, X, CheckCircle2, XCircle, AlertTriangle, ExternalLink } from 'lucide-react';
+import { MonitorPlay, Loader2, Square, X, RotateCcw, CheckCircle2, XCircle, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { caseIdent } from './model';
 
@@ -17,9 +17,10 @@ const MAX_FAILS = 3;
 /**
  * Listeden case'lerin tarayıcı açık (headed) koşumu: sağ altta küçük canlı kart.
  * run: useAutomationRun() · testCases: koşulan case'ler · onDone: koşum kaydedilince (listeyi tazelemek için)
+ * onRetry(ids): kalan / yarım kalan case'leri yeniden koşar (yeni koşum, yeni kart)
  * Tarayıcı penceresi backend'in çalıştığı makinede açılır; sayfadan çıkılırsa koşum durur.
  */
-const QuickRunCard = ({ run, testCases, onClose, onDone }) => {
+const QuickRunCard = ({ run, testCases, onClose, onDone, onRetry }) => {
   const { phase, logs, progress, summary, error } = run;
   const live = phase === 'connecting' || phase === 'running';
   const single = testCases.length === 1 ? testCases[0] : null;
@@ -42,6 +43,15 @@ const QuickRunCard = ({ run, testCases, onClose, onDone }) => {
   const fails = run.cases.filter(c => c.status === 'failed');
   const ids = testCases.map(c => c.id).join(',');
   const first = testCases[0];
+
+  // Yeniden koşulacaklar: bitti → kalanlar; durduruldu → geçmeyenler; başlatılamadı → hepsi
+  const passedIds = new Set(run.cases.filter(c => c.status === 'passed').map(c => c.case_id));
+  const retryIds = phase === 'finished' ? fails.map(c => c.case_id)
+    : phase === 'stopped' ? testCases.map(c => c.id).filter(id => !passedIds.has(id))
+    : phase === 'error' ? testCases.map(c => c.id) : [];
+  const retryLabel = phase === 'error' ? 'Tekrar dene'
+    : single || retryIds.length === testCases.length ? 'Tekrar koş'
+    : phase === 'stopped' ? `Kalanları koş (${retryIds.length})` : `Kalanları tekrar koş (${retryIds.length})`;
 
   return (
     <div role="status" aria-live="polite" aria-label="Tarayıcıda koşum"
@@ -87,6 +97,7 @@ const QuickRunCard = ({ run, testCases, onClose, onDone }) => {
           <p className="mt-2 text-[11px] text-slate-400">Tarayıcı penceresi NG Test sunucusunun çalıştığı makinede açılır. Bu sayfadan ayrılırsanız koşum durur.</p>
         </>
       )}
+      {phase === 'stopped' && <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Sonuçlar kaydedilmedi.</p>}
       {phase === 'error' && error && <p className="mt-2 text-xs text-rose-700 [overflow-wrap:anywhere] dark:text-rose-400">{error}</p>}
       {phase === 'finished' && failed && (
         single ? (
@@ -108,10 +119,13 @@ const QuickRunCard = ({ run, testCases, onClose, onDone }) => {
 
       <div className="mt-3 flex flex-wrap justify-end gap-2">
         {live && <Button size="sm" icon={<Square size={13} />} onClick={run.stop} disabled={phase === 'connecting'}>Durdur</Button>}
+        {!live && onRetry && retryIds.length > 0 && (
+          <Button size="sm" variant="primary" icon={<RotateCcw size={13} />} onClick={() => onRetry(retryIds)} className="mr-auto">{retryLabel}</Button>
+        )}
         {!live && summary?.run_id && (
-          <Link to={`/test-runs/${summary.run_id}`}
+          <Link to={`/test-runs/${summary.run_id}`} title="Koşum kaydını aç"
             className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10">
-            KS-{summary.run_id} koşumunu aç <ExternalLink size={12} />
+            <span className="sr-only">Koşum kaydı </span>KS-{summary.run_id} <ExternalLink size={12} />
           </Link>
         )}
         {!live && (

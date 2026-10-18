@@ -401,7 +401,8 @@ const TestCases = () => {
       {dialog?.type === 'mobile' && <MobileRunDialog testCase={dialog.testCase} onClose={() => setDialog(null)} />}
       {dialog?.type === 'plan' && <AddToPlanDialog cases={dialog.cases} projectName={projectName} onClose={() => setDialog(null)} />}
       {quickCases.length > 0 && quick.phase !== 'idle' && (
-        <QuickRunCard key={quick.startedAt} run={quick} testCases={quickCases} onClose={closeQuick} onDone={data.reload} />
+        <QuickRunCard key={quick.startedAt} run={quick} testCases={quickCases} onClose={closeQuick} onDone={data.reload}
+          onRetry={(ids) => runInBrowser(quickCases.filter(c => ids.includes(c.id)))} />
       )}
     </div>
   );
