@@ -28,6 +28,9 @@ class Defect(Base):
     created_by     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     assignee_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     resolved_at    = Column(DateTime, nullable=True)
+    # Dış sistemdeki karşılığı (Jira'ya aktarıldıysa: QA-12 ve adresi)
+    external_key   = Column(String(50), nullable=True)
+    external_url   = Column(String(500), nullable=True)
     created_at     = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at     = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

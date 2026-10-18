@@ -115,6 +115,22 @@ Hata kayıtları `defects` tablosunda, geçmişleri `defect_activity` tablosunda
   veya Jira/Slack'e yapıştırmaya uygun metin olarak kopyalanabilir.
 - Otomasyon koşumunda kalan testler, o koşuma bağlı otomatik hata kaydına düşer (bkz. Otomasyon).
 
+## Entegrasyonlar
+
+Ayarlar Entegrasyonlar sayfasından yapılır; sırlar (webhook, token, secret) API yanıtlarında maskelenir.
+Olaylara bağlı işler veritabanı commit'inden **sonra** arka planda çalışır (`integrations/hooks.py`): bir Slack/Jira
+gecikmesi isteği yavaşlatmaz, geri alınan işlem bildirim üretmez, entegrasyon hatası asıl kaydı bozmaz.
+Her gönderim sonucu `integration_events` tablosunda tutulur ve sayfada "Son gönderimler" olarak görünür.
+
+- **Slack:** koşum bitince (yalnız kalan test varsa / her zaman / hiç) özet mesajı; yeni hata kaydı bildirimi.
+- **Jira:** hata detayındaki "Jira'ya aktar" (`POST /defects/{id}/jira`) kaydı Jira'da açar, anahtarı ve adresi
+  hata kaydına yazar; istenirse her yeni hata kaydı otomatik aktarılır. Önem → öncelik eşlenir.
+- **GitHub:** `POST /webhooks/github` (imza `X-Hub-Signature-256` ile doğrulanır). Seçilen dala push ya da başarılı
+  deployment olayında ayarlardaki projenin otomasyon testleri koşar; commit'e "NG Test / otomasyon" durumu yazılır.
+- **Herhangi bir CI:** `POST /automation/runs` (`automation.execute` izni) koşum bitene kadar bekler ve
+  `{"run_id", "counts", "passed", "url"}` döner.
+- `APP_URL` ortam değişkeni bildirimlerdeki bağlantıların adresidir (varsayılan `http://localhost:3000`).
+
 ## Otomasyon
 
 Motor `backend/app/modules/automation` altındadır (`runner.py` saf yardımcılar, `router.py` WebSocket akışı).

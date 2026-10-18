@@ -7,18 +7,22 @@ TOKEN = "ATATT3xFfGF0-gercek-jira-token-9f8e"
 
 def test_entegrasyon_tokeni_maskeli(client, admin):
     cfg = {"jiraUrl": "https://acme.atlassian.net", "jiraEmail": "a@b.co", "jiraToken": TOKEN}
+    # Zorunlu alan (proje anahtarı) eksikken açılamaz
+    assert client.put("/integrations/jira", json={"is_active": True, "config": cfg}, headers=admin).status_code == 422
+    cfg["jiraProjectKey"] = "qa"
     r = client.put("/integrations/jira", json={"is_active": True, "config": cfg}, headers=admin)
     assert r.status_code == 200 and TOKEN not in r.text
     got = next(x for x in client.get("/integrations/", headers=admin).json() if x["provider"] == "jira")
     assert got["config"]["jiraToken"].startswith("••••") and got["config"]["jiraToken"].endswith("9f8e")
 
     # maskeli değerle kaydetmek gerçek token'ı korur
+    assert got["config"]["jiraProjectKey"] == "QA"     # büyük harfe çevrilir
     got["config"]["jiraProjectKey"] = "NG"
     client.put("/integrations/jira", json={"is_active": True, "config": got["config"]}, headers=admin)
     db = SessionLocal()
     try:
-        assert isvc._stored_config(db, "jira")["jiraToken"] == TOKEN
-        assert isvc.resolve_secrets(db, "jira", got["config"])["jiraToken"] == TOKEN
+        assert isvc.stored(db, "jira")[1]["jiraToken"] == TOKEN
+        assert isvc.merge_incoming(db, "jira", got["config"])["jiraToken"] == TOKEN
     finally:
         db.close()
 

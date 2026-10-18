@@ -21,7 +21,7 @@ def test_bos_db_head(tmp_path):
     _py(url, "from app.db.migrate import run_migrations; run_migrations()")
     eng = sa.create_engine(url)
     with eng.connect() as c:
-        assert c.execute(sa.text("select version_num from alembic_version")).scalar() == "0007"
+        assert c.execute(sa.text("select version_num from alembic_version")).scalar() == "0008"
         cols = {r[1] for r in c.execute(sa.text("pragma table_info(test_runs)"))}
         assert "is_defect" in cols
         assert c.execute(sa.text("select count(*) from defects")).scalar() == 0
@@ -45,7 +45,7 @@ def test_alembic_oncesi_db_baseline_ve_backfill(tmp_path):
     _py(url, "from app.db.migrate import run_migrations; run_migrations()")
     eng = sa.create_engine(url)
     with eng.connect() as c:
-        assert c.execute(sa.text("select version_num from alembic_version")).scalar() == "0007"
+        assert c.execute(sa.text("select version_num from alembic_version")).scalar() == "0008"
         assert c.execute(sa.text("select is_defect from test_runs where name like 'Oto%'")).scalar() == 1
         rows = c.execute(sa.text("select title, severity, source, test_run_id from defects")).all()
         assert len(rows) == 1 and rows[0].severity == "Kritik" and rows[0].source == "auto"

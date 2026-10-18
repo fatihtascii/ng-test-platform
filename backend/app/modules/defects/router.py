@@ -63,6 +63,12 @@ def update_defect(defect_id: int, body: schemas.DefectUpdate,
     return service.update_defect(db, defect_id, body, current.id)
 
 
+@router.post("/{defect_id}/jira", response_model=schemas.DefectResponse)
+def export_to_jira(defect_id: int, current=Depends(require_permission("defects.manage")), db: Session = Depends(get_db)):
+    """Hata kaydını Jira'da kayıt olarak açar (zaten aktarıldıysa mevcut anahtarı döner)."""
+    return service.export_to_jira(db, defect_id, current.id)
+
+
 @router.delete("/{defect_id}", dependencies=[Depends(require_permission("defects.manage"))])
 def delete_defect(defect_id: int, db: Session = Depends(get_db)):
     return service.delete_defect(db, defect_id)

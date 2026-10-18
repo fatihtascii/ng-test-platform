@@ -18,6 +18,14 @@ from app.modules.projects.models import Project
 from app.modules.test_plans.models import TestPlan
 from app.modules.defects.service import sync_run_defect
 
+FINISHED_RUN = {"Tamamlandı", "Başarısız"}
+
+
+def _notify_finished(db: Session, run):
+    """Koşum bitti olarak işaretlendi: commit sonrası Slack bildirimi (ayarlıysa)."""
+    from app.modules.integrations import hooks, notify
+    hooks.on_commit(db, notify.run_finished, run.id)
+
 logger = logging.getLogger("ng-test.test_runs")
 
 
@@ -136,6 +144,8 @@ def create_test_run(db: Session, run: schemas.TestRunCreate, user_id: Optional[i
     db.add(db_run)
     db.flush()
     sync_run_defect(db, db_run)   # başarısız sonuç varsa otomatik defect
+    if db_run.status in FINISHED_RUN:
+        _notify_finished(db, db_run)
     sync_case_statuses(db, db_run)
     sync_plan_items(db, db_run)
     db.commit()
@@ -189,6 +199,7 @@ def update_test_run(
     data: schemas.TestRunCreate,
 ) -> models.TestRun:
     run = _get_or_404(db, run_id)
+    was_finished = run.status in FINISHED_RUN
 
     # Proje değişiyorsa kontrol et
     if data.project_id != run.project_id:
@@ -216,6 +227,8 @@ def update_test_run(
     sync_run_defect(db, run)
     sync_case_statuses(db, run)
     sync_plan_items(db, run)
+    if not was_finished and run.status in FINISHED_RUN:
+        _notify_finished(db, run)
     db.commit()
     db.refresh(run)
     logger.info(f"TestRun güncellendi: id={run_id}")

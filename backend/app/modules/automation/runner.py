@@ -226,5 +226,7 @@ def save_run(db, *, project_id: int, results: list[dict], user_id: Optional[int]
     db.add(run)
     db.flush()
     defect = sync_run_defect(db, run)
+    from app.modules.integrations import hooks, notify
+    hooks.on_commit(db, notify.run_finished, run.id)
     db.commit()
     return run.id, (f"BUG-{defect.id}" if defect else None)

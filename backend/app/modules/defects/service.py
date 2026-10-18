@@ -63,6 +63,8 @@ def serialize(d: models.Defect, comment_count: int = 0) -> dict:
         "assignee_name":  _name(d.assignee),
         "comment_count":  comment_count,
         "resolved_at":    d.resolved_at,
+        "external_key":   d.external_key,
+        "external_url":   d.external_url,
         "created_at":     d.created_at,
         "updated_at":     d.updated_at,
     }
@@ -124,6 +126,28 @@ def _set_status(d: models.Defect, status: str):
     d.resolved_at = datetime.now(timezone.utc) if status == "Resolved" else None
 
 
+def _after_create(db: Session, d: models.Defect):
+    """Commit sonrası: Slack bildirimi / Jira'ya otomatik aktarım (ayarlıysa)."""
+    from app.modules.integrations import hooks, notify
+    hooks.on_commit(db, notify.defect_created, d.id)
+
+
+def export_to_jira(db: Session, defect_id: int, user_id: Optional[int]) -> dict:
+    from app.modules.integrations import clients, notify, service as integ
+    d = _get_or_404(db, defect_id)
+    if d.external_key:
+        return get_defect(db, defect_id)
+    active, cfg = integ.stored(db, "jira")
+    if not active:
+        raise HTTPException(status_code=409, detail="Jira entegrasyonu açık değil.")
+    try:
+        notify.export_defect(db, d, cfg, user_id)
+    except clients.IntegrationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    db.expire_all()
+    return get_defect(db, defect_id)
+
+
 # ── CRUD ──────────────────────────────────────────────────────────
 
 def list_defects(db: Session, project_id: Optional[int] = None, status: Optional[str] = None,
@@ -176,6 +200,7 @@ def create_defect(db: Session, data: schemas.DefectCreate, user_id: Optional[int
     db.add(d)
     db.flush()
     _log(db, d, "created", user_id)
+    _after_create(db, d)
     if assignee:
         _log(db, d, "assignee", user_id, None, _name(assignee))
     db.commit()
@@ -356,6 +381,7 @@ def sync_run_defect(db: Session, run) -> Optional[models.Defect]:
     )
     db.add(d)
     db.flush()
+    _after_create(db, d)
     _log(db, d, "created", None, body=f"{run.name or 'Koşum'} {len(details)} hatalı test raporladı.")
     logger.info(f"Otomatik defect oluşturuldu: run={run.id} hatalı={len(details)}")
     return d

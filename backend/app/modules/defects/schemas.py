@@ -141,5 +141,7 @@ class DefectResponse(BaseModel):
     assignee_name:  Optional[str] = None
     comment_count:  int = 0
     resolved_at:    Optional[datetime] = None
+    external_key:   Optional[str] = None
+    external_url:   Optional[str] = None
     created_at:     Optional[datetime] = None
     updated_at:     Optional[datetime] = None
