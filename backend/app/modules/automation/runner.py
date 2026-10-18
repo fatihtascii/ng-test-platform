@@ -206,9 +206,10 @@ def merge_results(ready: list[dict], skipped: list[dict], junit: dict, live: dic
 
 
 def save_run(db, *, project_id: int, results: list[dict], user_id: Optional[int], meta: dict,
-             env_name: Optional[str]) -> tuple[Optional[int], Optional[dict]]:
+             env_name: Optional[str], test_plan_id: Optional[int] = None) -> tuple[Optional[int], Optional[dict]]:
     """Koşumu source='automation' olarak kaydeder, case statülerini günceller, kalan her case için bug açar
-    (geçen case'in açık bug'ını çözer). Dönüş: (run_id, sync_case_defects özeti)"""
+    (geçen case'in açık bug'ını çözer). Plana bağlıysa plan kalemlerinin sonucu güncellenir.
+    Dönüş: (run_id, sync_case_defects özeti)"""
     from app.modules.test_runs.models import TestRun
     from app.modules.test_cases.models import TestCase
     from app.modules.defects.service import sync_case_defects
@@ -229,10 +230,13 @@ def save_run(db, *, project_id: int, results: list[dict], user_id: Optional[int]
                     + (f" Ortam: {env_name}." if env_name else ""),
         project_id=project_id, status="Başarısız" if failed else "Tamamlandı",
         results=json.dumps(results, ensure_ascii=False), source="automation",
-        created_by=user_id, meta=json.dumps(meta, ensure_ascii=False),
+        created_by=user_id, meta=json.dumps(meta, ensure_ascii=False), test_plan_id=test_plan_id,
     )
     db.add(run)
     db.flush()
+    if test_plan_id:
+        from app.modules.test_runs.service import sync_plan_items
+        sync_plan_items(db, run)
     defects = sync_case_defects(db, run)
     from app.modules.integrations import hooks, notify
     hooks.on_commit(db, notify.run_finished, run.id)

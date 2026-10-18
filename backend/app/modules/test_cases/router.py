@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_db, require_permission, has_permission
 from . import schemas, service
 
 router = APIRouter(prefix="/test-cases", tags=["Test Cases"])
@@ -122,6 +122,12 @@ def get_test_case(tc_id: int, db: Session = Depends(get_db)):
             detail=f"#{tc_id} ID'li test senaryosu bulunamadı.",
         )
     return tc
+
+
+@router.get("/{tc_id}/links", summary="Case'in yer aldığı planlar ve açık hata kayıtları")
+def get_test_case_links(tc_id: int, current=Depends(require_permission("test_cases.view")), db: Session = Depends(get_db)):
+    return service.get_test_case_links(db, tc_id, with_defects=has_permission(db, current, "defects.view"),
+                                       with_plans=has_permission(db, current, "test_plans.view"))
 
 
 @router.get(

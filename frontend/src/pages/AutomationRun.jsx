@@ -5,13 +5,13 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Square, RotateCcw, Cpu, ExternalLink, Bug, Zap, RefreshCw } from 'lucide-react';
+import { Play, Square, RotateCcw, Cpu, ExternalLink, Bug, Zap, RefreshCw, ClipboardList, X } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import { PageHeader, Button, Panel, ResultBar, StatusBadge, EmptyState, Skeleton } from '../components/ui';
 import { Field, Tabs } from '../components/ui/data';
 import { inputCls } from '../components/ui/tokens';
 import { toast } from '../components/ui/toast';
-import { projectsApi, environmentsApi, fetchAllTestCases, fetchAllTestRuns, suitesApi } from '../api';
+import { projectsApi, environmentsApi, fetchAllTestCases, fetchAllTestRuns, suitesApi, testPlansApi } from '../api';
 import { useAutomationRun } from './automation/useAutomationRun';
 import CasePicker from './automation/CasePicker';
 import LiveCaseList from './automation/LiveCaseList';
@@ -62,6 +62,16 @@ const AutomationRun = () => {
   const [suites, setSuites] = useState([]);
   // null = otomatik (script'li case yoksa projenin ilk deposu), '' = case script'leri, aksi halde depo id
   const [sourceChoice, setSource] = useState(initialParams.get('suite') || null);
+  // Plandan gelindiyse (?plan=ID) koşum plana bağlanır; sonuçlar plan kalemlerine yazılır
+  const [plan, setPlan] = useState(null);
+  useEffect(() => {
+    const id = initialParams.get('plan');
+    if (!id) return undefined;
+    let alive = true;
+    testPlansApi.getOne(id).then(r => { if (alive) setPlan({ id: r.data.id, title: r.data.title, project_id: r.data.project_id }); })
+      .catch(() => { if (alive) toast.error('Bağlı test planı açılamadı; koşum plana bağlanmayacak.'); });
+    return () => { alive = false; };
+  }, [initialParams]);
   const canManageSuites = can('automation.manage');
 
   const loadSuites = useCallback(() => suitesApi.list().then(r => setSuites(r.data)).catch(() => setSuites([])), []);
@@ -170,9 +180,15 @@ const AutomationRun = () => {
   };
 
   const envParam = environmentId ? Number(environmentId) : null;
+  const planActive = plan && String(plan.project_id) === project ? plan : null;
+  const planParam = planActive ? planActive.id : null;
+  const dropPlan = () => {
+    setPlan(null);
+    const u = new URL(window.location.href); u.searchParams.delete('plan'); window.history.replaceState(null, '', u);
+  };
   const start = (ids = selectedIds) => {
     if (!ids.length) { toast.error('En az bir test seçin.'); return; }
-    run.start({ cases: ids, browser, headless, environmentId: envParam, project });
+    run.start({ cases: ids, browser, headless, environmentId: envParam, project, testPlanId: planParam });
   };
   const startProfile = (p) => run.start({ cases: [], suiteId: suite.id, marker: p.marker, headless, environmentId: envParam, project });
   const rerun = (ids) => {
@@ -183,7 +199,7 @@ const AutomationRun = () => {
     const want = first?.suite_id ? String(first.suite_id) : '';
     if (want !== source) setSource(want);
     setSelected(new Set(ok));
-    run.start({ cases: ok, browser, headless, environmentId: envParam, project });
+    run.start({ cases: ok, browser, headless, environmentId: envParam, project, testPlanId: planParam });
   };
 
   if (error && !data) {
@@ -210,6 +226,17 @@ const AutomationRun = () => {
       ) : (
         <div className="grid grid-cols-1 items-start gap-5 [&>*]:min-w-0 lg:grid-cols-[22rem_minmax(0,1fr)]">
           <Panel title="Koşum ayarları" bodyClassName="space-y-4 p-4" className="lg:sticky lg:top-4">
+            {planActive && (
+              <div className="flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-100">
+                <ClipboardList size={14} className="mt-0.5 shrink-0" />
+                <p className="min-w-0 flex-1">
+                  <Link to={`/test-plans/${planActive.id}`} className="font-medium hover:underline">TP-{planActive.id} · {planActive.title}</Link>
+                  <span className="block text-indigo-800/80 dark:text-indigo-200/80">Koşum bu plana bağlanır; sonuçlar plan kalemlerine yazılır.</span>
+                </p>
+                <button type="button" onClick={dropPlan} disabled={run.busy} aria-label="Plana bağlamayı kaldır" title="Plana bağlamayı kaldır"
+                  className="rounded p-0.5 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 dark:text-indigo-300 dark:hover:bg-indigo-500/20"><X size={14} /></button>
+              </div>
+            )}
             <Field label="Proje" htmlFor="a-project">
               <select id="a-project" value={project} onChange={e => changeProject(e.target.value)} disabled={run.busy} className={inputCls}>
                 {data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -300,6 +327,9 @@ const AutomationRun = () => {
                     {run.busy && <span className="text-slate-500 dark:text-slate-400">%{run.progress}</span>}
                     {run.summary?.run_id && (
                       <Link to={`/test-runs/${run.summary.run_id}`} className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"><ExternalLink size={13} /> KS-{run.summary.run_id} koşumunu aç</Link>
+                    )}
+                    {run.summary?.run_id && run.config?.testPlanId && (
+                      <Link to={`/test-plans/${run.config.testPlanId}`} className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"><ClipboardList size={13} /> TP-{run.config.testPlanId} planı güncellendi</Link>
                     )}
                     {run.summary?.defects ? <DefectLinks defects={run.summary.defects} /> : run.summary?.defect && (
                       <Link to={`/defects/${run.summary.defect}`} className="inline-flex items-center gap-1 font-medium text-rose-700 hover:underline dark:text-rose-400"><Bug size={13} /> {run.summary.defect}</Link>

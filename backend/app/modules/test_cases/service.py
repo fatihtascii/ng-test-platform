@@ -400,7 +400,9 @@ def get_test_case_history(db: Session, tc_id: int, limit: int = 20) -> dict:
     defects = q.all()
     if run_ids:
         known = {d.id for d in defects}
-        defects += [d for d in db.query(Defect).filter(Defect.test_run_id.in_(run_ids)).all() if d.id not in known]
+        # koşum başına toplu kayıtlar (başka case'lerin kendi kayıtları değil)
+        defects += [d for d in db.query(Defect).filter(Defect.test_run_id.in_(run_ids), Defect.test_case_id.is_(None)).all()
+                    if d.id not in known]
     defects.sort(key=lambda d: d.id, reverse=True)
 
     return {
@@ -410,3 +412,23 @@ def get_test_case_history(db: Session, tc_id: int, limit: int = 20) -> dict:
             for d in defects
         ],
     }
+
+
+def get_test_case_links(db: Session, tc_id: int, with_defects: bool = True, with_plans: bool = True) -> dict:
+    """Case paneli için: yer aldığı planlar (kalem sonucuyla) ve açık hata kayıtları."""
+    from app.modules.test_plans.models import TestPlan, TestPlanItem
+    from app.modules.defects.models import Defect
+    from app.modules.defects.service import ACTIVE_STATUSES
+    _get_or_404(db, tc_id)
+    plans = []
+    if with_plans:
+        rows = (db.query(TestPlan, TestPlanItem.run_status)
+                  .join(TestPlanItem, TestPlanItem.plan_id == TestPlan.id)
+                  .filter(TestPlanItem.test_case_id == tc_id).order_by(TestPlan.id.desc()).all())
+        plans = [{"id": p.id, "title": p.title, "status": p.status, "run_status": rs} for p, rs in rows]
+    defects = []
+    if with_defects:
+        rows = (db.query(Defect).filter(Defect.test_case_id == tc_id, Defect.status.in_(ACTIVE_STATUSES))
+                  .order_by(Defect.id.desc()).all())
+        defects = [{"id": d.id, "title": d.title, "status": d.status, "severity": d.severity, "source": d.source} for d in rows]
+    return {"plans": plans, "defects": defects, "can_defects": with_defects, "can_plans": with_plans}

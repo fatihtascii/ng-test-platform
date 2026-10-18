@@ -29,6 +29,7 @@ import AddToPlanDialog from './test-cases/AddToPlanDialog';
 import QuickRunCard from './test-cases/QuickRunCard';
 import { useAutomationRun } from './automation/useAutomationRun';
 import { useRunFilter, runOptions } from './test-cases/useRunFilter';
+import { useOpenBugs } from './test-cases/useOpenBugs';
 import {
   STATUSES, compareCases, matchesQuery, isAutomatable, caseIdent, casesToCsv, downloadText,
   emptyForm, formFromCase, formFromAi, formSignature, validateForm, buildPayload, duplicatePayload, trLower,
@@ -68,8 +69,14 @@ const TestCases = () => {
   const runResults = filters.run ? runFilter.run?.results : null;
   const runResultOf = useCallback((c) => runResults?.get(c.id)?.status || null, [runResults]);
 
+  // Açık hata kayıtları: satır rozeti ve "Bug" filtresi
+  const canBugs = can('defects.view');
+  const openBugs = useOpenBugs(canBugs);
+  const bugsOf = useCallback((c) => openBugs.map.get(c.id), [openBugs.map]);
+
   // Statü dışındaki tüm filtreler: özet şeridi bunun üzerinden sayar, statü filtresi şeritten seçilir
   const baseFiltered = useMemo(() => cases.filter(c =>
+    (!filters.bug || !canBugs || (filters.bug === 'open') === openBugs.map.has(c.id)) &&
     (!runResults || (runResults.has(c.id) && (!filters.runres || runResults.get(c.id).status === filters.runres))) &&
     (!filters.project || String(c.project_id) === filters.project) &&
     (!filters.priority || c.priority === filters.priority) &&
@@ -77,7 +84,7 @@ const TestCases = () => {
     (!filters.type || c.type === filters.type) &&
     (!filters.tag || c.tagList.some(t => trLower(t) === trLower(filters.tag))) &&
     matchesQuery(c, query.q, projectName)
-  ), [cases, filters.project, filters.priority, filters.exec, filters.type, filters.tag, query.q, projectName, runResults, filters.runres]);
+  ), [cases, filters.project, filters.priority, filters.exec, filters.type, filters.tag, query.q, projectName, runResults, filters.runres, filters.bug, canBugs, openBugs.map]);
 
   const filtered = useMemo(() => {
     const list = filters.status ? baseFiltered.filter(c => c.status === filters.status) : baseFiltered.slice();
@@ -231,7 +238,8 @@ const TestCases = () => {
   } : undefined;
   const { reload: reloadCases } = data;
   const { reload: reloadRuns } = runFilter;
-  const afterQuickRun = useCallback(() => { reloadCases(); reloadRuns(); }, [reloadCases, reloadRuns]);
+  const { reload: reloadBugs } = openBugs;
+  const afterQuickRun = useCallback(() => { reloadCases(); reloadRuns(); reloadBugs(); }, [reloadCases, reloadRuns, reloadBugs]);
   const closeQuick = () => { quick.reset(); setQuickCases([]); };
 
   const rowActions = (c) => {
@@ -290,7 +298,7 @@ const TestCases = () => {
       <PageHeader title="Test case'ler"
         description="Adımları, beklenen sonuçları, BDD senaryoları ve otomasyon script'leriyle tüm case'ler."
         actions={<>
-          <Button variant="ghost" size="icon" onClick={data.reload} aria-label="Yenile" title="Yenile"
+          <Button variant="ghost" size="icon" onClick={() => { data.reload(); openBugs.reload(); runFilter.reload(); }} aria-label="Yenile" title="Yenile"
             disabled={loading}><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></Button>
           <Button icon={<Download size={14} />} onClick={() => exportCsv(filtered, 'listesi')} disabled={!filtered.length}>CSV</Button>
           {can('test_cases.create') && <>
@@ -335,7 +343,7 @@ const TestCases = () => {
       )}
 
       <CaseFilters query={query} projects={projects} tags={allTags} searchRef={searchRef}
-        runOptions={can('test_runs.view') ? runOptions(runFilter.recent, filters.run, filters.project) : null} />
+        runOptions={can('test_runs.view') ? runOptions(runFilter.recent, filters.run, filters.project) : null} bugFilter={canBugs} />
 
       {selected.size > 0 && (
         <BulkBar count={selected.size} hiddenCount={[...selected].filter(id => !visibleIds.has(id)).length} busy={busy}
@@ -353,7 +361,7 @@ const TestCases = () => {
         selectable={selectable} selected={selected} onToggle={toggle} onTogglePage={togglePage}
         sort={sort} onSort={query.toggleSort} projectName={projectName}
         onOpen={(id) => openCase(id, { replace: Boolean(query.caseId) })} activeId={current?.id} rowActions={rowActions} quickRun={quickRun}
-        runResult={runResults ? runResultOf : null}
+        runResult={runResults ? runResultOf : null} bugsOf={canBugs ? bugsOf : null}
         page={page} pageSize={query.pageSize} onPage={query.setPage} onPageSize={query.setPageSize} empty={empty} />
 
       <p className="hidden text-xs text-slate-400 lg:block">

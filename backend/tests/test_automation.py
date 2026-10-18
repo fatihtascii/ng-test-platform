@@ -226,3 +226,47 @@ def test_canli_izleyici_ve_junit_cozumleyici(tmp_path):
     assert r[3]["status"] == "failed" and r[3]["duration"] == 0.75 and "assert 1 == 2" in r[3]["message"] and "S3cret" not in r[3]["message"]
     assert r[7]["status"] == "skipped" and r[7]["message"] == "hazır değil"
     assert parse_junit(str(tmp_path / "yok.xml")) == {}
+
+
+def test_plana_bagli_otomasyon_kosumu(client, admin, project):
+    """test_plan_id ile koşum plana bağlanır, plan kalemlerinin sonucu ve notu güncellenir."""
+    token = admin["Authorization"][7:]
+    ok = _mk(client, admin, project, "Geçen", "def test_a():\n    assert True\n")
+    bad = _mk(client, admin, project, "Kalan", "def test_a():\n    assert 1 == 2, 'toplam yanlış'\n")
+    plan = client.post("/test-plans/", json={"title": "Sürüm 1.2", "project_id": project["id"]}, headers=admin).json()
+    client.post(f"/test-plans/{plan['id']}/bulk-add", json={"test_case_ids": [ok, bad]}, headers=admin)
+    items = client.get(f"/test-plans/{plan['id']}", headers=admin).json()["items"]
+    assert all(i["test_case_automatable"] for i in items) and all(i["test_case_suite_id"] is None for i in items)
+
+    s = _summary(_run(client, token, [ok, bad], test_plan_id=plan["id"]))
+    run = client.get(f"/test-runs/{s['run_id']}", headers=admin).json()
+    assert run["test_plan_id"] == plan["id"] and run["meta"]["plan"]["title"] == "Sürüm 1.2"
+    items = {i["test_case_id"]: i for i in client.get(f"/test-plans/{plan['id']}", headers=admin).json()["items"]}
+    assert items[ok]["run_status"] == "Başarılı" and items[bad]["run_status"] == "Başarısız"
+    assert "toplam yanlış" in (items[bad]["note"] or "") and "\n" not in items[bad]["note"]  # tek satırlık özet
+    assert [r["id"] for r in client.get(f"/test-runs/?test_plan_id={plan['id']}", headers=admin).json()] == [s["run_id"]]
+    # case paneli ilişkileri ve listelerdeki açık bug rozeti
+    bug = s["defects"]["opened"][0]
+    links = client.get(f"/test-cases/{bad}/links", headers=admin).json()
+    assert [p["id"] for p in links["plans"]] == [plan["id"]] and links["plans"][0]["run_status"] == "Başarısız"
+    assert [d["id"] for d in links["defects"]] == [bug]
+    assert client.get(f"/test-cases/{ok}/links", headers=admin).json()["defects"] == []
+    active = client.get("/defects/active-by-case", params={"project_id": project["id"]}, headers=admin).json()
+    assert [(a["case_id"], a["id"]) for a in active] == [(bad, bug)]
+    # case geçmişi başka case'lerin kayıtlarını göstermez
+    assert [d["id"] for d in client.get(f"/test-cases/{ok}/history", headers=admin).json()["defects"]] == []
+
+
+def test_baska_projenin_plani_reddedilir(client, admin, project):
+    token = admin["Authorization"][7:]
+    other = client.post("/projects/", json={"name": "Başka"}, headers=admin).json()
+    plan = client.post("/test-plans/", json={"title": "Diğer", "project_id": other["id"]}, headers=admin).json()
+    cid = _mk(client, admin, project, "Geçen", "def test_a():\n    assert True\n")
+    with client.websocket_connect(f"/ws/run-test?token={token}") as ws:
+        ws.send_json({"cases": [cid], "test_plan_id": plan["id"]})
+        while True:
+            m = ws.receive_json()
+            if m["type"] in ("error", "done"):
+                break
+    assert m["type"] == "error" and "plan" in m["message"].lower(), m
+    assert client.get("/test-runs/", headers=admin).json() == []

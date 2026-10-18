@@ -2,13 +2,14 @@
 Otomasyon koşumu WebSocket'i: /ws/run-test?token=...  (motor: core.py)
 
 İstemci → sunucu:
-  1. {"cases": [id...], "browser": "Chrome", "headless": true, "environment_id": 3?}
+  1. {"cases": [id...], "browser": "Chrome", "headless": true, "environment_id": 3?, "test_plan_id": 2?}
+     (test_plan_id: koşum plana bağlanır, plan kalemlerinin sonucu güncellenir)
   2. (isteğe bağlı) {"type": "stop"} — süreç sonlandırılır, koşum kaydedilmez
 Sunucu → istemci:
   {"type": "info|warn|error|success|running", "message", "progress"?}   log satırı
   {"type": "plan", "cases": [{case_id, title, status: queued|skipped, reason?}]}
   {"type": "case", "case_id", "status": running|passed|failed|skipped}
-  {"type": "summary", "run_id", "defect", "counts", "duration"}
+  {"type": "summary", "run_id", "defect", "defects", "counts", "duration"}
   {"type": "stopped", "message"} | {"type": "done", "message"}
 Bağlantı koparsa süreç de sonlandırılır (arka planda sahipsiz koşum kalmaz).
 """

@@ -16,6 +16,22 @@ from app.modules.projects.models import Project
 from app.modules.test_cases.models import TestCase
 
 
+def item_dict(item) -> dict:
+    tc = item.test_case
+    return {
+        "id":                 item.id,
+        "test_case_id":       item.test_case_id,
+        "run_status":         item.run_status,
+        "note":               item.note,
+        "test_case_title":    tc.title    if tc else None,
+        "test_case_priority": tc.priority if tc else None,
+        "test_case_execution_type": tc.execution_type if tc else None,
+        # Otomasyonda koşulabilir mi (script'i ya da depodaki testi var) ve hangi depodan
+        "test_case_automatable": bool(tc and tc.execution_type == "Automated"
+                                      and ((tc.automation_script or "").strip() or tc.automation_ref)),
+        "test_case_suite_id": tc.suite_id if tc else None,
+    }
+
 def _serialize_plan(plan: models.TestPlan) -> dict:
     if not plan:
         raise HTTPException(status_code=404, detail="Test planı bulunamadı.")
@@ -29,16 +45,7 @@ def _serialize_plan(plan: models.TestPlan) -> dict:
         "end_date":    plan.end_date,
         "created_at":  plan.created_at,
         "items": [
-            {
-                "id":                 item.id,
-                "test_case_id":       item.test_case_id,
-                "run_status":         item.run_status,
-                "note":               item.note,
-                "test_case_title":    item.test_case.title    if item.test_case else None,
-                "test_case_priority": item.test_case.priority if item.test_case else None,
-                "test_case_execution_type": item.test_case.execution_type if item.test_case else None,
-            }
-            for item in sorted(plan.items, key=lambda i: i.id)
+            item_dict(item) for item in sorted(plan.items, key=lambda i: i.id)
         ],
     }
 
@@ -184,15 +191,7 @@ def update_item_status(
     db.commit()
     db.refresh(item)
 
-    return {
-        "id":                 item.id,
-        "test_case_id":       item.test_case_id,
-        "run_status":         item.run_status,
-        "note":               item.note,
-        "test_case_title":    item.test_case.title    if item.test_case else None,
-        "test_case_priority": item.test_case.priority if item.test_case else None,
-        "test_case_execution_type": item.test_case.execution_type if item.test_case else None,
-    }
+    return item_dict(item)
 
 
 # Plan kalemi sonucu, case'in "son sonuç" statüsüne de yansır (koşumlardaki davranışla aynı)

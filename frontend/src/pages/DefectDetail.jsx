@@ -4,7 +4,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Copy, Pencil, Trash2, MoreHorizontal, Bug, ArrowRight, RotateCcw, CheckCircle2, Search as SearchIcon, ExternalLink, Ticket } from 'lucide-react';
+import { ArrowLeft, Copy, Pencil, Trash2, MoreHorizontal, Bug, ArrowRight, RotateCcw, CheckCircle2, Search as SearchIcon, ExternalLink, Ticket, Cpu } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import { Button, StatusBadge, Ident, Skeleton, EmptyState, Panel } from '../components/ui';
 import { Menu, MenuItem, ConfirmDialog } from '../components/ui/overlay';
@@ -13,6 +13,7 @@ import { defectsApi, projectsApi, testCasesApi, integrationsApi } from '../api';
 import { formatDate, relativeTime } from './test-runs/model';
 import DefectFormDrawer from './defects/DefectFormDrawer';
 import FailedCaseList from './defects/FailedCaseList';
+import { isAutomatable } from './test-cases/model';
 import ActivityFeed from './defects/ActivityFeed';
 import {
   STATUSES, STATUS_LABEL, STATUS_TONE, SEVERITIES, SEVERITY_TONE, SOURCE_LABEL,
@@ -130,6 +131,15 @@ const DefectDetail = () => {
     );
   }
 
+  // Kayıttaki otomasyon case'leri: tek kaynaktan (en kalabalık) otomasyon sayfasında yeniden koşulur
+  const retest = (() => {
+    const auto = Object.values(cases).filter(isAutomatable);
+    if (!auto.length || !can('automation.execute')) return null;
+    const groups = new Map();
+    auto.forEach(c => groups.set(c.suite_id || 0, [...(groups.get(c.suite_id || 0) || []), c.id]));
+    const [suiteId, ids] = [...groups.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+    return { ids, to: `/automation?project=${d.project_id}&cases=${ids.join(',')}${suiteId ? `&suite=${suiteId}` : ''}` };
+  })();
   const next = NEXT_STEP[d.status];
   const age = ageDays(d);
   const NextIcon = next?.icon;
@@ -165,6 +175,12 @@ const DefectDetail = () => {
               </a>
             ) : jiraOn && canManage && (
               <Button icon={<Ticket size={14} />} onClick={exportJira} loading={saving === 'jira'}>Jira'ya aktar</Button>
+            )}
+            {retest && (
+              <Button variant={d.status === 'Re-test' ? 'primary' : 'secondary'} icon={<Cpu size={14} />} onClick={() => navigate(retest.to)}
+                title="Kayıttaki otomasyon case'lerini otomasyonda yeniden koş; otomatik açılmış kayıt, case geçince kendiliğinden çözülür">
+                Yeniden test et{retest.ids.length > 1 ? ` (${retest.ids.length})` : ''}
+              </Button>
             )}
             <Button icon={<Copy size={14} />} onClick={copy}>Kopyala</Button>
             {canManage && (

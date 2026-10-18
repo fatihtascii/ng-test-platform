@@ -7,7 +7,7 @@ import { STATUSES, PRIORITIES, TEST_TYPES, EXECUTION_LABEL } from './model';
 const RUN_RESULTS = [['Failed', 'Kaldı'], ['Passed', 'Geçti'], ['Skipped', 'Atlandı']];
 
 /** runOptions: son koşumlar (null = koşum filtresi gösterilmez) */
-const CaseFilters = ({ query, projects, tags, searchRef, runOptions }) => {
+const CaseFilters = ({ query, projects, tags, searchRef, runOptions, bugFilter }) => {
   const { q, filters, setQ, setFilter, clearFilters, hasFilter } = query;
   return (
     <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
@@ -27,6 +27,10 @@ const CaseFilters = ({ query, projects, tags, searchRef, runOptions }) => {
         {tags.length > 0 && (
           <FilterSelect label="Etiket" value={filters.tag} onChange={v => setFilter('tag', v)}
             options={tags.map(t => [t, t])} />
+        )}
+        {bugFilter && (
+          <FilterSelect label="Bug" value={filters.bug} onChange={v => setFilter('bug', v)}
+            options={[['open', "Açık bug'ı var", 'açık var'], ['none', "Açık bug'ı yok", 'yok']]} />
         )}
         {runOptions && (runOptions.length > 0 || filters.run) && (
           <FilterSelect label="Koşum" value={filters.run} onChange={v => setFilter('run', v)} options={runOptions} />

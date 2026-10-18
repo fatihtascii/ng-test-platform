@@ -5,6 +5,7 @@ import { SortHeader, Checkbox, Pagination } from '../../components/ui/data';
 import { Menu, MenuItem, MenuSeparator } from '../../components/ui/overlay';
 import { PriorityMark, ExecutionMark, TagList, Marker } from './parts';
 import { caseIdent, formatDate } from './model';
+import BugMark from './BugMark';
 
 // Satırdaki "tarayıcıda çalıştır" düğmesi; aynı anda tek tarayıcı koşumu
 const RunButton = ({ c, quickRun }) => {
@@ -37,12 +38,13 @@ const RunResultMark = ({ status }) => {
 /**
  * rowActions(c) → [{ icon, label, onSelect, tone } | 'sep']
  * quickRun → { canRun(c), onRun(c), stateOf(id), busy }
+ * bugsOf(c) → case'in açık hata kayıtları (rozet)
  * runResult(c) → seçili koşumdaki sonuç (koşum filtresi açıkken; başlığın altında gösterilir): otomasyon case'lerinde tarayıcıda koş düğmesi
  * Satıra tıklamak detayı açar; seçim kutusu, koş düğmesi ve menü tıklaması satırı açmaz.
  */
 const CaseTable = ({
   rows, total, loading, selectable, selected, onToggle, onTogglePage,
-  sort, onSort, projectName, onOpen, activeId, rowActions, quickRun, runResult,
+  sort, onSort, projectName, onOpen, activeId, rowActions, quickRun, runResult, bugsOf,
   page, pageSize, onPage, onPageSize, empty,
 }) => {
   const pageIds = rows.map(r => r.id);
@@ -104,8 +106,9 @@ const CaseTable = ({
                           {c.title}
                         </button>
                         <Ident className="sm:hidden">{caseIdent(c.id)}</Ident>
-                        {(c.tagList.length > 0 || c.gherkin_scenario || c.automation_script || runResult?.(c)) && (
+                        {(c.tagList.length > 0 || c.gherkin_scenario || c.automation_script || runResult?.(c) || bugsOf?.(c)) && (
                           <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <BugMark bugs={bugsOf?.(c)} />
                             {runResult?.(c) && <RunResultMark status={runResult(c)} />}
                             {c.automation_script && <Marker title="Otomasyon script'i var">script</Marker>}
                             {c.gherkin_scenario && <Marker title="BDD senaryosu var">bdd</Marker>}

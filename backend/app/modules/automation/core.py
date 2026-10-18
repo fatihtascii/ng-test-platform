@@ -78,6 +78,18 @@ def _load(config: dict):
         db.close()
 
 
+def _load_plan(plan_id) -> Optional[dict]:
+    from app.modules.test_plans.models import TestPlan
+    db = SessionLocal()
+    try:
+        row = db.query(TestPlan).filter(TestPlan.id == int(plan_id)).first()
+        return {"id": row.id, "title": row.title, "project_id": row.project_id} if row else None
+    except (TypeError, ValueError):
+        return None
+    finally:
+        db.close()
+
+
 def _load_env(env_id: int) -> Optional[dict]:
     from app.modules.environments.models import Environment
     from app.modules.environments.service import resolve_variables
@@ -156,6 +168,13 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
         project_id = project_ids.pop()
     if env and env["project_id"] not in (None, project_id):
         raise StartError("Seçilen ortam bu projeye ait değil.")
+    plan = None
+    if config.get("test_plan_id"):
+        plan = await asyncio.to_thread(_load_plan, config["test_plan_id"])
+        if plan is None:
+            raise StartError("Test planı bulunamadı.")
+        if plan["project_id"] != project_id:
+            raise StartError("Test planı bu projeye ait değil.")
     if not _acquire():
         raise StartError(f"Şu an {runner.MAX_PARALLEL} otomasyon koşumu sürüyor; biri bitince tekrar deneyin.")
 
@@ -286,12 +305,15 @@ async def execute(config: dict, user_id: Optional[int], emit: Emit, stop: asynci
                 meta["profile"] = config.get("marker") or ""
         if trigger:
             meta["trigger"] = trigger
+        if plan:
+            meta["plan"] = {"id": plan["id"], "title": plan["title"]}
 
         def _save():
             db = SessionLocal()
             try:
                 return runner.save_run(db, project_id=project_id, results=results, user_id=user_id,
-                                       meta=meta, env_name=env["name"] if env else None)
+                                       meta=meta, env_name=env["name"] if env else None,
+                                       test_plan_id=plan["id"] if plan else None)
             except Exception as e:
                 logger.error(f"Otomasyon koşumu kaydedilemedi: {e}", exc_info=True)
                 db.rollback()

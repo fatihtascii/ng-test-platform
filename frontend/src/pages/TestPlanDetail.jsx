@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, PlayCircle, Pencil, Trash2, MoreHorizontal, CheckCircle2, X, ListChecks } from 'lucide-react';
+import { ArrowLeft, Plus, PlayCircle, Pencil, Trash2, MoreHorizontal, CheckCircle2, X, ListChecks, Cpu } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import { Button, ResultBar, StatusBadge, Ident, Skeleton, EmptyState } from '../components/ui';
 import { Checkbox, SearchInput, Tabs } from '../components/ui/data';
@@ -15,7 +15,9 @@ import PlanFormDrawer from './test-plans/PlanFormDrawer';
 import CasePickerDialog from './test-plans/CasePickerDialog';
 import PlanItemDialog from './test-plans/PlanItemDialog';
 import RunFormDrawer from './test-runs/RunFormDrawer';
-import { PriorityMark } from './test-cases/parts';
+import { PriorityMark, Marker } from './test-cases/parts';
+import BugMark from './test-cases/BugMark';
+import { useOpenBugs } from './test-cases/useOpenBugs';
 import { caseIdent } from './test-cases/model';
 import {
   ITEM_STATUSES, ITEM_LABEL, ITEM_TONE, PLAN_STATUS_TONE, planIdent, planStats, planSegments, dateRange, deadlineOf, trLower,
@@ -52,6 +54,7 @@ const TestPlanDetail = () => {
   }, [id, canRuns]);
 
   const { plan, projects = [], runs = [] } = state;
+  const openBugs = useOpenBugs(can('defects.view') && Boolean(plan), plan?.project_id);
   const setPlan = useCallback((p) => setState(s => ({ ...s, plan: p })), []);
   const stats = useMemo(() => planStats(plan), [plan]);
   const deadline = plan ? deadlineOf(plan) : null;
@@ -64,8 +67,11 @@ const TestPlanDetail = () => {
 
   const canExecute = can('test_runs.execute');
   const canEdit = can('test_plans.edit');
-  const selectable = canExecute || canEdit;
+  const canAutomate = can('automation.execute');
+  const selectable = canExecute || canEdit || canAutomate;
+  const autoItems = useMemo(() => (plan?.items || []).filter(i => i.test_case_automatable), [plan]);
   const pickedVisible = items.filter(i => selected.has(i.id)).length;
+  const selectedAuto = (plan?.items || []).filter(i => selected.has(i.id) && i.test_case_automatable).length;
   const toggle = (iid) => setSelected(prev => { const n = new Set(prev); if (n.has(iid)) n.delete(iid); else n.add(iid); return n; });
   const toggleVisible = () => setSelected(prev => {
     const n = new Set(prev); const on = pickedVisible !== items.length;
@@ -73,6 +79,18 @@ const TestPlanDetail = () => {
   });
 
   // ── İşlemler ────────────────────────────────────────────────
+  // Otomasyon sayfasına plana bağlı koşum için gider: aynı anda tek kaynak (depo ya da case script'leri) koşulur,
+  // seçimde birden fazla kaynak varsa en kalabalığı alınır
+  const runInAutomation = (list) => {
+    const auto = list.filter(i => i.test_case_automatable);
+    if (!auto.length) { toast.error('Seçimde otomasyonda koşulabilecek case yok.'); return; }
+    const groups = new Map();
+    auto.forEach(i => { const k = i.test_case_suite_id || 0; groups.set(k, [...(groups.get(k) || []), i.test_case_id]); });
+    const [suiteId, ids] = [...groups.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+    if (groups.size > 1) toast.info(`${auto.length - ids.length} case başka bir kaynakta; onları ayrı koşun.`);
+    navigate(`/automation?project=${plan.project_id}&plan=${plan.id}&cases=${ids.join(',')}${suiteId ? `&suite=${suiteId}` : ''}`);
+  };
+
   const addCases = async (ids) => {
     try {
       const { data } = await testPlansApi.bulkAdd(plan.id, ids);
@@ -163,6 +181,11 @@ const TestPlanDetail = () => {
           {plan.description && <p className="mt-2 max-w-3xl whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{plan.description}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {canAutomate && autoItems.length > 0 && (
+            <Button icon={<Cpu size={15} />} onClick={() => runInAutomation(autoItems)} title="Planın otomasyon case'lerini koş; sonuçlar plana yazılır">
+              Otomasyonla koş ({autoItems.length})
+            </Button>
+          )}
           {can('test_runs.create') && stats.total > 0 && (
             <Button variant="primary" icon={<PlayCircle size={15} />} onClick={openRunForm}>Koşum oluştur</Button>
           )}
@@ -227,6 +250,9 @@ const TestPlanDetail = () => {
                     <span className={`h-2 w-2 rounded-full ${TONES[ITEM_TONE[s]].dot}`} aria-hidden />{ITEM_LABEL[s]}
                   </Button>
                 ))}
+                {canAutomate && selectedAuto > 0 && (
+                  <Button size="sm" icon={<Cpu size={13} />} onClick={() => runInAutomation(plan.items.filter(i => selected.has(i.id)))}>Otomasyonda koş ({selectedAuto})</Button>
+                )}
                 {canEdit && <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => setDialog({ type: 'remove' })}>Plandan çıkar</Button>}
                 <button type="button" onClick={() => setSelected(new Set())} aria-label="Seçimi temizle" className="rounded-md p-1 text-indigo-700 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-indigo-500/20"><X size={15} /></button>
               </div>
@@ -267,6 +293,8 @@ const TestPlanDetail = () => {
                           <div className="flex items-baseline gap-2">
                             <Ident className="w-14 shrink-0">{caseIdent(i.test_case_id)}</Ident>
                             <span className="truncate text-slate-900 dark:text-slate-100">{i.test_case_title || 'Silinmiş case'}</span>
+                            {i.test_case_automatable && <Marker title="Otomasyonda koşulabilir">oto</Marker>}
+                            <BugMark bugs={openBugs.map.get(i.test_case_id)} />
                           </div>
                           {i.note && <p className="mt-0.5 truncate pl-16 text-xs text-slate-500 dark:text-slate-400">{i.note}</p>}
                         </td>

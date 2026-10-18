@@ -23,6 +23,12 @@ def list_defects(
     return service.list_defects(db, project_id, status, severity, test_run_id, assignee_id, unassigned)
 
 
+@router.get("/active-by-case", dependencies=[Depends(require_permission("defects.view"))])
+def active_by_case(db: Session = Depends(get_db), project_id: Optional[int] = Query(None)):
+    """Açık (çözülmemiş) ve bir case'e bağlı kayıtlar: [{case_id, id, status, severity}] — listelerde rozet için."""
+    return service.active_by_case(db, project_id)
+
+
 @router.get("/assignees", response_model=list[schemas.Assignee],
             dependencies=[Depends(require_permission("defects.view"))])
 def assignees(db: Session = Depends(get_db)):

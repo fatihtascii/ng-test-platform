@@ -78,6 +78,8 @@ export const useAutomationRun = () => {
         cases: config.cases, browser: config.browser, headless: config.headless, environment_id: config.environmentId || null,
         // Depo profili: case listesi yerine depo + pytest -m ifadesi
         ...(config.suiteId ? { suite_id: config.suiteId, marker: config.marker ?? '' } : {}),
+        // Plana bağlı koşum: sonuçlar plan kalemlerine yazılır
+        ...(config.testPlanId ? { test_plan_id: config.testPlanId } : {}),
       }));
     };
     ws.onmessage = (e) => {

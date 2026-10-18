@@ -6,6 +6,7 @@ import { Tabs } from '../../components/ui/data';
 import { Menu, MenuItem, MenuSeparator } from '../../components/ui/overlay';
 import { testCasesApi } from '../../api';
 import CodeBlock from './CodeBlock';
+import CaseLinks from './CaseLinks';
 import { PriorityMark, TagList } from './parts';
 import { caseIdent, formatDate, EXECUTION_LABEL, isAutomatable } from './model';
 
@@ -194,6 +195,7 @@ const CaseDetail = ({ c, projectName, can }) => {
             <Link to={`/automation?project=${c.project_id}&suite=${c.suite_id || ''}&cases=${c.id}`} className="mt-1 inline-block font-medium text-indigo-700 hover:underline dark:text-indigo-300">Otomasyonda koş</Link>
           </div>
         )}
+        <CaseLinks c={c} can={can} refreshKey={`${c.status}:${c.updated_at || ''}`} />
         {c.execution_type === 'Automated' && !c.automation_script && !c.automation_ref && (
           <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
             Otomasyon case'i ama script'i yok; otomasyonda koşulamaz.

@@ -107,6 +107,10 @@ def sync_plan_items(db: Session, run) -> int:
             wanted[cid] = (st, (r.get("actual_result") or r.get("error") or None))
     if not wanted:
         return 0
+    if getattr(run, "source", None) == "automation":
+        # Otomasyonda not tam pytest çıktısıdır; plan kaleminde tek satırlık özet yeter (ayrıntı koşum kaydında)
+        from app.modules.defects.service import short_error
+        wanted = {cid: (st, short_error(note, 300) or None) for cid, (st, note) in wanted.items()}
     items = db.query(TestPlanItem).filter(TestPlanItem.plan_id == run.test_plan_id,
                                           TestPlanItem.test_case_id.in_(wanted)).all()
     for it in items:

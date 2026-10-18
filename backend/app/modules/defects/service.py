@@ -402,7 +402,7 @@ def auto_bug_limit() -> int:
         return 30
 
 
-def _short_error(text: Optional[str], limit: int = 160) -> str:
+def short_error(text: Optional[str], limit: int = 160) -> str:
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     e = next((ln for ln in lines if ln.startswith("E ")), None)
     line = (e[1:].strip() if e else (lines[0] if lines else ""))
@@ -414,6 +414,15 @@ def _case_defect(db: Session, case_id: int) -> Optional[models.Defect]:
     return (db.query(models.Defect)
               .filter(models.Defect.test_case_id == case_id, models.Defect.source == "auto")
               .order_by(models.Defect.id.desc()).first())
+
+
+def active_by_case(db: Session, project_id: Optional[int] = None) -> list[dict]:
+    q = db.query(models.Defect.id, models.Defect.test_case_id, models.Defect.status, models.Defect.severity) \
+          .filter(models.Defect.test_case_id.isnot(None), models.Defect.status.in_(ACTIVE_STATUSES))
+    if project_id:
+        q = q.filter(models.Defect.project_id == project_id)
+    return [{"case_id": cid, "id": did, "status": st, "severity": sev}
+            for did, cid, st, sev in q.order_by(models.Defect.id.desc())]
 
 
 def sync_case_defects(db: Session, run) -> dict:
@@ -460,7 +469,7 @@ def sync_case_defects(db: Session, run) -> dict:
             continue
         existing.failed_details = json.dumps([detail], ensure_ascii=False)
         existing.test_run_id = run.id
-        note = f"{ks} koşumunda yine kaldı" + (f": {_short_error(error)}" if error else ".")
+        note = f"{ks} koşumunda yine kaldı" + (f": {short_error(error)}" if error else ".")
         if existing.status == "Resolved":
             _log(db, existing, "reopened", None, "Resolved", "Open", body=note)
             _set_status(existing, "Open")
@@ -492,7 +501,7 @@ def sync_case_defects(db: Session, run) -> dict:
         if ref:
             desc.append(f"Test: {ref}")
         if det["error"]:
-            desc.append(f"Hata: {_short_error(det['error'], 300)}")
+            desc.append(f"Hata: {short_error(det['error'], 300)}")
         d = models.Defect(
             title=f"{det['title']} — otomasyon testi kaldı"[:500], description="\n".join(desc),
             severity=det["severity"], status="Open", source="auto", project_id=run.project_id,

@@ -6,7 +6,8 @@ import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 // run: koşum (KS-N) · runres: o koşumdaki sonuç (Failed | Passed | Skipped)
-export const FILTER_KEYS = ['project', 'status', 'priority', 'exec', 'type', 'tag', 'run', 'runres'];
+// bug: open (açık hata kaydı olan) | none (olmayan)
+export const FILTER_KEYS = ['project', 'status', 'priority', 'exec', 'type', 'tag', 'run', 'runres', 'bug'];
 const DEFAULT_SORT = '-id';
 const PAGE_SIZES = [10, 25, 50, 100];
 

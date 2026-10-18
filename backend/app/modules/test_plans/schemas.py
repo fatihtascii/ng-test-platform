@@ -59,6 +59,8 @@ class TestPlanItemResponse(BaseModel):
     test_case_title:     Optional[str] = None
     test_case_priority:  Optional[str] = None
     test_case_execution_type: Optional[str] = None
+    test_case_automatable: bool = False
+    test_case_suite_id:  Optional[int] = None
     class Config:
         from_attributes = True
 
