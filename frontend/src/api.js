@@ -74,10 +74,10 @@ export const authApi = {
 };
 
 export const projectsApi = {
-  getAll:  ()           => api.get('/projects'),
-  getOne:  (id)         => api.get(`/projects/${id}`),
+  getAll:  (params)     => api.get('/projects', { params }),          // { with_stats: true } → sayılar
+  getOne:  (id, params) => api.get(`/projects/${id}`, { params }),
   create:  (data)       => api.post('/projects', data),
-  update:  (id, data)   => api.put(`/projects/${id}`, data),
+  update:  (id, data)   => api.patch(`/projects/${id}`, data),        // kısmi güncelleme
   remove:  (id)         => api.delete(`/projects/${id}`),
 };
 

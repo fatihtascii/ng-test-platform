@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { clearPermissionCache, usePermission } from '../hooks/usePermission';
+import { CRUMB_EVENT } from '../hooks/useCrumbLabel';
 import { Sun, Moon, ChevronRight, User, Users, Shield, LogOut, Menu, ChevronDown } from 'lucide-react';
 import { clearSession, USER_UPDATED_EVENT } from '../auth';
 import { Avatar } from './ui';
@@ -82,7 +83,15 @@ const Topbar = ({ onMenu = () => {} }) => {
     window.location.href = '/login';
   }, []);
 
+  // Detay sayfası kendi adını bildirdiyse son parçada onu göster
+  const [crumbLabel, setCrumbLabel] = useState(null);
+  useEffect(() => {
+    const on = (e) => setCrumbLabel(e.detail.label ? e.detail : null);
+    window.addEventListener(CRUMB_EVENT, on);
+    return () => window.removeEventListener(CRUMB_EVENT, on);
+  }, []);
   const crumbs = getCrumbs(location.pathname);
+  if (crumbLabel?.path === location.pathname && crumbs.length > 1) crumbs[crumbs.length - 1] = { label: crumbLabel.label };
 
   return (
     <header className="sticky top-0 z-30 print:hidden flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6 dark:border-slate-800 dark:bg-slate-900/90">

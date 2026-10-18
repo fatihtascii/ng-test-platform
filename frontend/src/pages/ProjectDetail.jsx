@@ -1,495 +1,273 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+/**
+ * Proje özeti: case durumu, son koşumlar, süren planlar, açık hatalar ve ortamlar.
+ * Her panel ilgili listeye proje filtresiyle bağlanır (?project=ID).
+ */
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Pencil, Trash2, MoreHorizontal, PlayCircle, BarChart3, FolderKanban, Plus } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
-import PermissionGuard from '../components/PermissionGuard';
-import { projectsApi, fetchAllTestCases } from '../api';
-import {
-  ArrowLeft, Folder, Settings, Users, Beaker,
-  Activity, AlertCircle, CheckCircle2, Clock,
-  ChevronRight, Calendar, Plus, TrendingUp,
-  Copy, Check, Search, Filter, ShieldAlert, Tag
-} from 'lucide-react';
+import { useCrumbLabel } from '../hooks/useCrumbLabel';
+import { Button, Panel, ResultBar, ResultLegend, StatusBadge, EmptyState, Skeleton, Ident } from '../components/ui';
+import { Menu, MenuItem } from '../components/ui/overlay';
+import { TONES } from '../components/ui/tokens';
+import { projectsApi, testPlansApi, defectsApi, environmentsApi, fetchAllTestRuns, fetchAllTestCases } from '../api';
+import { parseResults, summarize, segmentsOf, relativeTime, formatDate, RUN_STATUS_LABEL, RUN_STATUS_TONE } from './test-runs/model';
+import { planStats, planSegments, planIdent } from './test-plans/model';
+import { STATUS_LABEL as DEFECT_STATUS_LABEL, STATUS_TONE as DEFECT_STATUS_TONE, SEVERITY_TONE, ACTIVE_STATUSES } from './defects/model';
+import { KpiTile } from './reports/parts';
+import ProjectFormDrawer from './projects/ProjectFormDrawer';
+import DeleteProjectDialog from './projects/DeleteProjectDialog';
+import { PROJECT_STATUS_TONE, caseSegments, caseRate } from './projects/model';
 
-// ── Yardımcı Stiller ──────────────────────────────────────────
-const getProjectStatusStyle = (status) => {
-  switch (status) {
-    case 'Tamamlandı': return 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50';
-    case 'Beklemede':  return 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50';
-    default:           return 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800/50';
-  }
-};
+const DAY = 86400000;
+const PRIORITIES = ['Kritik', 'Yüksek', 'Orta', 'Düşük'];
+const PRIORITY_TONE = { 'Kritik': 'fail', 'Yüksek': 'blocked', 'Orta': 'pending', 'Düşük': 'draft' };
 
-const getTCStatusStyle = (status) => {
-  switch (status) {
-    case 'Başarılı':      return 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50';
-    case 'Başarısız':     return 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/50';
-    case 'Test Edilmedi': return 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800/50';
-    case 'Taslak':        return 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
-    default:              return 'bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700';
-  }
-};
-
-const getPriorityStyle = (p) => {
-  switch (p) {
-    case 'Kritik': return 'bg-rose-500 text-white';
-    case 'Yüksek': return 'bg-orange-500 text-white';
-    case 'Orta':   return 'bg-indigo-500 text-white';
-    default:       return 'bg-slate-400 text-white';
-  }
-};
-
-const Skeleton = ({ className }) => (
-  <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 rounded-xl ${className}`} />
+const More = ({ to, children = 'Tümü' }) => (
+  <Link to={to} className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">{children}</Link>
 );
 
-const TABS = ['Genel Bakış', 'Test Senaryoları'];
+const Empty = ({ children, action }) => (
+  <div className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">{children}{action && <div className="mt-3">{action}</div>}</div>
+);
 
-// ── Ana Bileşen ────────────────────────────────────────────────
 const ProjectDetail = () => {
-  // ✅ DÜZELTME 1: Parametre isimlendirme çakışmalarına karşı güvenli hale getirdik.
-  const params = useParams();
-  const id = params.id || params.projectId; 
-
+  const { id } = useParams();
+  const pid = Number(id);
   const navigate = useNavigate();
-  const { can }  = usePermission();
+  const { can } = usePermission();
 
-  const [project, setProject]       = useState(null);
-  const [testCases, setTestCases]   = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [tcLoading, setTcLoading]   = useState(false);
-  const [error, setError]           = useState(null);
-  const [activeTab, setActiveTab]   = useState('Genel Bakış');
-  const [copied, setCopied]         = useState(false);
+  const [state, setState] = useState({ loading: true, error: null, notFound: false });
+  const [project, setProject] = useState(null);
+  const [data, setData] = useState({ runs: [], cases: [], plans: [], defects: [], envs: [], loadedAt: 0 });
+  const [editing, setEditing] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
-  // Test case filtresi
-  const [tcSearch, setTcSearch]         = useState('');
-  const [tcStatusFilter, setTcStatusFilter] = useState('All');
+  const load = useCallback(() => Promise.all([
+    projectsApi.getOne(pid, { with_stats: true }).then(r => r.data),
+    fetchAllTestRuns({ project_id: pid }).catch(() => []),
+    fetchAllTestCases({ project_id: pid }).catch(() => []),
+    testPlansApi.getAll().then(r => r.data.filter(p => p.project_id === pid)).catch(() => []),
+    can('defects.view') ? defectsApi.getAll({ project_id: pid }).then(r => r.data).catch(() => []) : Promise.resolve([]),
+    can('environments.view') ? environmentsApi.getAll({ project_id: pid }).then(r => r.data).catch(() => []) : Promise.resolve([]),
+  ]), [pid, can]);
 
-  const tabsRef = useRef(null);
-
-  const goToTab = (tab) => {
-    setActiveTab(tab);
-    setTimeout(() => tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-  };
-
-  const handleCopyId = () => {
-    navigator.clipboard.writeText(`PRJ-${project?.id}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // 1. Proje verisi
   useEffect(() => {
-    // ✅ DÜZELTME 2: Gelen ID undefined ise boşuna istek atıp backend'i yormuyoruz ve 422 yemiyoruz.
-    if (!id || id === 'undefined') {
-      setError("Geçersiz proje bağlantısı (ID bulunamadı).");
-      setLoading(false);
-      return;
-    }
+    let alive = true;
+    if (!Number.isInteger(pid) || pid <= 0) return undefined;
+    load().then(([p, runs, cases, plans, defects, envs]) => {
+      if (!alive) return;
+      setProject(p);
+      setData({ runs, cases, plans, defects, envs, loadedAt: Date.now() });
+      setState({ loading: false, error: null, notFound: false });
+    }).catch(e => { if (alive) setState({ loading: false, error: e.message, notFound: e.status === 404 }); });
+    return () => { alive = false; };
+  }, [pid, load]);
 
-    const fetchProject = async () => {
-      setError(null);
-      try {
-        const res = await projectsApi.getOne(id);
-        setProject(res.data);
-      } catch (err) {
-        // ✅ DÜZELTME 3: Hata mesajlarını daha anlaşılır yakalıyoruz.
-        if (err.message?.includes('404') || err.response?.status === 404) setError('404');
-        else if (err.response?.status === 422) setError('Backend: Doğrulama Hatası (ID geçersiz formatta).');
-        else setError(err.response?.data?.detail || err.message || 'Proje detayları yüklenemedi.');
-      }
-      finally { setLoading(false); }
-    };
-    fetchProject();
-  }, [id]);
+  useCrumbLabel(project?.name);
 
-  // 2. Test senaryoları
-  useEffect(() => {
-    if (!project || !id || id === 'undefined') return;
-    const fetchTCs = async () => {
-      setTcLoading(true);
-      try {
-        const res = { data: await fetchAllTestCases({ project_id: id }) };
-        setTestCases(res.data || []);
-      } catch { console.error('Test senaryoları çekilemedi.'); }
-      finally { setTcLoading(false); }
-    };
-    fetchTCs();
-  }, [project, id]);
+  const view = useMemo(() => {
+    const runs = [...data.runs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .map(r => ({ ...r, summary: summarize(parseResults(r.results)) }));
+    // Son 30 gün geçme oranı ve önceki 30 güne göre fark
+    const now = data.loadedAt;
+    const sumRange = (from, to) => runs.filter(r => { const t = new Date(r.created_at).getTime(); return t >= from && t < to; })
+      .reduce((s, r) => ({ p: s.p + r.summary.Passed, f: s.f + r.summary.Failed, n: s.n + 1 }), { p: 0, f: 0, n: 0 });
+    const cur = sumRange(now - 30 * DAY, now + DAY), prev = sumRange(now - 60 * DAY, now - 30 * DAY);
+    const rate = cur.p + cur.f ? (cur.p / (cur.p + cur.f)) * 100 : null;
+    const prevRate = prev.p + prev.f ? (prev.p / (prev.p + prev.f)) * 100 : null;
+    const openDefects = data.defects.filter(d => ACTIVE_STATUSES.has(d.status))
+      .sort((a, b) => (PRIORITIES.indexOf(a.severity) - PRIORITIES.indexOf(b.severity)) || b.id - a.id);
+    const priorities = PRIORITIES.map(p => {
+      const list = data.cases.filter(c => c.priority === p);
+      return { p, total: list.length, failed: list.filter(c => c.status === 'Başarısız').length };
+    });
+    const activePlans = data.plans.filter(p => p.status !== 'Tamamlandı');
+    return { runs, rate, prevRate, cur, openDefects, priorities, activePlans };
+  }, [data]);
 
-  // ── Hesaplamalar ──────────────
-  const stats = useMemo(() => ({
-    total:    testCases.length,
-    passed:   testCases.filter(tc => tc.status === 'Başarılı' || tc.status === 'Passed').length,
-    failed:   testCases.filter(tc => tc.status === 'Başarısız' || tc.status === 'Failed').length,
-    draft:    testCases.filter(tc => tc.status === 'Taslak' || tc.status === 'Draft').length,
-    untested: testCases.filter(tc => tc.status === 'Test Edilmedi' || tc.status === 'Untested').length,
-  }), [testCases]);
-  
-  // Geçme oranı tüm sayfalarda aynı: geçen / koşulan (koşulmamış case'ler paydada yok)
-  const successRate = useMemo(() =>
-    stats.passed + stats.failed > 0 ? Math.round((stats.passed / (stats.passed + stats.failed)) * 100) : null
-  , [stats]);
+  if (!Number.isInteger(pid) || pid <= 0 || state.notFound || (state.error && !project)) {
+    return (
+      <EmptyState icon={<FolderKanban size={24} />} className="py-20"
+        title={state.notFound || !(pid > 0) ? 'Proje bulunamadı' : 'Proje yüklenemedi'}
+        description={state.notFound || !(pid > 0) ? 'Proje silinmiş ya da bağlantı hatalı olabilir.' : state.error}
+        action={<Button icon={<ArrowLeft size={14} />} onClick={() => navigate('/projects')}>Projelere dön</Button>} />
+    );
+  }
 
-  const priorityDist = useMemo(() => 
-    ['Kritik', 'Yüksek', 'Orta', 'Düşük']
-      .map(p => ({ label: p, count: testCases.filter(tc => tc.priority === p).length }))
-      .filter(p => p.count > 0)
-  , [testCases]);
-
-  const filteredTCs = useMemo(() => 
-    testCases.filter(tc => {
-      const q = tcSearch.toLowerCase();
-      const matchSearch = tc.title?.toLowerCase().includes(q) || String(tc.id).includes(q);
-      const matchStatus = tcStatusFilter === 'All' || tc.status === tcStatusFilter;
-      return matchSearch && matchStatus;
-    })
-  , [testCases, tcSearch, tcStatusFilter]);
-
-  // ── Render: Loading ──────────────────────────────────────────
-  if (loading) return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center gap-4 mb-8">
-        <Skeleton className="w-12 h-12 rounded-2xl" />
-        <div className="space-y-2"><Skeleton className="h-8 w-64" /><Skeleton className="h-4 w-48" /></div>
+  if (state.loading || !project) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-4 w-24" /><Skeleton className="h-8 w-1/2" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}</div>
+        <div className="grid gap-5 lg:grid-cols-2"><Skeleton className="h-64" /><Skeleton className="h-64" /></div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-3xl" />)}
-      </div>
-      <Skeleton className="h-[400px] rounded-3xl" />
-    </div>
-  );
+    );
+  }
 
-  // ── Render: Error & 404 ──────────────────────────────────────
-  if (error === '404') return (
-    <div className="flex flex-col items-center justify-center min-h-[50vh] text-center space-y-5 animate-in zoom-in-95 duration-300">
-      <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800/50 rounded-full flex items-center justify-center mx-auto mb-2 shadow-inner">
-        <Folder size={40} className="text-slate-400 dark:text-slate-500" />
-      </div>
-      <h2 className="text-2xl font-black text-slate-900 dark:text-white">Proje Bulunamadı</h2>
-      <p className="text-slate-500 dark:text-slate-400 font-medium max-w-sm">Aramış olduğunuz ID'ye ait bir proje sistemde mevcut değil veya silinmiş.</p>
-      <button onClick={() => navigate('/projects')} className="mt-4 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/20">
-        Tüm Projelere Dön
-      </button>
-    </div>
-  );
-
-  if (error) return (
-    <div className="flex flex-col items-center py-20 gap-4">
-      <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 text-rose-700 px-5 py-4 rounded-2xl text-sm font-bold shadow-sm">
-        <AlertCircle size={20} className="shrink-0" />
-        <span>{error}</span>
-      </div>
-      <button onClick={() => navigate('/projects')} className="mt-2 text-indigo-600 hover:text-indigo-700 hover:underline font-bold text-sm">Geri Dön ve Tekrar Dene</button>
-    </div>
-  );
+  const s = project.stats || {};
+  const caseSegs = caseSegments(s.cases_by_status);
+  const cRate = caseRate(s.cases_by_status);
+  const q = `?project=${pid}`;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20 max-w-7xl mx-auto">
-      {/* HEADER */}
-      <div className="flex items-start gap-4">
-        <button onClick={() => navigate('/projects')}
-          className="p-2.5 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all shrink-0 shadow-sm">
-          <ArrowLeft size={20} />
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap mb-2">
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white truncate max-w-full">
-              {project.name}
-            </h1>
-            <span className={`px-2.5 py-1 text-[11px] font-medium rounded-lg border ${getProjectStatusStyle(project.status)}`}>
-              {project.status || 'Aktif'}
-            </span>
-            <button onClick={handleCopyId}
-              className="ml-auto text-slate-400 hover:text-indigo-500 transition-colors flex items-center gap-1.5 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2.5 py-1.5 rounded-lg shadow-sm">
-              {copied ? <Check size={14} className="text-emerald-500"/> : <Copy size={14}/>}
-              <span className="hidden sm:inline">{copied ? 'Kopyalandı' : 'ID Kopyala'}</span>
-            </button>
+    <div className="space-y-5">
+      <div>
+        <Link to="/projects" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+          <ArrowLeft size={14} /> Projeler
+        </Link>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="break-words text-xl font-semibold text-slate-900 dark:text-white">{project.name}</h1>
+              <StatusBadge tone={PROJECT_STATUS_TONE[project.status]}>{project.status}</StatusBadge>
+            </div>
+            {project.description && <p className="mt-1 max-w-3xl whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{project.description}</p>}
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Oluşturuldu {formatDate(project.created_at)}{s.last_run_at && <> · son koşum {relativeTime(s.last_run_at)}</>}</p>
           </div>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium leading-relaxed max-w-3xl">
-            {project.description || <span className="italic">Bu proje için henüz bir açıklama eklenmemiş.</span>}
-          </p>
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+            {can('test_runs.create') && <Button variant="primary" icon={<PlayCircle size={14} />} onClick={() => navigate(`/test-runs?new=1&project_id=${pid}`)} disabled={!s.cases}>Koşum oluştur</Button>}
+            {can('reports.view') && <Button icon={<BarChart3 size={14} />} onClick={() => navigate(`/reports${q}`)}>Rapor</Button>}
+            {(can('projects.edit') || can('projects.delete')) && (
+              <Menu trigger={({ ref, toggle, open }) => (
+                <Button ref={ref} size="icon" onClick={toggle} aria-label="Diğer işlemler" aria-haspopup="menu" aria-expanded={open}><MoreHorizontal size={16} /></Button>
+              )}>
+                {can('projects.edit') && <MenuItem icon={Pencil} onSelect={() => setEditing(true)}>Düzenle</MenuItem>}
+                {can('projects.delete') && <MenuItem icon={Trash2} tone="danger" onSelect={() => setRemoving(true)}>Projeyi sil</MenuItem>}
+              </Menu>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* SEKMELER */}
-      <div ref={tabsRef} className="border-b border-slate-200 dark:border-slate-800/80">
-        <div className="flex gap-6 px-2">
-          {TABS.map(tab => {
-            const isActive = activeTab === tab;
-            return (
-              <button key={tab} onClick={() => goToTab(tab)}
-                className={`pb-4 pt-2 text-sm font-bold transition-all relative outline-none flex items-center gap-2 ${ isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200' }`}>
-                {tab}
-                {tab === 'Test Senaryoları' && testCases.length > 0 && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${isActive ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
-                    {testCases.length}
-                  </span>
-                )}
-                {isActive && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-t-full" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <section aria-label="Özet göstergeler" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiTile label="Test case" value={s.cases || 0} sub={s.cases ? `${s.automated} otomasyon · ${s.cases - s.automated} manuel` : 'henüz yok'} />
+        <KpiTile label="Geçme oranı (30 gün)" value={view.rate == null ? '—' : `%${view.rate.toFixed(1)}`}
+          delta={view.rate != null && view.prevRate != null ? view.rate - view.prevRate : null} deltaUnit="pp"
+          sub={`${view.cur.n} koşum`} hint="Son 30 gündeki koşum sonuçları: geçen / (geçen + kalan)" />
+        {can('defects.view')
+          ? <KpiTile label="Açık hata" value={s.open_defects || 0} sub={s.critical_defects ? `${s.critical_defects} kritik` : 'kritik yok'} />
+          : <KpiTile label="Koşum" value={s.runs || 0} />}
+        <KpiTile label="Süren plan" value={s.active_plans || 0} sub={`toplam ${s.plans || 0} plan`} />
+      </section>
 
-      {/* ── GENEL BAKIŞ SEKMESİ ── */}
-      {activeTab === 'Genel Bakış' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-right-4 duration-300">
-          <div className="lg:col-span-2 space-y-6">
-
-            {/* İstatistik Kartları */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              {[
-                { label: 'Toplam Test',  value: tcLoading ? '…' : stats.total,    icon: <Beaker size={18} className="text-indigo-500" />,    bg: 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20' },
-                { label: 'Başarılı',     value: tcLoading ? '…' : stats.passed,   icon: <CheckCircle2 size={18} className="text-emerald-500" />, bg: 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20' },
-                { label: 'Başarısız',    value: tcLoading ? '…' : stats.failed,   icon: <AlertCircle size={18} className="text-rose-500" />,  bg: 'bg-rose-50 dark:bg-rose-500/10 border-rose-100 dark:border-rose-500/20' },
-                { label: 'Taslak',       value: tcLoading ? '…' : stats.draft,    icon: <Clock size={18} className="text-slate-500" />,       bg: 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700' },
-              ].map((s) => (
-                <div key={s.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow">
-                  <div className={`w-10 h-10 rounded-2xl border ${s.bg} flex items-center justify-center shadow-inner`}>{s.icon}</div>
-                  <div>
-                    <p className="text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{s.value}</p>
-                    <p className="text-xs font-medium text-slate-400 mt-1">{s.label}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Test Durum Özeti */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm">
-              <h3 className="text-base font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                <TrendingUp size={18} className="text-indigo-500" /> Test Durum Özeti
-              </h3>
-              {tcLoading ? (
-                <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>
-              ) : stats.total === 0 ? (
-                <div className="text-center py-10 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                  <Beaker size={32} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Bu projede henüz test senaryosu bulunmuyor.</p>
-                  {can('test_cases.create') && (
-                    <button onClick={() => navigate('/test-cases')} className="mt-4 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl font-bold text-sm hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors">
-                      İlk Senaryoyu Ekle
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-5">
-                  {[
-                    { label: 'Başarılı',      count: stats.passed,   total: stats.total, bg: 'bg-emerald-500',  text: 'text-emerald-700 dark:text-emerald-400' },
-                    { label: 'Başarısız',     count: stats.failed,   total: stats.total, bg: 'bg-rose-500',     text: 'text-rose-700 dark:text-rose-400' },
-                    { label: 'Test Edilmedi', count: stats.untested, total: stats.total, bg: 'bg-violet-400',   text: 'text-violet-700 dark:text-violet-400' },
-                    { label: 'Taslak',        count: stats.draft,    total: stats.total, bg: 'bg-slate-400',    text: 'text-slate-600 dark:text-slate-400' },
-                  ].filter(item => item.count > 0).map(item => (
-                    <div key={item.label} className="group">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className={`text-xs font-medium ${item.text}`}>{item.label}</span>
-                        <span className="text-xs font-bold text-slate-400 tabular-nums">{item.count} / {item.total}</span>
-                      </div>
-                      <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
-                        <div className={`${item.bg} h-full rounded-full transition-all duration-1000 ease-out`}
-                          style={{ width: `${Math.round((item.count / item.total) * 100)}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {/* Genel Başarı Oranı Göstergesi */}
-                  <div className="mt-8 pt-5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ShieldAlert size={16} className="text-slate-400" />
-                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Geçme oranı</span>
-                    </div>
-                    <span className={`text-xl font-black tabular-nums tracking-tight text-slate-900 dark:text-white`}>
-                      {successRate == null ? '—' : `%${successRate}`}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Sağ Kolon: Meta + Hızlı Erişim */}
-          <div className="space-y-6">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
-              <h3 className="text-[11px] font-medium text-slate-400 tracking-[0.15em] mb-5">Proje Künyesi</h3>
-              <div className="space-y-5">
-                <div className="flex items-start gap-3 text-sm">
-                  <Folder size={16} className="text-indigo-400 mt-0.5 shrink-0" />
-                  <div><p className="text-[11px] font-medium text-slate-400 mb-0.5">Sistem ID</p><p className="font-bold text-slate-700 dark:text-slate-200">PRJ-{project.id}</p></div>
-                </div>
-                <div className="flex items-start gap-3 text-sm">
-                  <Activity size={16} className="text-amber-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-[11px] font-medium text-slate-400 mb-1">Anlık Durum</p>
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border ${getProjectStatusStyle(project.status)}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                      {project.status || 'Aktif'}
-                    </span>
-                  </div>
-                </div>
-                {project.created_at && (
-                  <div className="flex items-start gap-3 text-sm">
-                    <Calendar size={16} className="text-emerald-400 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-[11px] font-medium text-slate-400 mb-0.5">Oluşturulma</p>
-                      <p className="font-bold text-slate-700 dark:text-slate-200">
-                        {new Date(project.created_at).toLocaleDateString('tr-TR', { year: 'numeric', month: 'long', day: 'numeric' })}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-start gap-3 text-sm">
-                  <Users size={16} className="text-rose-400 mt-0.5 shrink-0" />
-                  <div><p className="text-[11px] font-medium text-slate-400 mb-0.5">Erişim</p><p className="font-bold text-slate-700 dark:text-slate-200">Ekip Geneli</p></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Öncelik Dağılımı */}
-            {priorityDist.length > 0 && (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-[11px] font-medium text-slate-400 tracking-[0.15em] mb-5">Öncelik (Priority) Dağılımı</h3>
-                <div className="space-y-3">
-                  {priorityDist.map(({ label, count }) => (
-                    <div key={label} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                      <div className="flex items-center gap-2">
-                        <Tag size={14} className="text-slate-400" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{label}</span>
-                      </div>
-                      <span className={`text-[11px] font-medium px-2.5 py-1 rounded-lg ${getPriorityStyle(label)}`}>
-                        {count} Test
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Hızlı Erişim */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
-              <h3 className="text-[11px] font-medium text-slate-400 tracking-[0.15em] mb-4">Hızlı Kısayollar</h3>
-              <div className="space-y-2">
-                <button onClick={() => goToTab('Test Senaryoları')}
-                  className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-300 transition-all group">
-                  <span className="flex items-center gap-3"><Beaker size={16} className="text-indigo-500" /> Test Listesi</span>
-                  <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                </button>
-                {can('test_cases.create') && (
-                  <button onClick={() => navigate('/test-cases')}
-                    className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-300 transition-all group">
-                    <span className="flex items-center gap-3"><Plus size={16} className="text-emerald-500" /> Yeni Senaryo</span>
-                    <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                  </button>
-                )}
-                {can('projects.edit') && (
-                  <button onClick={() => navigate('/projects')} className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-300 transition-all group">
-                    <span className="flex items-center gap-3"><Settings size={16} className="text-slate-500" /> Proje Ayarları</span>
-                    <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── TEST SENARYOLARI SEKMESİ ── */}
-      {activeTab === 'Test Senaryoları' && (
-        <div className="space-y-5 animate-in slide-in-from-left-4 duration-300">
-          
-          {/* Filtre Barı */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row gap-3">
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-4 py-2.5 rounded-xl w-full sm:flex-1 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
-              <Search size={16} className="text-slate-400 shrink-0" />
-              <input type="text" placeholder="Senaryo ID veya Başlık ara..." value={tcSearch}
-                onChange={(e) => setTcSearch(e.target.value)}
-                className="bg-transparent border-none outline-none text-sm font-medium text-slate-700 dark:text-slate-200 w-full"
-              />
-            </div>
-            
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-4 py-2.5 rounded-xl focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
-              <Filter size={16} className="text-slate-400 shrink-0" />
-              <select value={tcStatusFilter} onChange={(e) => setTcStatusFilter(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
-                <option value="All">Tüm Durumlar</option>
-                <option value="Taslak">Taslak</option>
-                <option value="Başarılı">Başarılı</option>
-                <option value="Başarısız">Başarısız</option>
-                <option value="Test Edilmedi">Test Edilmedi</option>
-              </select>
-            </div>
-            
-            {can('test_cases.create') && (
-              <button onClick={() => navigate('/test-cases')}
-                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 text-sm shadow-md shadow-indigo-600/20 whitespace-nowrap">
-                <Plus size={16} /> Yeni Senaryo
-              </button>
-            )}
-          </div>
-
-          {/* Test Case Tablosu */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden">
-            {tcLoading ? (
-              <div className="p-6 space-y-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}</div>
-            ) : filteredTCs.length === 0 ? (
-              <div className="text-center py-20 bg-slate-50/50 dark:bg-slate-900/50">
-                <div className="w-16 h-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-                  <Beaker size={28} className="text-slate-400" />
-                </div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white mb-1">Senaryo Bulunamadı</h3>
-                <p className="text-sm font-medium text-slate-500">
-                  {tcSearch || tcStatusFilter !== 'All' ? 'Filtrelerinize uyan bir kayıt yok.' : 'Bu proje için oluşturulmuş hiçbir test senaryosu bulunmuyor.'}
+      <div className="grid items-start gap-5 lg:grid-cols-2 [&>*]:min-w-0">
+        <div className="space-y-5">
+        <Panel title="Case'ler" actions={<More to={`/test-cases${q}`} />} bodyClassName="space-y-4 p-4">
+          {s.cases ? (
+            <>
+              <div>
+                <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
+                  Son sonuçlarına göre{cRate != null && <> · <b className="font-semibold text-slate-900 dark:text-white">%{cRate}</b> geçiyor</>}
                 </p>
+                <ResultBar height="h-2.5" segments={caseSegs} />
+                <ResultLegend segments={caseSegs} className="mt-2 text-xs" />
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[700px]">
-                  <thead>
-                    <tr className="bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 font-medium">
-                      <th className="px-6 py-5">Senaryo Detayı</th>
-                      <th className="px-6 py-5">Öncelik</th>
-                      <th className="px-6 py-5">Son Durum</th>
-                      <th className="px-6 py-5 text-right">Git</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {filteredTCs.map((tc) => (
-                      <tr 
-                        key={tc.id} 
-                        onClick={() => navigate(`/test-cases?project=${project.id}`)}
-                        className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors cursor-pointer group"
-                      >
-                        <td className="px-6 py-4">
-                          <p className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{tc.title}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">TC-{tc.id}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium ${getPriorityStyle(tc.priority)}`}>
-                            {tc.priority}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[11px] font-bold ${getTCStatusStyle(tc.status)}`}>
-                            {tc.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button className="p-2 text-slate-300 dark:text-slate-600 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-500/10 group-hover:text-indigo-500 rounded-xl transition-all">
-                            <ChevronRight size={18} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
+                <p className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">Önceliğe göre</p>
+                <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {view.priorities.map(x => (
+                    <li key={x.p}>
+                      <Link to={`/test-cases${q}&priority=${encodeURIComponent(x.p)}`} className="block rounded-lg border border-slate-200 px-3 py-2 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700">
+                        <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"><span className={`h-1.5 w-1.5 rounded-full ${TONES[PRIORITY_TONE[x.p]].dot}`} />{x.p}</span>
+                        <span className="text-lg font-semibold tabular-nums text-slate-900 dark:text-white">{x.total}</span>
+                        {x.failed > 0 && <span className="ml-1 text-xs text-rose-700 dark:text-rose-400">{x.failed} kaldı</span>}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               </div>
+            </>
+          ) : (
+            <Empty action={can('test_cases.create') && <Button size="sm" icon={<Plus size={13} />} onClick={() => navigate(`/test-cases${q}`)}>Case ekle</Button>}>
+              Projede henüz test case yok.
+            </Empty>
+          )}
+        </Panel>
+
+        <Panel title="Süren planlar" bodyClassName="p-0" actions={<More to={`/test-plans${q}`} />}>
+          {view.activePlans.length === 0 ? <Empty>Süren plan yok.</Empty> : (
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {view.activePlans.slice(0, 5).map(p => {
+                const st = planStats(p);
+                return (
+                  <li key={p.id}>
+                    <Link to={`/test-plans/${p.id}`} className="block px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <span className="flex items-baseline gap-2">
+                        <Ident className="shrink-0">{planIdent(p.id)}</Ident>
+                        <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-white">{p.title}</span>
+                        <span className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">%{st.progress} · {st.done}/{st.total}</span>
+                      </span>
+                      <ResultBar height="h-1" className="mt-1.5" segments={planSegments(st)} />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+
+        {can('environments.view') && (
+          <Panel title="Ortamlar" bodyClassName="p-0" actions={<More to={`/environments${q}`} />}>
+            {data.envs.length === 0 ? <Empty>Bu projeye tanımlı ortam yok.</Empty> : (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {data.envs.map(e => (
+                  <li key={e.id} className="flex items-baseline gap-3 px-4 py-2.5 text-sm">
+                    <span className="shrink-0 font-medium text-slate-900 dark:text-white">{e.name}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400">{e.url || '—'}</span>
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
+          </Panel>
+        )}
         </div>
+        <div className="space-y-5">
+        <Panel title="Son koşumlar" bodyClassName="p-0" actions={s.runs > 0 && <More to={`/test-runs${q}`}>Tümü ({s.runs})</More>}>
+          {view.runs.length === 0 ? <Empty>Henüz koşum yok.</Empty> : (
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {view.runs.slice(0, 6).map(r => (
+                <li key={r.id}>
+                  <Link to={`/test-runs/${r.id}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <span className="min-w-0 truncate text-sm text-slate-900 dark:text-white"><Ident className="mr-2">KS-{r.id}</Ident>{r.name}</span>
+                    <StatusBadge tone={RUN_STATUS_TONE[r.status]}>{RUN_STATUS_LABEL[r.status] || r.status}</StatusBadge>
+                    <ResultBar height="h-1" segments={segmentsOf(r.summary)} />
+                    <span className="text-right text-xs tabular-nums text-slate-500 dark:text-slate-400" title={formatDate(r.created_at, true)}>
+                      {r.summary.rate != null ? `%${r.summary.rate} · ` : ''}{relativeTime(r.created_at)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        {can('defects.view') && (
+          <Panel title="Açık hatalar" bodyClassName="p-0" actions={<More to={`/defects${q}&status=active`} />}>
+            {view.openDefects.length === 0 ? <Empty>Açık hata kaydı yok.</Empty> : (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {view.openDefects.slice(0, 6).map(d => (
+                  <li key={d.id}>
+                    <Link to={`/defects/BUG-${d.id}`} className="flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <Ident className="shrink-0">BUG-{d.id}</Ident>
+                      <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-white">{d.title}</span>
+                      <StatusBadge tone={SEVERITY_TONE[d.severity]} className="hidden sm:inline-flex">{d.severity}</StatusBadge>
+                      <StatusBadge tone={DEFECT_STATUS_TONE[d.status]}>{DEFECT_STATUS_LABEL[d.status]}</StatusBadge>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        )}
+        </div>
+      </div>
+
+      {editing && (
+        <ProjectFormDrawer project={project} onClose={() => setEditing(false)}
+          onSaved={saved => { setEditing(false); setProject(p => ({ ...p, ...saved, stats: p.stats })); }} />
       )}
+      {removing && <DeleteProjectDialog project={project} onClose={() => setRemoving(false)} onDeleted={() => navigate('/projects')} />}
     </div>
   );
 };

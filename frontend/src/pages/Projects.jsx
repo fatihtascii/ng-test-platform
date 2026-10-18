@@ -1,570 +1,202 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+/**
+ * Proje listesi. Sayılar sunucudan tek istekte gelir (?with_stats=true); case listesi indirilmez.
+ * Parçalar ./projects altında: model.js, ProjectFormDrawer, DeleteProjectDialog.
+ */
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Plus, RefreshCw, MoreHorizontal, Eye, Pencil, Trash2, FolderKanban, PlayCircle, BarChart3 } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
-import PermissionGuard from '../components/PermissionGuard';
-import {
-  Plus, Search, Folder, MoreVertical, X,
-  Pencil, Trash2, Filter, AlertCircle, CheckCircle2,
-  Loader2, ArrowUpDown, LayoutGrid, List, ChevronRight
-} from 'lucide-react';
-import { API_BASE } from '../auth';
-import { ResultBar } from '../components/ui';
+import { useUrlFilters } from '../hooks/useUrlFilters';
+import { PageHeader, Button, ResultBar, StatusBadge, EmptyState, Skeleton } from '../components/ui';
+import { DebouncedSearchInput, FilterSelect } from '../components/ui/data';
+import { Menu, MenuItem, MenuSeparator } from '../components/ui/overlay';
+import { TONES } from '../components/ui/tokens';
+import { toast } from '../components/ui/toast';
+import { projectsApi } from '../api';
+import { relativeTime, formatDate } from './test-runs/model';
+import ProjectFormDrawer from './projects/ProjectFormDrawer';
+import DeleteProjectDialog from './projects/DeleteProjectDialog';
+import { PROJECT_STATUSES, PROJECT_STATUS_TONE, SORTS, caseSegments, caseRate, compareProjects, trLower } from './projects/model';
 
-// ── Yardımcı Stiller ──────────────────────────────────────────
-const getStatusStyle = (status) => {
-  switch (status) {
-    case 'Tamamlandı': return 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/30';
-    case 'Beklemede':  return 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/30';
-    default:           return 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800/30';
-  }
-};
+const load = () => projectsApi.getAll({ with_stats: true }).then(r => r.data);
 
-const Skeleton = ({ className }) => (
-  <div className={`animate-pulse bg-slate-200 dark:bg-slate-700 ${className}`} />
-);
-
-// ── Ana Bileşen ────────────────────────────────────────────────
 const Projects = () => {
-  const navigate = useNavigate();
   const { can } = usePermission();
+  const navigate = useNavigate();
+  const filters = useUrlFilters(['q', 'status', 'sort']);
+  const { q, status } = filters.values;
+  const sort = filters.values.sort || 'activity';
 
-  const [projects, setProjects]     = useState([]);
-  const [testCases, setTestCases]   = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
-
-  // Filtre, Arama, Sıralama ve Görünüm
-  const [searchTerm, setSearchTerm]     = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [sortBy, setSortBy]             = useState('newest'); // newest, name_asc, name_desc
-  const [viewMode, setViewMode]         = useState('list');   // list, grid
-
-  const [activeDropdown, setActiveDropdown] = useState(null);
-  const [isModalOpen, setIsModalOpen]       = useState(false);
-  const [modalMode, setModalMode]           = useState('create');
-  const [isSubmitting, setIsSubmitting]     = useState(false);
-  const [formError, setFormError]           = useState('');
-
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [isDeleting, setIsDeleting]       = useState(false);
-
-  const [toast, setToast] = useState(null);
-  
-
-  const showToast = useCallback((type, message) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
-
-  const [currentProject, setCurrentProject] = useState({ name: '', description: '', status: 'Aktif' });
-
-  // ── Veri Çekme ──────────────────────────────────────────────
-  const fetchAll = useCallback(async () => {
-    setError(null);
-    try {
-      const [projRes, tcRes] = await Promise.all([
-        fetch(`${API_BASE}/projects`).catch(() => ({ ok: false })),
-        fetch(`${API_BASE}/test-cases`).catch(() => ({ ok: false })),
-      ]);
-
-      if (projRes.ok) setProjects(await projRes.json());
-      else setError('Projeler yüklenemedi. Bağlantınızı kontrol edin.');
-
-      if (tcRes.ok) setTestCases(await tcRes.json());
-    } catch {
-      setError('Backend servisine ulaşılamıyor.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [form, setForm] = useState(null);
+  const [removing, setRemoving] = useState(null);
 
   useEffect(() => {
-    fetchAll();
-    const close = () => setActiveDropdown(null);
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [fetchAll]);
+    let alive = true;
+    load().then(d => { if (alive) { setProjects(d); setLoading(false); } })
+      .catch(e => { if (alive) { setError(e.message); setLoading(false); } });
+    return () => { alive = false; };
+  }, []);
 
-  // ── Hesaplamalar & Veri İşleme ──────────────────────────────
-  const projectStats = useMemo(() => {
-    const statsMap = {};
-    projects.forEach(p => {
-      // ✅ DÜZELTME: id için fallback sağladık
-      const pid = p.id || p._id || p.project_id;
-      if (!pid) return; // Geçersiz projeleri atla
-      
-      const tcs = testCases.filter(tc => tc.project_id === pid);
-      const count = (...st) => tcs.filter(tc => st.includes(tc.status)).length;
-      const passed = count('Başarılı', 'Passed');
-      const failed = count('Başarısız', 'Failed');
-      // Geçme oranı Dashboard'la aynı tanım: geçen / koşulan (henüz koşulmayanlar paydada yok)
-      statsMap[pid] = {
-        total: tcs.length,
-        passed,
-        rate: passed + failed > 0 ? Math.round((passed / (passed + failed)) * 100) : null,
-        segs: [
-          { label: 'Geçti',     value: passed,                  tone: 'pass' },
-          { label: 'Kaldı',     value: failed,                  tone: 'fail' },
-          { label: 'Koşulmadı', value: count('Test Edilmedi'),  tone: 'pending' },
-          { label: 'Taslak',    value: count('Taslak'),         tone: 'draft' },
-        ],
-      };
-    });
-    return statsMap;
-  }, [projects, testCases]);
+  const reload = useCallback(() => {
+    setLoading(true);
+    load().then(d => { setProjects(d); setError(null); }).catch(e => setError(e.message)).finally(() => setLoading(false));
+  }, []);
 
-  const processedProjects = useMemo(() => {
-    // 1. Filtreleme
-    let result = projects.filter(p => {
-      const q = searchTerm.toLowerCase();
-      const matchSearch = p.name?.toLowerCase().includes(q) || 
-                          (p.description?.toLowerCase().includes(q)) ||
-                          String(p.id || '').includes(q);
-      const matchStatus = statusFilter === 'All' || p.status === statusFilter;
-      return matchSearch && matchStatus;
-    });
+  const filtered = useMemo(() => {
+    const needle = trLower(q.trim());
+    return projects
+      .filter(p => (!needle || trLower(p.name).includes(needle) || trLower(p.description || '').includes(needle)) && (!status || p.status === status))
+      .sort(compareProjects(sort));
+  }, [projects, q, status, sort]);
 
-    // 2. Sıralama
-    if (sortBy === 'name_asc') {
-      result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    } else if (sortBy === 'name_desc') {
-      result.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
-    } else {
-      result.sort((a, b) => (b.id || 0) - (a.id || 0));
-    }
+  const totals = useMemo(() => projects.reduce((t, p) => ({
+    cases: t.cases + (p.stats?.cases || 0), defects: t.defects + (p.stats?.open_defects || 0),
+    active: t.active + (p.status === 'Aktif' ? 1 : 0),
+  }), { cases: 0, defects: 0, active: 0 }), [projects]);
 
-    return result;
-  }, [projects, searchTerm, statusFilter, sortBy]);
-
-  // ── İşlemler ────────────────────────────────────────────────
-  const handleProjectSubmit = async (e) => {
-    e.preventDefault();
-    if (!currentProject.name.trim()) return setFormError('Proje adı gereklidir.');
-    
-    setIsSubmitting(true);
-    setFormError('');
-    
-    try {
-      const isCreate = modalMode === 'create';
-      const pid = currentProject.id || currentProject._id; // Güvenli ID
-      const url = isCreate ? `${API_BASE}/projects` : `${API_BASE}/projects/${pid}`;
-      const method = isCreate ? 'POST' : 'PUT';
-      
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: currentProject.name.trim(),
-          description: currentProject.description,
-          status: currentProject.status
-        }),
-      });
-
-      if (res.ok) {
-        const resData = await res.json();
-        // ✅ DÜZELTME: FastAPI/Backend veriyi { data: {...} } şeklinde dönerse diye extraction güvencesi.
-        const savedProject = resData.data ? resData.data : resData;
-
-        if (isCreate) setProjects(prev => [savedProject, ...prev]);
-        else setProjects(prev => prev.map(p => (p.id === savedProject.id || p._id === savedProject._id) ? savedProject : p));
-        
-        setIsModalOpen(false);
-        showToast('success', isCreate ? 'Proje başarıyla oluşturuldu.' : 'Proje güncellendi.');
-      } else {
-        const errData = await res.json().catch(() => ({ detail: 'İşlem başarısız oldu.' }));
-        setFormError(errData.detail || 'Bir sorun oluştu.');
-      }
-    } catch {
-      setFormError('Sunucu hatası oluştu. Lütfen tekrar deneyin.');
-    } finally {
-      setIsSubmitting(false);
-    }
+  const onSaved = (saved, created) => {
+    setForm(null);
+    if (created) { navigate(`/projects/${saved.id}`); return; }
+    // Sayılar değişmez; yalnız temel alanları güncelle
+    setProjects(list => list.map(p => (p.id === saved.id ? { ...p, ...saved, stats: p.stats } : p)));
   };
 
-  const handleDelete = async (id) => {
-    setIsDeleting(true);
+  const setStatus = async (p, value) => {
     try {
-      const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setProjects(prev => prev.filter(p => p.id !== id && p._id !== id));
-        showToast('success', 'Proje sistemden kalıcı olarak silindi.');
-      } else {
-        showToast('error', 'Proje silinemedi.');
-      }
-    } catch {
-      showToast('error', 'Sunucuya bağlanılamadı.');
-    } finally {
-      setIsDeleting(false);
-      setDeleteConfirm(null);
-    }
+      const { data } = await projectsApi.update(p.id, { status: value });
+      setProjects(list => list.map(x => (x.id === p.id ? { ...x, ...data, stats: x.stats } : x)));
+      toast.success(`${p.name} → ${value}`);
+    } catch (e) { toast.error(e.message || 'Güncellenemedi.'); }
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 relative pb-10">
-      
-      {/* Toast Bildirimi */}
-      {toast && (
-        <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-2 px-4 py-3 rounded-lg shadow-xl border animate-in slide-in-from-bottom-5 duration-300 ${ toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-800 dark:text-emerald-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/40 dark:border-rose-800 dark:text-rose-300' }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-          <span className="text-sm font-medium">{toast.message}</span>
+    <div className="space-y-5">
+      <PageHeader title="Projeler"
+        description="Test case, plan, koşum ve hata kayıtları projeye bağlıdır. Projeye tıklayınca tüm çalışmanın özeti açılır."
+        actions={<>
+          <Button variant="ghost" size="icon" onClick={reload} aria-label="Yenile" disabled={loading}><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></Button>
+          {can('projects.create') && <Button variant="primary" icon={<Plus size={15} />} onClick={() => setForm({})}>Proje oluştur</Button>}
+        </>} />
+
+      {error && (
+        <div role="alert" className="flex items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+          {error}<Button size="sm" className="ml-auto" onClick={reload}>Tekrar dene</Button>
         </div>
       )}
 
-      {/* HEADER & TOOLBAR */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
-        
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Projeler
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Test case'leri ürün ya da modüle göre gruplayın; her projenin sonuç dağılımı burada.</p>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            {/* Görünüm Değiştirici */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
-              <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`} title="Liste Görünümü">
-                <List size={16} />
-              </button>
-              <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`} title="Grid Görünümü">
-                <LayoutGrid size={16} />
-              </button>
-            </div>
+      {projects.length > 0 && (
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          <b className="font-semibold tabular-nums text-slate-900 dark:text-white">{projects.length}</b> proje · {totals.active} aktif ·{' '}
+          <span className="tabular-nums">{totals.cases}</span> case · <span className={totals.defects ? 'text-rose-700 dark:text-rose-400' : ''}><span className="tabular-nums">{totals.defects}</span> açık hata</span>
+        </p>
+      )}
 
-            {can('projects.create') && (
-              <button 
-                onClick={() => { setModalMode('create'); setFormError(''); setCurrentProject({ name: '', description: '', status: 'Aktif' }); setIsModalOpen(true); }}
-                className="px-3 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
-              >
-                <Plus size={15} /> Yeni proje
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Filtre ve Arama Çubuğu */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-          <div className="relative w-full sm:flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Proje ara (İsim veya ID)..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors dark:text-white"
-            />
-            {searchTerm && (
-              <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                <X size={14} />
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="relative w-full sm:w-40">
-              <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-indigo-500 appearance-none">
-                <option value="All">Tüm Durumlar</option>
-                <option value="Aktif">Aktif</option>
-                <option value="Beklemede">Beklemede</option>
-                <option value="Tamamlandı">Tamamlandı</option>
-              </select>
-            </div>
-
-            <div className="relative w-full sm:w-44">
-              <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:border-indigo-500 appearance-none">
-                <option value="newest">Yeniden Eskiye</option>
-                <option value="name_asc">İsim (A-Z)</option>
-                <option value="name_desc">İsim (Z-A)</option>
-              </select>
-            </div>
-          </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <DebouncedSearchInput value={q} onChange={v => filters.set('q', v)} placeholder="Proje ara" className="sm:w-64" />
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterSelect label="Durum" value={status} onChange={v => filters.set('status', v)} options={PROJECT_STATUSES.map(s => [s, s])} />
+          <label className="relative inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white pl-2.5 pr-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+            Sırala:
+            <select value={sort} onChange={e => filters.set('sort', e.target.value === 'activity' ? '' : e.target.value)} aria-label="Sırala"
+              className="cursor-pointer bg-transparent font-medium text-slate-800 focus:outline-none dark:text-slate-100">
+              {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          {(q || status) && <Button variant="ghost" size="sm" onClick={filters.clear}>Temizle</Button>}
         </div>
       </div>
 
-      {error && (
-        <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-lg text-sm font-medium">
-          <AlertCircle size={16} /> {error}
-          <button onClick={fetchAll} className="ml-auto underline underline-offset-2">Tekrar Dene</button>
-        </div>
-      )}
-
-      {/* İÇERİK ALANI */}
-      {loading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-              <Skeleton className="w-10 h-10 rounded-lg" />
-              <div className="flex-1 space-y-2"><Skeleton className="h-4 w-48 rounded" /><Skeleton className="h-3 w-32 rounded" /></div>
-              <Skeleton className="h-8 w-24 rounded-md" />
-            </div>
-          ))}
-        </div>
-      ) : processedProjects.length === 0 ? (
-        <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl border-dashed">
-          <Folder size={40} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
-          <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">Gösterilecek Proje Yok</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {searchTerm || statusFilter !== 'All' ? 'Filtrelerinize uygun bir sonuç bulunamadı.' : 'Sistemde henüz kayıtlı bir proje yok.'}
-          </p>
-          {(searchTerm || statusFilter !== 'All') && (
-            <button onClick={() => { setSearchTerm(''); setStatusFilter('All'); }} className="mt-4 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 hover:underline">
-              Filtreleri Temizle
-            </button>
-          )}
-        </div>
-      ) : viewMode === 'list' ? (
-        // LİSTE GÖRÜNÜMÜ
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  <th className="px-5 py-3.5 font-medium">Proje Adı</th>
-                  <th className="px-5 py-3.5 font-medium">Durum</th>
-                  <th className="px-5 py-3.5 font-medium w-1/3">Sonuçlar</th>
-                  <th className="px-5 py-3.5 text-right font-medium">İşlemler</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                {processedProjects.map((project) => {
-                  // ✅ DÜZELTME: id için fallback
-                  const projectId = project.id || project._id || project.project_id;
-                  const stats = projectStats[projectId] || { total: 0, passed: 0, rate: null };
-                  
-                  return (
-                    <tr 
-                      key={projectId || Math.random()} 
-                      onClick={() => projectId && navigate(`/projects/${projectId}`)}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
-                    >
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border border-slate-200 dark:border-slate-700">
-                            <Folder size={16} />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                              {project.name}
-                            </h3>
-                            <p className="text-xs text-slate-500 truncate max-w-[250px] mt-0.5">
-                              {project.description || 'Açıklama yok'}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      
-                      <td className="px-5 py-4">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${getStatusStyle(project.status)}`}>
-                          {project.status || 'Aktif'}
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="relative overflow-x-auto">
+          <table className="w-full table-fixed text-left text-sm sm:min-w-[720px]">
+            <thead className="border-b border-slate-200 bg-slate-50/60 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+              <tr>
+                <th scope="col" className="py-2.5 pl-4 pr-3 font-medium">Proje</th>
+                <th scope="col" className="w-28 px-3 py-2.5 font-medium">Durum</th>
+                <th scope="col" className="hidden w-56 px-3 py-2.5 font-medium md:table-cell">Case'ler (son sonuç)</th>
+                <th scope="col" className="hidden w-32 px-3 py-2.5 font-medium lg:table-cell">Koşum</th>
+                <th scope="col" className="hidden w-24 px-3 py-2.5 text-right font-medium sm:table-cell">Açık hata</th>
+                <th scope="col" className="w-12 px-3 py-2.5"><span className="sr-only">İşlemler</span></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {loading && !projects.length ? Array.from({ length: 4 }).map((_, i) => (
+                <tr key={i}><td colSpan={6} className="px-4 py-3.5"><div className="flex gap-4"><Skeleton className="h-4 flex-1" /><Skeleton className="h-4 w-48" /></div></td></tr>
+              )) : filtered.length === 0 ? (
+                <tr><td colSpan={6}>
+                  {projects.length === 0 ? (
+                    <EmptyState icon={<FolderKanban size={24} />} title="Henüz proje yok"
+                      description="Test case'leri ürün veya modüle göre gruplamak için bir proje oluşturun."
+                      action={can('projects.create') && <Button variant="primary" icon={<Plus size={14} />} onClick={() => setForm({})}>Proje oluştur</Button>} />
+                  ) : <EmptyState title="Filtrelere uyan proje yok" action={<Button onClick={filters.clear}>Filtreleri temizle</Button>} />}
+                </td></tr>
+              ) : filtered.map(p => {
+                const s = p.stats || {};
+                const rate = caseRate(s.cases_by_status);
+                return (
+                  <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <td className="max-w-0 py-3 pl-4 pr-3">
+                      <button type="button" onClick={e => { e.stopPropagation(); navigate(`/projects/${p.id}`); }}
+                        className="block max-w-full truncate text-left font-medium text-slate-900 hover:underline dark:text-white">{p.name}</button>
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                        {p.description || <span className="italic">Açıklama yok</span>}
+                      </p>
+                    </td>
+                    <td className="px-3 py-3"><StatusBadge tone={PROJECT_STATUS_TONE[p.status]}>{p.status}</StatusBadge></td>
+                    <td className="hidden px-3 py-3 md:table-cell">
+                      {s.cases ? (
+                        <>
+                          <ResultBar height="h-1.5" segments={caseSegments(s.cases_by_status)} />
+                          <p className="mt-1 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                            {s.cases} case{rate != null && ` · %${rate} geçiyor`}{s.automated > 0 && ` · ${s.automated} oto.`}
+                          </p>
+                        </>
+                      ) : <span className="text-xs text-slate-400">Case yok</span>}
+                    </td>
+                    <td className="hidden px-3 py-3 text-xs text-slate-500 lg:table-cell dark:text-slate-400">
+                      <span className="tabular-nums text-slate-800 dark:text-slate-100">{s.runs || 0}</span> koşum
+                      {s.last_run_at && <span className="block" title={formatDate(s.last_run_at, true)}>son: {relativeTime(s.last_run_at)}</span>}
+                    </td>
+                    <td className="hidden px-3 py-3 text-right sm:table-cell">
+                      {s.open_defects ? (
+                        <span className="tabular-nums">
+                          <span className="font-medium text-rose-700 dark:text-rose-400">{s.open_defects}</span>
+                          {s.critical_defects > 0 && <span className="block text-xs text-slate-500 dark:text-slate-400">{s.critical_defects} kritik</span>}
                         </span>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        {stats.total === 0 ? (
-                          <span className="text-xs text-slate-400 font-medium">Test yok</span>
-                        ) : (
-                          <div className="flex items-center gap-3 max-w-[200px]">
-                            <ResultBar segments={stats.segs} height="h-1.5" className="flex-1" />
-                            <span className="text-xs font-medium text-slate-600 dark:text-slate-400 tabular-nums w-12 text-right">
-                              {stats.rate == null ? '—' : `%${stats.rate}`}
-                            </span>
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-5 py-4 text-right relative" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === projectId ? null : projectId); }}
-                          className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        
-                        {activeDropdown === projectId && (
-                          <div className="absolute right-8 top-10 w-40 bg-white dark:bg-slate-900 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 z-50 py-1 animate-in fade-in zoom-in-95 text-left">
-                            <button onClick={() => navigate(`/projects/${projectId}`)} className="w-full px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2">
-                              <ChevronRight size={14} /> Detaylara Git
-                            </button>
-                            <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
-                            {can('projects.edit') && (
-                              <button onClick={() => { setModalMode('edit'); setFormError(''); setCurrentProject(project); setIsModalOpen(true); setActiveDropdown(null); }} className="w-full px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2">
-                                <Pencil size={14} /> Düzenle
-                              </button>
-                            )}
-                            {can('projects.delete') && (
-                              <button onClick={() => { setDeleteConfirm(projectId); setActiveDropdown(null); }} className="w-full px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2">
-                                <Trash2 size={14} /> Sil
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ) : <span className="text-slate-400">0</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
+                      <Menu trigger={({ ref, toggle, open }) => (
+                        <button ref={ref} type="button" onClick={toggle} aria-label={`${p.name} işlemleri`} aria-haspopup="menu" aria-expanded={open}
+                          className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><MoreHorizontal size={16} /></button>
+                      )}>
+                        <MenuItem icon={Eye} onSelect={() => navigate(`/projects/${p.id}`)}>Projeyi aç</MenuItem>
+                        {can('test_runs.create') && <MenuItem icon={PlayCircle} onSelect={() => navigate(`/test-runs?new=1&project_id=${p.id}`)}>Koşum oluştur</MenuItem>}
+                        {can('reports.view') && <MenuItem icon={BarChart3} onSelect={() => navigate(`/reports?project=${p.id}`)}>Rapor</MenuItem>}
+                        {can('projects.edit') && <>
+                          <MenuSeparator />
+                          <MenuItem icon={Pencil} onSelect={() => setForm({ project: p })}>Düzenle</MenuItem>
+                          {PROJECT_STATUSES.filter(x => x !== p.status).map(x => (
+                            <MenuItem key={x} icon={() => <span className={`mx-[3px] h-2 w-2 rounded-full ${TONES[PROJECT_STATUS_TONE[x]].dot}`} />} onSelect={() => setStatus(p, x)}>{x} yap</MenuItem>
+                          ))}
+                        </>}
+                        {can('projects.delete') && <><MenuSeparator /><MenuItem icon={Trash2} tone="danger" onSelect={() => setRemoving(p)}>Sil</MenuItem></>}
+                      </Menu>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      ) : (
-        // GRİD GÖRÜNÜMÜ
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {processedProjects.map((project) => {
-            const projectId = project.id || project._id || project.project_id;
-            const stats = projectStats[projectId] || { total: 0, passed: 0, rate: null };
-            return (
-              <div 
-                key={projectId || Math.random()}
-                onClick={() => projectId && navigate(`/projects/${projectId}`)}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-all cursor-pointer flex flex-col h-full group"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 border border-slate-200 dark:border-slate-700">
-                    <Folder size={18} />
-                  </div>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${getStatusStyle(project.status)}`}>
-                    {project.status || 'Aktif'}
-                  </span>
-                </div>
-                
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 mb-1 truncate">
-                  {project.name}
-                </h3>
-                <p className="text-xs text-slate-500 line-clamp-2 mb-4 flex-1">
-                  {project.description || 'Proje açıklaması belirtilmemiş.'}
-                </p>
+      </div>
 
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-slate-500 font-medium">{stats.total} Senaryo</span>
-                    {stats.total > 0 && (
-                      <span className={`font-semibold text-slate-700 dark:text-slate-300`}>
-                        {stats.rate == null ? '—' : `%${stats.rate}`}
-                      </span>
-                    )}
-                  </div>
-                  {stats.total > 0 ? (
-                    <ResultBar segments={stats.segs} height="h-1.5" />
-                  ) : (
-                    <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full" />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* MODAL: PROJE FORMU */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-xl shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]">
-            
-            <div className="flex justify-between items-center px-5 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                {modalMode === 'create' ? 'Yeni Proje Oluştur' : 'Proje Detaylarını Düzenle'}
-              </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-5 overflow-y-auto">
-              {formError && (
-                <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2.5 rounded-lg text-sm mb-4">
-                  <AlertCircle size={16} /> {formError}
-                </div>
-              )}
-
-              <form id="project-form" onSubmit={handleProjectSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Proje Adı</label>
-                  <input 
-                    type="text" 
-                    required 
-                    autoFocus
-                    value={currentProject.name}
-                    onChange={(e) => setCurrentProject({ ...currentProject, name: e.target.value })}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
-                    placeholder="Örn: Müşteri Portalı API"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Açıklama</label>
-                  <textarea 
-                    rows="3" 
-                    value={currentProject.description}
-                    onChange={(e) => setCurrentProject({ ...currentProject, description: e.target.value })}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none transition-colors"
-                    placeholder="Proje kapsamı veya hedefleri..."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Durum</label>
-                  <select
-                    value={currentProject.status || 'Aktif'}
-                    onChange={(e) => setCurrentProject({ ...currentProject, status: e.target.value })}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
-                  >
-                    <option value="Aktif">Aktif</option>
-                    <option value="Beklemede">Beklemede</option>
-                    <option value="Tamamlandı">Tamamlandı</option>
-                  </select>
-                </div>
-              </form>
-            </div>
-
-            <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 rounded-b-xl flex justify-end gap-2 shrink-0">
-              <button 
-                type="button" 
-                onClick={() => setIsModalOpen(false)} 
-                className="px-4 py-2 text-slate-600 dark:text-slate-300 font-medium text-sm hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
-              >
-                İptal
-              </button>
-              <button 
-                type="submit" 
-                form="project-form"
-                disabled={isSubmitting} 
-                className="px-4 py-2 bg-indigo-600 text-white font-medium text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center min-w-[100px] transition-colors"
-              >
-                {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Kaydet'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SİLME ONAY MODALI */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-xl shadow-xl border border-slate-200 dark:border-slate-800">
-            <div className="p-5">
-              <div className="flex gap-3">
-                <div className="w-10 h-10 bg-rose-100 dark:bg-rose-500/20 rounded-full flex items-center justify-center shrink-0">
-                  <Trash2 size={20} className="text-rose-600 dark:text-rose-400" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-1">Projeyi Sil</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Bu projeyi silmek üzeresiniz. İşlem geri alınamaz ve projeye bağlı tüm test kayıtları silinir. Devam etmek istiyor musunuz?
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 rounded-b-xl flex justify-end gap-2">
-              <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-slate-600 dark:text-slate-300 font-medium text-sm hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">Vazgeç</button>
-              <button onClick={() => handleDelete(deleteConfirm)} disabled={isDeleting} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center min-w-[80px]">
-                {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Sil'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {form && <ProjectFormDrawer project={form.project} projects={projects} onClose={() => setForm(null)} onSaved={onSaved} />}
+      {removing && <DeleteProjectDialog project={removing} onClose={() => setRemoving(null)}
+        onDeleted={p => { setRemoving(null); setProjects(list => list.filter(x => x.id !== p.id)); }} />}
     </div>
   );
 };
