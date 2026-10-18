@@ -1,18 +1,32 @@
 import React from 'react';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, MonitorPlay, Loader2 } from 'lucide-react';
 import { StatusBadge, Ident, Skeleton } from '../../components/ui';
 import { SortHeader, Checkbox, Pagination } from '../../components/ui/data';
 import { Menu, MenuItem, MenuSeparator } from '../../components/ui/overlay';
 import { PriorityMark, ExecutionMark, TagList, Marker } from './parts';
 import { caseIdent, formatDate } from './model';
 
+// Satırdaki "tarayıcıda çalıştır" düğmesi; aynı anda tek hızlı koşum
+const RunButton = ({ c, quickRun }) => {
+  const mine = quickRun.runningId === c.id;
+  const label = mine ? `${caseIdent(c.id)} koşuluyor` : quickRun.busy ? 'Başka bir koşum sürüyor' : `${caseIdent(c.id)} tarayıcıda çalıştır`;
+  return (
+    <button type="button" onClick={() => quickRun.onRun(c)} disabled={quickRun.busy} aria-label={label} title={label}
+      className={`rounded-md p-1 disabled:cursor-not-allowed ${mine ? 'text-indigo-600 dark:text-indigo-400'
+        : 'text-slate-400 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300'}`}>
+      {mine ? <Loader2 size={16} className="animate-spin" /> : <MonitorPlay size={16} />}
+    </button>
+  );
+};
+
 /**
  * rowActions(c) → [{ icon, label, onSelect, tone } | 'sep']
- * Satıra tıklamak detayı açar; seçim kutusu ve menü tıklaması satırı açmaz.
+ * quickRun → { canRun(c), onRun(c), runningId, busy }: otomasyon case'lerinde tarayıcıda koş düğmesi
+ * Satıra tıklamak detayı açar; seçim kutusu, koş düğmesi ve menü tıklaması satırı açmaz.
  */
 const CaseTable = ({
   rows, total, loading, selectable, selected, onToggle, onTogglePage,
-  sort, onSort, projectName, onOpen, activeId, rowActions,
+  sort, onSort, projectName, onOpen, activeId, rowActions, quickRun,
   page, pageSize, onPage, onPageSize, empty,
 }) => {
   const pageIds = rows.map(r => r.id);
@@ -40,7 +54,7 @@ const CaseTable = ({
               <SortHeader label="Öncelik" sortKey="priority" sort={sort} onSort={onSort} className="hidden w-28 sm:table-cell" />
               <SortHeader label="Son sonuç" sortKey="status" sort={sort} onSort={onSort} className="w-32 sm:w-36" />
               <SortHeader label="Güncellendi" sortKey="updated" sort={sort} onSort={onSort} className="hidden w-32 xl:table-cell" />
-              <th scope="col" className="w-12 px-3 py-2.5"><span className="sr-only">İşlemler</span></th>
+              <th scope="col" className={`${quickRun ? 'w-20' : 'w-12'} px-3 py-2.5`}><span className="sr-only">İşlemler</span></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -91,6 +105,8 @@ const CaseTable = ({
                   <td className="px-3 py-2.5"><StatusBadge status={c.status} /></td>
                   <td className="hidden whitespace-nowrap px-3 py-2.5 text-xs tabular-nums text-slate-500 xl:table-cell dark:text-slate-400">{formatDate(c.updated_at || c.created_at)}</td>
                   <td className="px-3 py-2.5 text-right" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-0.5">
+                    {quickRun?.canRun(c) && <RunButton c={c} quickRun={quickRun} />}
                     {actions.length > 0 && (
                       <Menu trigger={({ ref, toggle, open }) => (
                         <button ref={ref} type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} aria-label={`${caseIdent(c.id)} işlemleri`}
@@ -103,6 +119,7 @@ const CaseTable = ({
                           : <MenuItem key={a.label} icon={a.icon} tone={a.tone} onSelect={a.onSelect}>{a.label}</MenuItem>)}
                       </Menu>
                     )}
+                    </div>
                   </td>
                 </tr>
               );

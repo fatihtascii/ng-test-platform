@@ -9,7 +9,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Sparkles, Download, RefreshCw, Pencil, Copy, Trash2, Play, Smartphone, ClipboardList, FlaskConical, Eye } from 'lucide-react';
+import { Plus, Sparkles, Download, RefreshCw, Pencil, Copy, Trash2, Play, MonitorPlay, Smartphone, ClipboardList, FlaskConical, Eye } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import { PageHeader, Button, ResultBar, EmptyState } from '../components/ui';
 import { Drawer, ConfirmDialog } from '../components/ui/overlay';
@@ -26,6 +26,8 @@ import CaseForm from './test-cases/CaseForm';
 import AiDialog from './test-cases/AiDialog';
 import MobileRunDialog from './test-cases/MobileRunDialog';
 import AddToPlanDialog from './test-cases/AddToPlanDialog';
+import QuickRunCard from './test-cases/QuickRunCard';
+import { useAutomationRun } from './automation/useAutomationRun';
 import {
   STATUSES, compareCases, matchesQuery, isAutomatable, caseIdent, casesToCsv, downloadText,
   emptyForm, formFromCase, formFromAi, formSignature, validateForm, buildPayload, duplicatePayload, trLower,
@@ -50,6 +52,9 @@ const TestCases = () => {
   const [dialog, setDialog] = useState(null);         // { type: 'delete'|'discard'|'ai'|'mobile'|'plan', ... }
   const [busy, setBusy] = useState(null);
   const searchRef = useRef(null);
+  // Listeden tek case'i tarayıcı açık koşma (aynı anda bir tane)
+  const quick = useAutomationRun();
+  const [quickCase, setQuickCase] = useState(null);
 
   // ── Filtreleme / sıralama ───────────────────────────────────
   const allTags = useMemo(() => {
@@ -192,13 +197,27 @@ const TestCases = () => {
     toast.success(`${list.length} case ${label} CSV olarak indirildi.`);
   };
 
+  const runInBrowser = (c) => {
+    if (quick.busy || !isAutomatable(c)) return;
+    setQuickCase(c);
+    // Ortam boş: depo case'inde deponun ortamı (yoksa klasördeki .env) kullanılır
+    quick.start({ cases: [c.id], browser: 'Chrome', headless: false, environmentId: null, project: String(c.project_id) });
+  };
+  const quickRun = can('automation.execute')
+    ? { canRun: isAutomatable, onRun: runInBrowser, runningId: quick.busy ? quickCase?.id : null, busy: quick.busy }
+    : undefined;
+  const closeQuick = () => { quick.reset(); setQuickCase(null); };
+
   const rowActions = (c) => {
     const a = [{ icon: Eye, label: 'Aç', onSelect: () => openCase(c.id) }];
     if (can('test_cases.edit')) a.push({ icon: Pencil, label: 'Düzenle', onSelect: () => startEdit(c) });
     if (can('test_cases.create')) a.push({ icon: Copy, label: 'Kopyasını oluştur', onSelect: () => duplicate(c) });
     const run = [];
     if (can('test_plans.edit')) run.push({ icon: ClipboardList, label: 'Plana ekle', onSelect: () => setDialog({ type: 'plan', cases: [c] }) });
-    if (can('automation.execute') && isAutomatable(c)) run.push({ icon: Play, label: 'Otomasyonda koş', onSelect: () => sendToAutomation([c]) });
+    if (can('automation.execute') && isAutomatable(c)) {
+      run.push({ icon: MonitorPlay, label: 'Tarayıcıda çalıştır', onSelect: () => runInBrowser(c) });
+      run.push({ icon: Play, label: 'Otomasyonda koş', onSelect: () => sendToAutomation([c]) });
+    }
     if (can('automation.execute')) run.push({ icon: Smartphone, label: 'Mobil cihazda koş', onSelect: () => setDialog({ type: 'mobile', testCase: c }) });
     if (run.length) a.push('sep', ...run);
     if (can('test_cases.delete')) a.push('sep', { icon: Trash2, label: 'Sil', tone: 'danger', onSelect: () => setDialog({ type: 'delete', ids: [c.id] }) });
@@ -305,7 +324,7 @@ const TestCases = () => {
       <CaseTable rows={rows} total={filtered.length} loading={loading && !cases.length}
         selectable={selectable} selected={selected} onToggle={toggle} onTogglePage={togglePage}
         sort={sort} onSort={query.toggleSort} projectName={projectName}
-        onOpen={(id) => openCase(id, { replace: Boolean(query.caseId) })} activeId={current?.id} rowActions={rowActions}
+        onOpen={(id) => openCase(id, { replace: Boolean(query.caseId) })} activeId={current?.id} rowActions={rowActions} quickRun={quickRun}
         page={page} pageSize={query.pageSize} onPage={query.setPage} onPageSize={query.setPageSize} empty={empty} />
 
       <p className="hidden text-xs text-slate-400 lg:block">
@@ -363,6 +382,9 @@ const TestCases = () => {
       )}
       {dialog?.type === 'mobile' && <MobileRunDialog testCase={dialog.testCase} onClose={() => setDialog(null)} />}
       {dialog?.type === 'plan' && <AddToPlanDialog cases={dialog.cases} projectName={projectName} onClose={() => setDialog(null)} />}
+      {quickCase && quick.phase !== 'idle' && (
+        <QuickRunCard key={quick.startedAt} run={quick} testCase={quickCase} onClose={closeQuick} onDone={data.reload} />
+      )}
     </div>
   );
 };
