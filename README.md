@@ -51,7 +51,15 @@ Renk yalnızca anlam taşır.
 - Token'lar `frontend/src/index.css` içindeki `@theme` bloğunda. Tailwind'in renk, köşe ve gölge
   ölçekleri burada yeniden tanımlandığı için sayfalardaki sınıflar otomatik olarak bu dile uyar.
 - Ortak bileşenler `frontend/src/components/ui/`: `ResultBar` (geçti/kaldı/bekliyor şeridi),
-  `StatusBadge`, `Button`, `Panel`, `PageHeader`, `EmptyState`.
+  `StatusBadge`, `Button`, `Panel`, `PageHeader`, `EmptyState`; tablolar için `data.jsx`
+  (`SortHeader`, `Checkbox`, `Pagination`, `SearchInput`, `FilterSelect`, `Field`, `Tabs`);
+  katmanlar için `overlay.jsx` (`Modal`, `Drawer`, `ConfirmDialog`, `Menu`) ve uygulama geneli
+  bildirimler için `toast.js`.
+- Büyük sayfalar kendi klasörüne bölünür. Örnek: `pages/test-cases/` (veri modeli, sorgu durumu,
+  tablo, filtreler, detay/form paneli, diyaloglar); `pages/TestCases.jsx` yalnızca bunları birleştirir.
+  Test case listesinin arama, filtre, sıralama, sayfa ve açık case bilgisi adres çubuğunda tutulur;
+  bağlantı paylaşılabilir. Kısayollar: `/` ara, `n` yeni case, panelde `j`/`k` gezin, `e` düzenle,
+  formda `Ctrl+S` kaydet.
 - Yazı tipi IBM Plex Sans / Mono, projeye gömülü (`public/fonts`, SIL OFL); harici CDN gerekmez.
 - Geçme oranı her ekranda aynı tanımı kullanır: **geçen / koşulan** (henüz koşulmamış case'ler paydada yok).
 

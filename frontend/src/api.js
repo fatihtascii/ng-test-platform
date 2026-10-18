@@ -88,6 +88,23 @@ export const testCasesApi = {
   bulkDelete:  (data)     => api.post('/test-cases/bulk/delete', data),
   bulkStatus:  (data)     => api.patch('/test-cases/bulk/status', data),
   generateBDD: (data)     => api.post('/test-cases/generate-bdd-code', data),
+  history:     (id)       => api.get(`/test-cases/${id}/history`),
+};
+
+/** Sunucu tek istekte en fazla 1000 kayıt döndürür; liste ekranları hepsini sayfa sayfa çeker. */
+export const fetchAllTestCases = async (params = {}) => {
+  const PAGE = 1000;
+  const all = [];
+  for (let skip = 0; ; skip += PAGE) {
+    const { data } = await api.get('/test-cases', { params: { ...params, skip, limit: PAGE } });
+    all.push(...data);
+    if (data.length < PAGE) return all;
+  }
+};
+
+export const mobileApi = {
+  devices:  ()     => api.get('/api/mobile/devices', { timeout: 30000 }),
+  run:      (data) => api.post('/api/mobile/run', data),
 };
 
 export const testPlansApi = {
@@ -97,6 +114,7 @@ export const testPlansApi = {
   update:     (id, data)      => api.put(`/test-plans/${id}`, data),
   remove:     (id)            => api.delete(`/test-plans/${id}`),
   addItem:    (id, data)      => api.post(`/test-plans/${id}/items`, data),
+  bulkAdd:    (id, ids)       => api.post(`/test-plans/${id}/bulk-add`, { test_case_ids: ids }),
   updateItem: (planId, itemId, data) => api.patch(`/test-plans/${planId}/items/${itemId}`, data),
   removeItem: (planId, itemId)       => api.delete(`/test-plans/${planId}/items/${itemId}`),
 };

@@ -32,6 +32,7 @@ import useAutoLogout from './hooks/useAutoLogout';
 import { getToken } from './auth';
 import { usePermission } from './hooks/usePermission';
 import NoAccess from './components/NoAccess';
+import { Toaster } from './components/ui/overlay';
 
 // Tüm korumalı sayfaların ortak iskeleti (menü + üst çubuk bir kez kurulur)
 const AppLayout = () => {
@@ -54,6 +55,7 @@ const AppLayout = () => {
           </div>
         </main>
       </div>
+      <Toaster />
     </div>
   );
 };
