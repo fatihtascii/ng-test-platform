@@ -27,7 +27,7 @@ const Steps = ({ steps }) => {
         <li key={s.id || i} className="grid grid-cols-[2rem_1fr] gap-x-3 px-3 py-3 sm:grid-cols-[2rem_1fr_1fr]">
           <span className="pt-0.5 font-mono text-xs tabular-nums text-slate-400">{String(i + 1).padStart(2, '0')}</span>
           <div className="min-w-0">
-            <p className="whitespace-pre-wrap text-sm text-slate-900 dark:text-slate-100">{s.action || <span className="italic text-slate-400">Aksiyon yok</span>}</p>
+            <p className="whitespace-pre-wrap text-sm text-slate-900 [overflow-wrap:anywhere] dark:text-slate-100">{s.action || <span className="italic text-slate-400">Aksiyon yok</span>}</p>
             {s.image && (
               <a href={s.image} target="_blank" rel="noreferrer" className="mt-2 inline-block">
                 <img src={s.image} alt={`Adım ${i + 1} görseli`} className="max-h-40 rounded border border-slate-200 bg-slate-50 object-contain dark:border-slate-700 dark:bg-slate-800" />
@@ -36,7 +36,7 @@ const Steps = ({ steps }) => {
           </div>
           <div className="col-start-2 mt-2 min-w-0 border-l-2 border-slate-200 pl-3 sm:col-start-3 sm:mt-0 dark:border-slate-700">
             <p className="text-[11px] text-slate-500 dark:text-slate-400">Beklenen</p>
-            <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{s.expectedResult || '—'}</p>
+            <p className="whitespace-pre-wrap text-sm text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{s.expectedResult || '—'}</p>
           </div>
         </li>
       ))}
@@ -159,8 +159,14 @@ const CaseDetail = ({ c, projectName, can }) => {
           <h1 className="mt-1.5 text-lg font-semibold leading-snug text-slate-900 dark:text-white">{c.title}</h1>
           {c.tagList.length > 0 && <TagList tags={c.tagList} max={12} className="mt-2" />}
         </div>
+        {c.summary && <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{c.summary}</p>}
         <Tabs tabs={tabs} value={tab} onChange={t => setTab({ id: c.id, tab: t })} />
         {tab === 'steps' && <Steps steps={c.steps} />}
+        {tab === 'steps' && c.automation_ref && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {c.fromRepo ? 'Başlık ve adımlar testin docstring\'inden gelir; depo yenilendiğinde güncellenir.' : 'Bu case burada düzenlendi; depo yenilendiğinde başlık ve adımlar korunur.'}
+          </p>
+        )}
         {tab === 'bdd' && <CodeBlock code={c.gherkin_scenario} language="gherkin" filename="senaryo.feature" maxHeight="max-h-[60vh]" />}
         {tab === 'script' && <CodeBlock code={c.automation_script} language="python" filename={`test_tc_${c.id}.py`} maxHeight="max-h-[60vh]" />}
         {tab === 'history' && <History caseId={c.id} />}

@@ -65,11 +65,12 @@ const CaseForm = ({ form, setForm, errors, mode, projects, tagSuggestions }) => 
   };
 
   const filledSteps = form.steps.filter(s => s.action?.trim()).length;
+  const fromRepo = Boolean(form.automation_ref);
   const tabs = [
     { id: 'steps', label: 'Adımlar', count: filledSteps },
     { id: 'bdd', label: 'BDD', dot: Boolean(form.gherkin_scenario.trim()) },
-    { id: 'script', label: 'Otomasyon script\'i', dot: Boolean(form.automation_script.trim()) },
-  ];
+    !fromRepo && { id: 'script', label: 'Otomasyon script\'i', dot: Boolean(form.automation_script.trim()) },
+  ].filter(Boolean);
 
   return (
     <div className="space-y-6 p-5">
@@ -78,6 +79,12 @@ const CaseForm = ({ form, setForm, errors, mode, projects, tagSuggestions }) => 
           {errors.automation_script}
           <button type="button" onClick={() => setTab('script')} className="shrink-0 font-medium underline">Script'e git</button>
         </div>
+      )}
+      {fromRepo && (
+        <p className="rounded-md bg-indigo-50 px-3 py-2 text-xs text-indigo-900 dark:bg-indigo-500/10 dark:text-indigo-200">
+          Bu case otomasyon deposundaki <code className="[overflow-wrap:anywhere]">{form.automation_ref}</code> testine bağlı. Başlık ve adımlar normalde testin docstring'inden gelir;
+          burada kaydederseniz bu case'in başlık ve adımları artık depodan güncellenmez. Kalıcı değişiklik için docstring'i düzenleyin.
+        </p>
       )}
       <section className="space-y-4">
         <Field label="Başlık" htmlFor="tc-title" required error={errors.title}>
@@ -101,8 +108,8 @@ const CaseForm = ({ form, setForm, errors, mode, projects, tagSuggestions }) => 
               {PRIORITIES.map(p => <option key={p}>{p}</option>)}
             </select>
           </Field>
-          <Field label="Yürütme" htmlFor="tc-exec" hint={form.execution_type === 'Automated' ? 'Otomasyon ekranından koşulabilmesi için script gerekir.' : undefined}>
-            <select id="tc-exec" value={form.execution_type}
+          <Field label="Yürütme" htmlFor="tc-exec" hint={form.execution_type === 'Automated' && !fromRepo ? 'Otomasyon ekranından koşulabilmesi için script gerekir.' : undefined}>
+            <select id="tc-exec" value={form.execution_type} disabled={fromRepo}
               onChange={e => { set('execution_type')(e.target.value); if (e.target.value === 'Automated') setTab('script'); }}
               className={selectCls}>
               {Object.entries(EXECUTION_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -117,6 +124,10 @@ const CaseForm = ({ form, setForm, errors, mode, projects, tagSuggestions }) => 
           )}
           <Field label="Etiketler" htmlFor="tc-tags" className="sm:col-span-2" hint="Enter veya virgülle ekleyin.">
             <TagInput value={form.tags} onChange={set('tags')} suggestions={tagSuggestions} />
+          </Field>
+          <Field label="Açıklama / ön koşul" htmlFor="tc-summary" className="sm:col-span-2">
+            <textarea id="tc-summary" value={form.summary} onChange={onInput('summary')} rows={3}
+              placeholder="Testin amacı, ön koşullar, kullanılacak veri…" className={textareaCls} />
           </Field>
         </div>
       </section>

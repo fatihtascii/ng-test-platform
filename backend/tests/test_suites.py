@@ -275,3 +275,70 @@ def test_yerel_klasor_oldugu_yerde_kullanilir(client, admin, project, repo):
     # Depoyu kaldırmak klasöre dokunmaz
     client.delete(f"/suites/{s['id']}", headers=admin)
     assert (repo / "tests/smoke/test_yeni.py").exists() and (repo / ".venv").exists()
+
+
+def test_docstring_ayristirma():
+    from app.modules.suites import docstring
+    d = docstring.parse("""Onaya gönderirken eksik alan hatası gösterilir.
+
+    Flow'u zorunlu alanlar boşken onaya gönderir.
+
+    Ön koşul: Admin girişi yapılmış.
+
+    Adımlar:
+    1. Configure > Flows sayfasını aç -> Flow listesi görünür
+    2. Yeni flow oluştur ve "Send to approval"a bas
+       -> Her eksik alan için hata mesajı görünür
+    3. Pencereyi kapat
+
+    Not: Kayıt silinmez.
+    """.replace("\n    ", "\n"))
+    assert d["title"] == "Onaya gönderirken eksik alan hatası gösterilir"
+    assert d["summary"].startswith("Flow'u zorunlu") and "Ön koşul: Admin" in d["summary"] and d["summary"].endswith("Not: Kayıt silinmez.")
+    assert d["steps"] == [
+        {"action": "Configure > Flows sayfasını aç", "expected": "Flow listesi görünür"},
+        {"action": "Yeni flow oluştur ve \"Send to approval\"a bas", "expected": "Her eksik alan için hata mesajı görünür"},
+        {"action": "Pencereyi kapat", "expected": ""},
+    ]
+    assert docstring.parse("")["title"] == "" and docstring.parse("Tek satır")["steps"] == []
+
+
+def test_docstringden_baslik_ve_adimlar(client, admin, project, repo):
+    env = _env(client, admin, project)
+    s = _suite(client, admin, project, repo, env)
+    client.post(f"/suites/{s['id']}/sync", headers=admin)
+    cases = {c["automation_ref"]: c for c in client.get("/test-cases/", headers=admin).json() if c["suite_id"]}
+    ref = "tests/smoke/test_login.py::test_login_page_opens"
+    legacy = cases[ref]
+    # İlk sürümün tek adımlı biçimine çevir (eski veri): yeni senkronizasyonda güncellenmeli
+    client.put(f"/test-cases/{legacy['id']}", json={**{k: legacy[k] for k in ("title", "project_id", "status", "priority", "tags", "execution_type")},
+               "title": "Login page opens", "description": json.dumps({"steps": [{"id": "s1", "action": f"Otomasyon testi: {ref}", "expectedResult": "Test geçer."}]})}, headers=admin)
+    (repo / "tests/smoke/test_login.py").write_text('''import pytest
+
+
+@pytest.mark.smoke
+def test_login_page_opens():
+    """Giriş sayfası açılır
+
+    Ön koşul: Oturum kapalı.
+
+    Adımlar:
+    1. Giriş sayfasına git -> E-posta ve şifre alanları görünür
+    2. Boş formu gönder -> "Zorunlu alan" uyarısı çıkar
+    """
+''')
+    _git(repo, "commit", "-qam", "docstring")
+    client.post(f"/suites/{s['id']}/sync", headers=admin)
+    c = client.get(f"/test-cases/{legacy['id']}", headers=admin).json()
+    d = json.loads(c["description"])
+    assert c["title"] == "Giriş sayfası açılır"
+    assert [(x["action"], x["expectedResult"]) for x in d["steps"]] == [
+        ("Giriş sayfasına git", "E-posta ve şifre alanları görünür"), ("Boş formu gönder", '"Zorunlu alan" uyarısı çıkar')]
+    assert d["summary"] == "Ön koşul: Oturum kapalı." and d["auto"]["title"] == "Giriş sayfası açılır"
+
+    # Arayüzden düzenlenen case (auto alanı yok) sonraki senkronizasyonda ezilmez
+    client.put(f"/test-cases/{c['id']}", json={**{k: c[k] for k in ("project_id", "status", "priority", "tags", "execution_type")},
+               "title": "Elle yazılmış başlık", "description": json.dumps({"steps": [{"action": "Elle adım", "expectedResult": "Elle sonuç"}], "summary": ""})}, headers=admin)
+    client.post(f"/suites/{s['id']}/sync", headers=admin)
+    c2 = client.get(f"/test-cases/{c['id']}", headers=admin).json()
+    assert c2["title"] == "Elle yazılmış başlık" and json.loads(c2["description"])["steps"][0]["action"] == "Elle adım"

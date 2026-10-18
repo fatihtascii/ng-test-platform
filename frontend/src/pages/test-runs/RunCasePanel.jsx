@@ -57,18 +57,19 @@ const RunCasePanel = ({
           )}
         </div>
 
+        {tc?.summary && <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{tc.summary}</p>}
         {tc && (tc.steps.length > 0 ? (
           <ol className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
             {tc.steps.map((s, i) => (
               <li key={s.id || i} className="grid grid-cols-[2rem_1fr] gap-x-3 px-3 py-3 sm:grid-cols-[2rem_1fr_1fr]">
                 <span className="pt-0.5 font-mono text-xs tabular-nums text-slate-400">{String(i + 1).padStart(2, '0')}</span>
                 <div className="min-w-0">
-                  <p className="whitespace-pre-wrap text-sm text-slate-900 dark:text-slate-100">{s.action || '—'}</p>
+                  <p className="whitespace-pre-wrap text-sm text-slate-900 [overflow-wrap:anywhere] dark:text-slate-100">{s.action || '—'}</p>
                   {s.image && <img src={s.image} alt={`Adım ${i + 1} görseli`} className="mt-2 max-h-40 rounded border border-slate-200 object-contain dark:border-slate-700" />}
                 </div>
                 <div className="col-start-2 mt-2 min-w-0 border-l-2 border-slate-200 pl-3 sm:col-start-3 sm:mt-0 dark:border-slate-700">
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Beklenen</p>
-                  <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{s.expectedResult || '—'}</p>
+                  <p className="whitespace-pre-wrap text-sm text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{s.expectedResult || '—'}</p>
                 </div>
               </li>
             ))}

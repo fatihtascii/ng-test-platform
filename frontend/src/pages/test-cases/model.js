@@ -59,7 +59,7 @@ export const parseTags = (raw) => {
 };
 
 const parseDescription = (desc) => {
-  const fallback = { steps: [], type: 'Functional', execution_type: null };
+  const fallback = { steps: [], type: 'Functional', execution_type: null, summary: '', fromRepo: false };
   if (!desc) return fallback;
   const text = String(desc);
   if (text.trim().startsWith('{')) {
@@ -69,6 +69,8 @@ const parseDescription = (desc) => {
         steps: Array.isArray(p.steps) ? p.steps.map(s => ({ expectedResult: '', image: null, ...s, id: s.id ?? newStepId() })) : [],
         type: p.type || 'Functional',
         execution_type: p.execution_type || null,
+        summary: typeof p.summary === 'string' ? p.summary : '',
+        fromRepo: Boolean(p.auto),       // başlık/adımlar test docstring'inden geliyor
       };
     } catch { /* bozuk JSON → düz metin gibi davran */ }
   }
@@ -84,6 +86,8 @@ export const parseCase = (tc) => {
   return {
     ...tc,
     steps: d.steps,
+    summary: d.summary,
+    fromRepo: d.fromRepo,
     type: d.type,
     execution_type: tc.execution_type || d.execution_type || 'Manual',
     tagList: parseTags(tc.tags),
@@ -105,9 +109,11 @@ export const emptyForm = (projectId = '') => ({
   type: 'Functional',
   execution_type: 'Manual',
   tags: [],
+  summary: '',
   steps: [emptyStep()],
   gherkin_scenario: '',
   automation_script: '',
+  automation_ref: null,
 });
 
 export const formFromCase = (c) => ({
@@ -119,9 +125,11 @@ export const formFromCase = (c) => ({
   type: c.type || 'Functional',
   execution_type: c.execution_type || 'Manual',
   tags: [...(c.tagList || [])],
+  summary: c.summary || '',
   steps: c.steps?.length ? c.steps.map(s => ({ ...s })) : [emptyStep()],
   gherkin_scenario: c.gherkin_scenario || '',
   automation_script: c.automation_script || '',
+  automation_ref: c.automation_ref || null,
 });
 
 /** Kaydedilmemiş değişiklik kontrolü için karşılaştırılabilir özet */
@@ -137,7 +145,7 @@ export const validateForm = (f) => {
   if (!f.title.trim()) errors.title = 'Başlık zorunlu.';
   else if (f.title.trim().length > 500) errors.title = 'Başlık en fazla 500 karakter olabilir.';
   if (!f.project_id) errors.project_id = 'Bir proje seçin.';
-  if (f.execution_type === 'Automated' && !f.automation_script.trim()) {
+  if (f.execution_type === 'Automated' && !f.automation_ref && !f.automation_script.trim()) {
     errors.automation_script = 'Otomasyon case\'i için script gerekli; şablonla başlayabilirsiniz.';
   }
   return errors;
@@ -150,7 +158,7 @@ export const buildPayload = (f) => {
     .map(s => ({ id: s.id, action: s.action?.trim() || '', expectedResult: s.expectedResult?.trim() || '', image: s.image || null }));
   return {
     title: f.title.trim(),
-    description: JSON.stringify({ steps, type: f.type, execution_type: f.execution_type }),
+    description: JSON.stringify({ steps, ...(f.summary?.trim() ? { summary: f.summary.trim() } : {}), type: f.type, execution_type: f.execution_type }),
     status: f.status,
     priority: f.priority,
     project_id: Number(f.project_id),

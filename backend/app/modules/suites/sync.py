@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timezone
 
 from app.db.database import SessionLocal
-from . import models, workspace
+from . import docstring, models, workspace
 
 logger = logging.getLogger("ng-test.suites")
 _running: set[int] = set()
@@ -111,8 +111,48 @@ def _job(suite_id: int):
 MISSING_TAG = "depoda-yok"
 
 
+LEGACY_STEP = "Otomasyon testi: "
+
+
+def _desc(text) -> dict:
+    try:
+        v = json.loads(text) if text else {}
+        return v if isinstance(v, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def build_content(g: dict) -> tuple[str, str]:
+    """Docstring'den (başlık, açıklama JSON'u). Adım yazılmamışsa tek adımlık özet kullanılır."""
+    d = docstring.parse(g["doc"])
+    title = d["title"] or workspace.humanize(g["ref"])
+    summary = d["summary"]
+    if g["params"]:
+        summary = (summary + f"\n\nBu test {g['params']} farklı veriyle koşar.").strip()
+    steps = [{"id": f"s{i + 1}", "action": s["action"], "expectedResult": s["expected"], "image": None}
+             for i, s in enumerate(d["steps"])]
+    if not steps:
+        steps = [{"id": "s1", "action": f"{LEGACY_STEP}{g['ref']}", "expectedResult": "Test geçer.", "image": None}]
+    desc = {"steps": steps, "summary": summary, "type": "Regression", "execution_type": "Automated",
+            "auto": {"title": title}}       # "auto": içerik depodan geliyor; arayüzden düzenlenince bu alan düşer
+    return title[:500], json.dumps(desc, ensure_ascii=False)
+
+
+def _is_generated(tc) -> tuple[bool, bool]:
+    """(açıklama depodan mı, başlık depodan mı) — elle düzenlenen alanlar senkronizasyonda ezilmez."""
+    d = _desc(tc.description)
+    if "auto" in d:
+        return True, tc.title == (d.get("auto") or {}).get("title")
+    steps = d.get("steps") or []
+    legacy = len(steps) == 1 and str(steps[0].get("action", "")).startswith(LEGACY_STEP)   # ilk sürümün tek adımlı biçimi
+    return legacy, legacy
+
+
 def import_tests(db, suite, groups: list[dict]) -> dict:
-    """Her test fonksiyonu için case oluşturur/günceller. Kullanıcının başlık, öncelik ve durum düzenlemeleri korunur."""
+    """
+    Her test fonksiyonu için case oluşturur/günceller. Başlık ve adımlar docstring'den gelir;
+    arayüzden elle düzenlenmiş başlık/adımlar, öncelik ve durum korunur.
+    """
     from app.modules.test_cases.models import TestCase
     existing = {c.automation_ref: c for c in db.query(TestCase).filter(TestCase.suite_id == suite.id).all()}
     seen, added, updated = set(), 0, 0
@@ -122,14 +162,10 @@ def import_tests(db, suite, groups: list[dict]) -> dict:
             markers[m] = markers.get(m, 0) + 1
     for g in groups:
         seen.add(g["ref"])
-        desc = json.dumps({
-            "steps": [{"id": "s1", "action": f"Otomasyon testi: {g['ref']}" + (f" ({g['params']} varyasyon)" if g["params"] else ""),
-                       "expectedResult": g["doc"] or "Test geçer.", "image": None}],
-            "type": "Regression", "execution_type": "Automated",
-        }, ensure_ascii=False)
+        title, desc = build_content(g)
         tc = existing.get(g["ref"])
         if tc is None:
-            tc = TestCase(title=(g["doc"] or workspace.humanize(g["ref"]))[:500], project_id=suite.project_id,
+            tc = TestCase(title=title, project_id=suite.project_id,
                           execution_type="Automated", suite_id=suite.id, automation_ref=g["ref"],
                           tags=json.dumps(g["markers"], ensure_ascii=False), description=desc)
             db.add(tc)
@@ -141,8 +177,18 @@ def import_tests(db, suite, groups: list[dict]) -> dict:
                 old_tags = []
             # Depodaki işaretler güncellenir; depoda işaret olarak geçmeyen (elle eklenmiş) etiketler korunur
             tags = sorted(set(g["markers"]) | {t for t in old_tags if t not in markers})
-            if tc.description != desc or json.loads(tc.tags or "[]") != tags or tc.project_id != suite.project_id:
-                tc.description, tc.tags, tc.project_id = desc, json.dumps(tags, ensure_ascii=False), suite.project_id
+            gen_desc, gen_title = _is_generated(tc)
+            new_desc = desc if gen_desc else tc.description
+            new_title = title if gen_title else tc.title
+            if gen_desc and not gen_title:
+                # başlık elle değişti: "auto.title" eski üretilen başlığı göstermeye devam etsin
+                d = json.loads(desc)
+                d["auto"]["title"] = (_desc(tc.description).get("auto") or {}).get("title", "")
+                new_desc = json.dumps(d, ensure_ascii=False)
+            if (tc.description != new_desc or tc.title != new_title or json.loads(tc.tags or "[]") != tags
+                    or tc.project_id != suite.project_id):
+                tc.description, tc.title, tc.project_id = new_desc, new_title, suite.project_id
+                tc.tags = json.dumps(tags, ensure_ascii=False)
                 updated += 1
     missing = 0
     for ref, tc in existing.items():

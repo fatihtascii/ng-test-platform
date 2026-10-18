@@ -170,6 +170,9 @@ koşturulur (istenirse görünür tarayıcıyla). Modül: `backend/app/modules/s
 - **Senkronizasyon (GitHub):** depo `NG_DATA_DIR` (varsayılan `~/.ng-test`) altındaki `suites/<id>/repo` klasörüne çekilir.
   Ayrı bir sanal ortam (`suites/<id>/venv`) kurulur, `requirements.txt` değiştiğinde yeniden yüklenir. Requirements
   playwright içeriyorsa Chromium da indirilir. Sunucuda `git` ve Python 3 bulunmalıdır.
+- **Başlık ve adımlar docstring'den:** testin docstring'inin ilk satırı case başlığı, "Adımlar:" bölümündeki
+  `1. eylem -> beklenen` satırları adımlar, aradaki paragraflar açıklama olur (`suites/docstring.py`). Adım yoksa tek adımlık
+  özet kullanılır. Arayüzden düzenlenen case'in başlık/adımları sonraki senkronizasyonlarda ezilmez.
 - **Case eşlemesi:** her test fonksiyonu bir case olur (`test_cases.suite_id` + `automation_ref` = pytest node id).
   Parametre varyantları aynı case'te toplanır; varyantlardan biri kalırsa case kalır. Docstring açıklama/başlık,
   pytest işaretleri (marker) etiket olur. `xfail` işaretli testler `bilinen-hata` etiketini alır. Yeniden
