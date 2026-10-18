@@ -167,7 +167,8 @@ def _prepare_test_files(cases: list[int], db, run_dir: str) -> tuple[list, list]
 
 
 # ── YARDIMCI: Otomatik defect kaydı ─────────────────────────────
-def _save_automation_run(executed: list[int], failed: set[int], error_details: list[str]) -> tuple[int | None, str | None]:
+def _save_automation_run(executed: list[int], failed: set[int], error_details: list[str],
+                         env_name: str | None = None) -> tuple[int | None, str | None]:
     """
     Otomasyon koşumunu normal bir TestRun olarak kaydeder, case statülerini günceller
     ve hata varsa koşuma bağlı otomatik defect üretir. (run_id, defect_kodu) döner.
@@ -198,7 +199,8 @@ def _save_automation_run(executed: list[int], failed: set[int], error_details: l
 
         run = test_run_models.TestRun(
             name=f"Otomasyon koşumu ({datetime.now().strftime('%d.%m %H:%M:%S')})",
-            description=f"{len(executed)} otomasyon testi koşuldu, {len(failed)} başarısız.",
+            description=f"{len(executed)} otomasyon testi koşuldu, {len(failed)} başarısız."
+                        + (f" Ortam: {env_name}." if env_name else ""),
             project_id=project_id,
             status="Başarısız" if failed else "Tamamlandı",
             results=json.dumps(results, ensure_ascii=False),
@@ -274,6 +276,7 @@ async def websocket_run_test(websocket: WebSocket):
         cases    = config_data.get("cases") or config_data.get("test_case_ids", [])
         browser  = config_data.get("browser", "Chrome")
         headless = config_data.get("headless", True)
+        env_id   = config_data.get("environment_id")
 
         try:
             cases = [int(c) for c in cases]
@@ -287,6 +290,33 @@ async def websocket_run_test(websocket: WebSocket):
 
         await ws_send(websocket, "info",
             f"[SİSTEM] Dinamik motor başlatılıyor... ({len(cases)} test seçildi)")
+
+        # Seçilen ortamın adresi ve değişkenleri test sürecine ortam değişkeni olarak verilir
+        # (ortam > proje > global). Script'ler os.environ["BASE_URL"] gibi okur.
+        env_name, env_url, env_vars, secrets = None, None, {}, []
+        if env_id:
+            from app.modules.environments.service import resolve_variables
+            db = SessionLocal()
+            try:
+                env_row = db.query(env_models.Environment).filter(env_models.Environment.id == int(env_id)).first()
+                if not env_row:
+                    await ws_send(websocket, "error", "[HATA] Seçilen ortam bulunamadı.")
+                    return
+                env_name, env_url = env_row.name, env_row.url
+                for r in resolve_variables(db, env_row):
+                    env_vars[r["key"]] = r["value"]
+                    if r["is_secret"] and len(r["value"]) >= 4:
+                        secrets.append(r["value"])
+            finally:
+                db.close()
+            await ws_send(websocket, "info",
+                f"[SİSTEM] Ortam: {env_name} ({env_url}) · {len(env_vars)} değişken yüklendi.")
+
+        def redact(text: str) -> str:
+            # Script bir sırrı yazdırırsa log'a, WebSocket'e ve hata kaydına açık düşmesin
+            for sec in secrets:
+                text = text.replace(sec, "••••••••")
+            return text
 
         # 2. TEST DOSYALARINI HAZIRLA ─────────────────────────────
         run_dir = tempfile.mkdtemp(prefix=RUN_DIR_PREFIX)
@@ -324,11 +354,16 @@ async def websocket_run_test(websocket: WebSocket):
         ]
         if not headless:
             cmd.append("--headed")
+        if env_url:
+            cmd.append(f"--base-url={env_url}")
         cmd.extend(run_files)
 
         log_filename = os.path.join(run_dir, "execution.log")
 
         my_env = os.environ.copy()
+        my_env.update(env_vars)
+        if env_name:
+            my_env["NG_ENVIRONMENT"] = env_name
         my_env["PYTHONUNBUFFERED"] = "1"
 
         # 4. SÜRECİ BAŞLAT ────────────────────────────────────────
@@ -375,7 +410,7 @@ async def websocket_run_test(websocket: WebSocket):
                 if not line:
                     if process.poll() is not None:
                         for r_line in read_log.readlines():
-                            decoded = r_line.strip()
+                            decoded = redact(r_line.strip())
                             if not decoded:
                                 continue
                             error_details.append(decoded)
@@ -388,7 +423,7 @@ async def websocket_run_test(websocket: WebSocket):
                     await asyncio.sleep(0.05)
                     continue
 
-                decoded = line.strip()
+                decoded = redact(line.strip())
                 if not decoded:
                     continue
 
@@ -425,7 +460,7 @@ async def websocket_run_test(websocket: WebSocket):
             # koşulan tüm case'ler hatalı sayılır — atlananlar hariç
             failed = set(failed_case_ids) or set(executed)
         run_id, defect_code = await asyncio.to_thread(
-            _save_automation_run, executed, failed, error_details
+            _save_automation_run, executed, failed, error_details, env_name
         )
         if run_id is None:
             await ws_send(websocket, "warn", "⚠️ [UYARI] Koşum sonucu veritabanına kaydedilemedi.")

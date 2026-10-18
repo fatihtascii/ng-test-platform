@@ -45,7 +45,11 @@ def user_from_token(db: Session, token: str | None):
         user_id = int(payload["sub"])
     except (TypeError, ValueError):
         return None
-    return db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == user_id).first()
+    # Devre dışı bırakılan hesabın açık oturumları da hemen geçersiz olur
+    if user is not None and not getattr(user, "is_active", True):
+        return None
+    return user
 
 
 def get_permissions_for_role(db: Session, role: str) -> set[str]:

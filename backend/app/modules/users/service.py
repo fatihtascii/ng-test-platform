@@ -78,7 +78,15 @@ def _assert_role_exists(db: Session, role: str):
 
 
 def _admin_count(db: Session) -> int:
-    return db.query(models.User).filter(models.User.role == "admin").count()
+    """Etkin admin sayısı (devre dışı adminler sistemi yönetemez)."""
+    return db.query(models.User).filter(models.User.role == "admin", models.User.is_active.is_(True)).count()
+
+
+def _assert_can_touch(user, actor) -> None:
+    """Admin hesabını (profil, şifre, durum, silme) yalnızca admin değiştirebilir.
+    Önceden users.manage yetkili bir yönetici adminin şifresini sıfırlayıp hesabı ele geçirebiliyordu."""
+    if user.role == "admin" and actor is not None and actor.id != user.id and actor.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin hesabını yalnızca admin değiştirebilir.")
 
 
 # ── CRUD & AUTH ────────────────────────────────────────────────────
@@ -144,6 +152,12 @@ def authenticate_user(db: Session, user_data: schemas.UserLogin):
         )
 
     _login_attempts.pop(identifier, None)
+    if not db_user.is_active:
+        raise HTTPException(status_code=403, detail="Bu hesap devre dışı bırakılmış. Yöneticinizle görüşün.")
+    from datetime import timezone
+    db_user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(db_user)
     return db_user
 
 
@@ -160,6 +174,13 @@ def get_user_by_id(db: Session, user_id: int):
 
 def update_user(db: Session, user_id: int, user_data: schemas.UserUpdate, actor=None):
     user = get_user_by_id(db, user_id)
+    _assert_can_touch(user, actor)
+
+    if user_data.is_active is not None and user_data.is_active != user.is_active:
+        if actor is not None and actor.id == user.id:
+            raise HTTPException(status_code=400, detail="Kendi hesabınızı devre dışı bırakamazsınız.")
+        if not user_data.is_active and user.role == "admin" and _admin_count(db) <= 1:
+            raise HTTPException(status_code=400, detail="Son etkin admin devre dışı bırakılamaz.")
 
     if user_data.role is not None and user_data.role != user.role:
         _assert_role_exists(db, user_data.role)
@@ -182,6 +203,8 @@ def update_user(db: Session, user_id: int, user_data: schemas.UserUpdate, actor=
         user.email = user_data.email
     if user_data.role is not None:
         user.role = user_data.role
+    if user_data.is_active is not None:
+        user.is_active = user_data.is_active
 
     db.commit()
     db.refresh(user)
@@ -193,9 +216,11 @@ def change_password(
     user_id: int,
     body: schemas.UserPasswordUpdate,
     require_current: bool = True,
+    actor=None,
 ):
     """Kullanıcı kendi şifresini değiştiriyorsa mevcut şifre doğrulanır."""
     user = get_user_by_id(db, user_id)
+    _assert_can_touch(user, actor)
     if require_current:
         if not body.current_password or not verify_password(body.current_password, user.hashed_password):
             raise HTTPException(status_code=400, detail="Mevcut şifre hatalı.")
@@ -206,8 +231,9 @@ def change_password(
     return {"message": "Şifre başarıyla güncellendi."}
 
 
-def delete_user(db: Session, user_id: int):
+def delete_user(db: Session, user_id: int, actor=None):
     user = get_user_by_id(db, user_id)
+    _assert_can_touch(user, actor)
 
     if user.role == "admin":
         if _admin_count(db) <= 1:

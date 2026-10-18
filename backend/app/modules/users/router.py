@@ -28,7 +28,9 @@ def _user_payload(user) -> dict:
         "full_name": user.full_name,
         "email":     user.email,
         "role":      user.role,
+        "is_active": user.is_active,
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
     }
 
 
@@ -137,7 +139,7 @@ def change_password(
         raise HTTPException(status_code=403, detail="Bu işlem için yetkiniz yok (users.manage).")
     # Normal kullanıcı kendi şifresini mevcut şifreyle değiştirir; users.manage yetkilisi
     # (panelde mevcut şifre alanı yok) doğrudan sıfırlayabilir.
-    return service.change_password(db, user_id, body, require_current=is_self and not can_manage)
+    return service.change_password(db, user_id, body, require_current=is_self and not can_manage, actor=current)
 
 
 @users_router.delete("/{user_id}")
@@ -148,4 +150,4 @@ def delete_user(
 ):
     if current.id == user_id:
         raise HTTPException(status_code=400, detail="Kendi hesabınızı silemezsiniz.")
-    return service.delete_user(db, user_id)
+    return service.delete_user(db, user_id, actor=current)

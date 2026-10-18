@@ -30,4 +30,11 @@ def test_secret_degisken_viewer_icin_maskeli(client, admin, project, make_user, 
     vv = {v["key"]: v["value"] for v in client.get("/variables/", headers=login("vic")).json()}
     av = {v["key"]: v["value"] for v in client.get("/variables/", headers=admin).json()}
     assert "Gizli" not in vv["PASS"] and "2026" not in vv["PASS"]
-    assert av["PASS"] == "SuperGizli!2026"
+    # Listede yönetici de maskeli görür; değer yalnızca tek tek açılır
+    assert "Gizli" not in av["PASS"]
+    var = next(v for v in client.get("/variables/", headers=admin).json() if v["key"] == "PASS")
+    assert client.get(f"/variables/{var['id']}/value", headers=admin).json()["value"] == "SuperGizli!2026"
+    assert client.get(f"/variables/{var['id']}/value", headers=login("vic")).status_code == 403
+    # Maskeli değerle güncelleme gerçek değeri korur
+    client.put(f"/variables/{var['id']}", json={**var, "value": var["value"], "key": "PASS"}, headers=admin)
+    assert client.get(f"/variables/{var['id']}/value", headers=admin).json()["value"] == "SuperGizli!2026"

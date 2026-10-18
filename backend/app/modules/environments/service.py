@@ -79,22 +79,43 @@ def delete_environment(db: Session, env_id: int):
 
 
 # ── VARIABLES ─────────────────────────────────────────────────────
+#
+# Kapsam: global (proje ve ortam yok) < proje (ortam yok) < ortam.
+# Ortam seçilen değişkenin projesi her zaman ortamın projesidir.
+
+def _normalize_scope(db: Session, data: schemas.VariableCreate) -> tuple[Optional[int], Optional[int]]:
+    project_id, env_id = data.project_id, data.env_id
+    if env_id:
+        env = db.query(models.Environment).filter(models.Environment.id == env_id).first()
+        if not env:
+            raise HTTPException(status_code=404, detail="Ortam bulunamadı.")
+        if project_id and project_id != env.project_id:
+            raise HTTPException(status_code=400, detail="Seçilen ortam bu projeye ait değil.")
+        project_id = env.project_id
+    elif project_id and not db.query(Project.id).filter(Project.id == project_id).first():
+        raise HTTPException(status_code=404, detail="Proje bulunamadı.")
+    return project_id, env_id
+
+
+def _assert_unique(db: Session, key: str, project_id, env_id, exclude_id=None):
+    q = db.query(models.Variable).filter(models.Variable.key == key)
+    if env_id:
+        q = q.filter(models.Variable.env_id == env_id)
+    else:
+        # NULL'lar benzersizlik kısıtında eşit sayılmadığı için global/proje kapsamı burada denetlenir
+        q = q.filter(models.Variable.env_id.is_(None),
+                     models.Variable.project_id.is_(None) if project_id is None else models.Variable.project_id == project_id)
+    if exclude_id is not None:
+        q = q.filter(models.Variable.id != exclude_id)
+    if q.first():
+        raise HTTPException(status_code=400, detail=f"{key} bu kapsamda zaten tanımlı.")
+
 
 def create_variable(db: Session, var: schemas.VariableCreate):
-    if not var.key.strip():
-        raise HTTPException(status_code=400, detail="Değişken anahtarı boş olamaz.")
-
-    if var.env_id:
-        existing = db.query(models.Variable).filter_by(
-            env_id=var.env_id, key=var.key.strip()
-        ).first()
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail="Bu ortamda aynı anahtara sahip bir değişken zaten var.",
-            )
-
-    db_var = models.Variable(**var.model_dump())
+    project_id, env_id = _normalize_scope(db, var)
+    _assert_unique(db, var.key, project_id, env_id)
+    db_var = models.Variable(key=var.key, value=var.value, project_id=project_id, env_id=env_id,
+                             is_secret=bool(var.is_secret))
     db.add(db_var)
     db.commit()
     db.refresh(db_var)
@@ -106,44 +127,58 @@ def get_variables(
     env_id: Optional[int] = None,
     project_id: Optional[int] = None,
 ) -> list[models.Variable]:
-    # FIX: Filtresiz sorgulama tüm değişkenleri döndürüyordu.
     q = db.query(models.Variable)
     if env_id is not None:
         q = q.filter(models.Variable.env_id == env_id)
     if project_id is not None:
         q = q.filter(models.Variable.project_id == project_id)
-    return q.order_by(models.Variable.id.desc()).all()
+    return q.order_by(models.Variable.key, models.Variable.id).all()
 
 
-def update_variable(db: Session, var_id: int, data: schemas.VariableCreate):
+def get_variable(db: Session, var_id: int) -> models.Variable:
     var = db.query(models.Variable).filter(models.Variable.id == var_id).first()
     if not var:
         raise HTTPException(status_code=404, detail="Değişken bulunamadı.")
+    return var
 
-    # Key değişiyorsa çakışma kontrolü
-    if data.env_id and data.key != var.key:
-        conflict = db.query(models.Variable).filter(
-            models.Variable.env_id == data.env_id,
-            models.Variable.key == data.key.strip(),
-            models.Variable.id != var_id,
-        ).first()
-        if conflict:
-            raise HTTPException(
-                status_code=400,
-                detail="Bu ortamda aynı anahtara sahip başka bir değişken var.",
-            )
 
-    for k, v in data.model_dump().items():
-        setattr(var, k, v)
+def update_variable(db: Session, var_id: int, data: schemas.VariableCreate):
+    from app.core.secrets import is_masked
+    var = get_variable(db, var_id)
+    project_id, env_id = _normalize_scope(db, data)
+    _assert_unique(db, data.key, project_id, env_id, exclude_id=var_id)
+    var.key, var.project_id, var.env_id = data.key, project_id, env_id
+    # Maskeli değer geri gelirse "değişmedi" demektir; kayıtlı değer korunur
+    if not is_masked(data.value):
+        var.value = data.value
+    var.is_secret = bool(data.is_secret)
     db.commit()
     db.refresh(var)
     return var
 
 
 def delete_variable(db: Session, var_id: int):
-    var = db.query(models.Variable).filter(models.Variable.id == var_id).first()
-    if not var:
-        raise HTTPException(status_code=404, detail="Değişken bulunamadı.")
+    var = get_variable(db, var_id)
     db.delete(var)
     db.commit()
     return {"message": "Değişken silindi."}
+
+
+def resolve_variables(db: Session, env: models.Environment) -> list[dict]:
+    """Ortamda geçerli değişkenler: ortam > proje > global. Ham değerleri döndürür."""
+    rows = db.query(models.Variable).filter(
+        (models.Variable.env_id == env.id)
+        | ((models.Variable.env_id.is_(None)) & (models.Variable.project_id == env.project_id))
+        | ((models.Variable.env_id.is_(None)) & (models.Variable.project_id.is_(None)))
+    ).all()
+    rank = lambda v: 2 if v.env_id else 1 if v.project_id else 0  # noqa: E731
+    merged: dict[str, models.Variable] = {}
+    for v in sorted(rows, key=rank):
+        merged[v.key] = v
+    out = [{"key": "BASE_URL", "value": env.url, "is_secret": False, "source": "env", "variable_id": 0}] \
+        if "BASE_URL" not in merged else []
+    for key in sorted(merged):
+        v = merged[key]
+        out.append({"key": key, "value": v.value, "is_secret": v.is_secret,
+                    "source": ["global", "project", "env"][rank(v)], "variable_id": v.id})
+    return out

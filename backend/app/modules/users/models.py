@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean, true
 from sqlalchemy.sql import func
 from app.core.base import Base
 from app.core.types import UTCDateTime as DateTime  # UTC + saat dilimli
@@ -12,6 +12,9 @@ class User(Base):
     full_name       = Column(String(200), nullable=True)
     hashed_password = Column(String(255), nullable=False)
     role            = Column(String(30),  default="viewer", nullable=False)
+    # Devre dışı hesap giriş yapamaz, mevcut oturumları da geçersiz olur (geçmiş kayıtlar korunur)
+    is_active       = Column(Boolean,     default=True, server_default=true(), nullable=False)
+    last_login_at   = Column(DateTime,    nullable=True)
     created_at      = Column(DateTime,    server_default=func.now(), nullable=False)
     updated_at      = Column(DateTime,    server_default=func.now(), onupdate=func.now())
 

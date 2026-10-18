@@ -8,10 +8,10 @@ import pytest
 pytest.importorskip("pytest_playwright", reason="koşum motoru --browser için pytest-playwright gerektirir")
 
 
-def _run(client, token, case_ids):
+def _run(client, token, case_ids, **extra):
     msgs = []
     with client.websocket_connect(f"/ws/run-test?token={token}") as ws:
-        ws.send_json({"cases": case_ids, "browser": "Chrome", "headless": True})
+        ws.send_json({"cases": case_ids, "browser": "Chrome", "headless": True, **extra})
         while True:
             m = ws.receive_json()
             msgs.append(m)
@@ -54,3 +54,25 @@ def test_kosum_kaydi_defect_ve_temizlik(client, admin, project):
     _run(client, token, [ok])
     assert len(client.get("/test-runs/", headers=admin).json()) == 2
     assert len(client.get("/defects/", headers=admin).json()) == 1
+
+
+def test_ortam_degiskenleri_teste_aktarilir_ve_sirlar_maskelenir(client, admin, project):
+    token = admin["Authorization"][7:]
+    env = client.post("/environments/", json={"name": "Staging", "project_id": project["id"], "url": "https://st.ornek.com"},
+                      headers=admin).json()
+    client.post("/variables/", json={"key": "API_USER", "value": "qa-bot", "project_id": project["id"]}, headers=admin)
+    client.post("/variables/", json={"key": "API_PASS", "value": "S3cret-Value", "env_id": env["id"], "is_secret": True}, headers=admin)
+    script = (
+        "import os\n"
+        "def test_env(base_url):\n"
+        "    print('USER=' + os.environ['API_USER'] + ' PASS=' + os.environ['API_PASS'] + ' ENV=' + os.environ['NG_ENVIRONMENT'])\n"
+        "    assert base_url == 'https://st.ornek.com' and os.environ['BASE_URL'] == base_url\n"
+    )
+    cid = client.post("/test-cases/", json={"title": "Ortam", "project_id": project["id"], "execution_type": "Automated",
+                                             "automation_script": script}, headers=admin).json()["id"]
+    msgs = _run(client, token, [cid], environment_id=env["id"])
+    text = "\n".join(m["message"] for m in msgs)
+    assert "Ortam: Staging" in text and "PASSED" in text, text[-2000:]
+    assert "USER=qa-bot" in text and "S3cret-Value" not in text and "PASS=••••••••" in text
+    run = client.get("/test-runs/", headers=admin).json()[0]
+    assert "Ortam: Staging" in run["description"]
