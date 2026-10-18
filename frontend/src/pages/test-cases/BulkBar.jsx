@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Play, ClipboardList, Trash2, Download } from 'lucide-react';
+import { X, Play, MonitorPlay, ClipboardList, Trash2, Download } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { STATUSES } from './model';
 
@@ -7,7 +7,7 @@ import { STATUSES } from './model';
  * Seçim varken tablonun üstünde görünen işlem çubuğu.
  * Her işlem yalnızca yetkisi olana gösterilir; yetki kontrolü çağıran tarafta yapılır (null = gizle).
  */
-const BulkBar = ({ count, hiddenCount, onClear, onStatus, onAddToPlan, onAutomation, automatableCount, onExport, onDelete, busy }) => {
+const BulkBar = ({ count, hiddenCount, onClear, onStatus, onAddToPlan, onAutomation, onBrowserRun, browserBusy, automatableCount, onExport, onDelete, busy }) => {
   const [status, setStatus] = useState('');
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 dark:border-indigo-500/30 dark:bg-indigo-500/10"
@@ -33,6 +33,12 @@ const BulkBar = ({ count, hiddenCount, onClear, onStatus, onAddToPlan, onAutomat
           <Button size="sm" icon={<Play size={13} />} onClick={onAutomation} disabled={!automatableCount}
             title={automatableCount ? undefined : 'Seçimde script\'i olan otomasyon case\'i yok'}>
             Otomasyonda koş{automatableCount ? ` (${automatableCount})` : ''}
+          </Button>
+        )}
+        {onBrowserRun && (
+          <Button size="sm" icon={<MonitorPlay size={13} />} onClick={onBrowserRun} disabled={!automatableCount || browserBusy}
+            title={browserBusy ? 'Bir tarayıcı koşumu sürüyor' : automatableCount ? 'Seçilen otomasyon case\'lerini burada, tarayıcı görünür koş' : 'Seçimde otomasyon case\'i yok'}>
+            Tarayıcıda çalıştır{automatableCount ? ` (${automatableCount})` : ''}
           </Button>
         )}
         <Button size="sm" icon={<Download size={13} />} onClick={onExport}>CSV</Button>

@@ -54,7 +54,7 @@ const TestCases = () => {
   const searchRef = useRef(null);
   // Listeden tek case'i tarayıcı açık koşma (aynı anda bir tane)
   const quick = useAutomationRun();
-  const [quickCase, setQuickCase] = useState(null);
+  const [quickCases, setQuickCases] = useState([]);
 
   // ── Filtreleme / sıralama ───────────────────────────────────
   const allTags = useMemo(() => {
@@ -197,16 +197,32 @@ const TestCases = () => {
     toast.success(`${list.length} case ${label} CSV olarak indirildi.`);
   };
 
-  const runInBrowser = (c) => {
-    if (quick.busy || !isAutomatable(c)) return;
-    setQuickCase(c);
+  // Tek case ya da seçim: aynı proje ve aynı kaynak (aynı depo ya da script'li case'ler) olmalı
+  const runInBrowser = (list) => {
+    if (quick.busy) { toast.error('Bir tarayıcı koşumu zaten sürüyor.'); return; }
+    const auto = list.filter(isAutomatable);
+    if (!auto.length) { toast.error('Seçimde koşulabilir otomasyon case\'i yok.'); return; }
+    if (new Set(auto.map(c => c.project_id)).size > 1) { toast.error('Tarayıcıda tek seferde tek projenin case\'leri koşulur; seçimi bir projeyle sınırlayın.'); return; }
+    if (new Set(auto.map(c => c.suite_id || 0)).size > 1) { toast.error('Seçimde farklı kaynaklardan (depo / script) case\'ler var; tek kaynaktan seçin.'); return; }
+    if (auto.length < list.length) toast.info(`${list.length - auto.length} case otomasyon case'i olmadığı için atlandı.`);
+    setQuickCases(auto);
     // Ortam boş: depo case'inde deponun ortamı (yoksa klasördeki .env) kullanılır
-    quick.start({ cases: [c.id], browser: 'Chrome', headless: false, environmentId: null, project: String(c.project_id) });
+    quick.start({ cases: auto.map(c => c.id), browser: 'Chrome', headless: false, environmentId: null, project: String(auto[0].project_id) });
   };
-  const quickRun = can('automation.execute')
-    ? { canRun: isAutomatable, onRun: runInBrowser, runningId: quick.busy ? quickCase?.id : null, busy: quick.busy }
-    : undefined;
-  const closeQuick = () => { quick.reset(); setQuickCase(null); };
+  // Satır göstergesi: koşumdaki case'in canlı durumu (plan gelene kadar hepsi sırada)
+  const quickIds = new Set(quick.busy ? quickCases.map(c => c.id) : []);
+  const liveStatus = new Map(quick.cases.map(c => [c.case_id, c.status]));
+  const quickRun = can('automation.execute') ? {
+    canRun: isAutomatable,
+    onRun: (c) => runInBrowser([c]),
+    busy: quick.busy,
+    stateOf: (id) => {
+      if (!quickIds.has(id)) return null;
+      const st = liveStatus.get(id);
+      return st === 'running' ? 'running' : !st || st === 'queued' ? 'queued' : 'done';
+    },
+  } : undefined;
+  const closeQuick = () => { quick.reset(); setQuickCases([]); };
 
   const rowActions = (c) => {
     const a = [{ icon: Eye, label: 'Aç', onSelect: () => openCase(c.id) }];
@@ -215,7 +231,7 @@ const TestCases = () => {
     const run = [];
     if (can('test_plans.edit')) run.push({ icon: ClipboardList, label: 'Plana ekle', onSelect: () => setDialog({ type: 'plan', cases: [c] }) });
     if (can('automation.execute') && isAutomatable(c)) {
-      run.push({ icon: MonitorPlay, label: 'Tarayıcıda çalıştır', onSelect: () => runInBrowser(c) });
+      run.push({ icon: MonitorPlay, label: 'Tarayıcıda çalıştır', onSelect: () => runInBrowser([c]) });
       run.push({ icon: Play, label: 'Otomasyonda koş', onSelect: () => sendToAutomation([c]) });
     }
     if (can('automation.execute')) run.push({ icon: Smartphone, label: 'Mobil cihazda koş', onSelect: () => setDialog({ type: 'mobile', testCase: c }) });
@@ -316,6 +332,7 @@ const TestCases = () => {
           onStatus={can('test_cases.edit') ? bulkStatus : null}
           onAddToPlan={can('test_plans.edit') ? () => setDialog({ type: 'plan', cases: selectedCases }) : null}
           onAutomation={can('automation.execute') ? () => sendToAutomation(selectedCases) : null}
+          onBrowserRun={can('automation.execute') ? () => runInBrowser(selectedCases) : null} browserBusy={quick.busy}
           automatableCount={selectedCases.filter(isAutomatable).length}
           onExport={() => exportCsv(selectedCases, 'seçimi')}
           onDelete={can('test_cases.delete') ? () => setDialog({ type: 'delete', ids: [...selected] }) : null} />
@@ -343,6 +360,7 @@ const TestCases = () => {
             onMobile={() => setDialog({ type: 'mobile', testCase: current })}
             onAddToPlan={() => setDialog({ type: 'plan', cases: [current] })}
             onAutomation={() => sendToAutomation([current])}
+            onBrowserRun={() => runInBrowser([current])} browserBusy={quick.busy}
             onPrev={position > 0 ? () => goRelative(-1) : null}
             onNext={position >= 0 && position < filtered.length - 1 ? () => goRelative(1) : null} />
         )}
@@ -382,8 +400,8 @@ const TestCases = () => {
       )}
       {dialog?.type === 'mobile' && <MobileRunDialog testCase={dialog.testCase} onClose={() => setDialog(null)} />}
       {dialog?.type === 'plan' && <AddToPlanDialog cases={dialog.cases} projectName={projectName} onClose={() => setDialog(null)} />}
-      {quickCase && quick.phase !== 'idle' && (
-        <QuickRunCard key={quick.startedAt} run={quick} testCase={quickCase} onClose={closeQuick} onDone={data.reload} />
+      {quickCases.length > 0 && quick.phase !== 'idle' && (
+        <QuickRunCard key={quick.startedAt} run={quick} testCases={quickCases} onClose={closeQuick} onDone={data.reload} />
       )}
     </div>
   );

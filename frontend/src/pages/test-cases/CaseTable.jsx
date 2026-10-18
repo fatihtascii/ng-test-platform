@@ -1,27 +1,30 @@
 import React from 'react';
-import { MoreHorizontal, MonitorPlay, Loader2 } from 'lucide-react';
+import { MoreHorizontal, MonitorPlay, Loader2, Clock } from 'lucide-react';
 import { StatusBadge, Ident, Skeleton } from '../../components/ui';
 import { SortHeader, Checkbox, Pagination } from '../../components/ui/data';
 import { Menu, MenuItem, MenuSeparator } from '../../components/ui/overlay';
 import { PriorityMark, ExecutionMark, TagList, Marker } from './parts';
 import { caseIdent, formatDate } from './model';
 
-// Satırdaki "tarayıcıda çalıştır" düğmesi; aynı anda tek hızlı koşum
+// Satırdaki "tarayıcıda çalıştır" düğmesi; aynı anda tek tarayıcı koşumu
 const RunButton = ({ c, quickRun }) => {
-  const mine = quickRun.runningId === c.id;
-  const label = mine ? `${caseIdent(c.id)} koşuluyor` : quickRun.busy ? 'Başka bir koşum sürüyor' : `${caseIdent(c.id)} tarayıcıda çalıştır`;
+  const state = quickRun.stateOf(c.id);            // running | queued | done | null
+  const id = caseIdent(c.id);
+  const label = state === 'running' ? `${id} koşuluyor` : state === 'queued' ? `${id} sırada`
+    : state === 'done' ? `${id} bitti` : quickRun.busy ? 'Başka bir koşum sürüyor' : `${id} tarayıcıda çalıştır`;
   return (
     <button type="button" onClick={() => quickRun.onRun(c)} disabled={quickRun.busy} aria-label={label} title={label}
-      className={`rounded-md p-1 disabled:cursor-not-allowed ${mine ? 'text-indigo-600 dark:text-indigo-400'
+      className={`rounded-md p-1 disabled:cursor-not-allowed ${state === 'running' || state === 'queued' ? 'text-indigo-600 dark:text-indigo-400'
         : 'text-slate-400 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300'}`}>
-      {mine ? <Loader2 size={16} className="animate-spin" /> : <MonitorPlay size={16} />}
+      {state === 'running' ? <Loader2 size={16} className="animate-spin" />
+        : state === 'queued' ? <Clock size={16} className="opacity-60" /> : <MonitorPlay size={16} />}
     </button>
   );
 };
 
 /**
  * rowActions(c) → [{ icon, label, onSelect, tone } | 'sep']
- * quickRun → { canRun(c), onRun(c), runningId, busy }: otomasyon case'lerinde tarayıcıda koş düğmesi
+ * quickRun → { canRun(c), onRun(c), stateOf(id), busy }: otomasyon case'lerinde tarayıcıda koş düğmesi
  * Satıra tıklamak detayı açar; seçim kutusu, koş düğmesi ve menü tıklaması satırı açmaz.
  */
 const CaseTable = ({

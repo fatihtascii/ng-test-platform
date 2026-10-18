@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Pencil, Copy, Trash2, Play, Smartphone, ClipboardList, ChevronUp, ChevronDown, MoreHorizontal, ListChecks } from 'lucide-react';
+import { Pencil, Copy, Trash2, Play, Smartphone, ClipboardList, ChevronUp, ChevronDown, MoreHorizontal, ListChecks, MonitorPlay } from 'lucide-react';
 import { StatusBadge, Ident, Button, EmptyState, Skeleton } from '../../components/ui';
 import { Tabs } from '../../components/ui/data';
 import { Menu, MenuItem, MenuSeparator } from '../../components/ui/overlay';
@@ -108,7 +108,7 @@ const History = ({ caseId }) => {
 };
 
 /** Drawer gövdesi ve başlık aksiyonları; Drawer'ın kendisi sayfada. */
-export const CaseDetailActions = ({ c, can, onEdit, onDuplicate, onDelete, onMobile, onAddToPlan, onAutomation, onPrev, onNext }) => {
+export const CaseDetailActions = ({ c, can, onEdit, onDuplicate, onDelete, onMobile, onAddToPlan, onAutomation, onBrowserRun, browserBusy, onPrev, onNext }) => {
   const run = [
     can('automation.execute') && isAutomatable(c) && { icon: Play, label: 'Otomasyonda koş', onSelect: onAutomation },
     can('automation.execute') && { icon: Smartphone, label: 'Mobil cihazda koş', onSelect: onMobile },
@@ -116,12 +116,19 @@ export const CaseDetailActions = ({ c, can, onEdit, onDuplicate, onDelete, onMob
     can('test_cases.create') && { icon: Copy, label: 'Kopyasını oluştur', onSelect: onDuplicate },
   ].filter(Boolean);
   const canDelete = can('test_cases.delete');
+  const canBrowser = onBrowserRun && can('automation.execute') && isAutomatable(c);
   return (
     <div className="flex items-center gap-1">
       <div className="mr-1 hidden items-center sm:flex">
         <Button variant="ghost" size="icon" onClick={onPrev} disabled={!onPrev} aria-label="Önceki case (k)" title="Önceki (k)"><ChevronUp size={16} /></Button>
         <Button variant="ghost" size="icon" onClick={onNext} disabled={!onNext} aria-label="Sonraki case (j)" title="Sonraki (j)"><ChevronDown size={16} /></Button>
       </div>
+      {canBrowser && (
+        <Button size="sm" icon={<MonitorPlay size={13} />} onClick={onBrowserRun} disabled={browserBusy}
+          title={browserBusy ? 'Bir tarayıcı koşumu sürüyor' : 'Bu case\'i tarayıcı görünür koş'}>
+          <span className="hidden sm:inline">Tarayıcıda çalıştır</span><span className="sm:hidden">Çalıştır</span>
+        </Button>
+      )}
       {can('test_cases.edit') && <Button size="sm" icon={<Pencil size={13} />} onClick={onEdit}>Düzenle</Button>}
       {(run.length > 0 || canDelete) && (
         <Menu trigger={({ ref, toggle, open }) => (

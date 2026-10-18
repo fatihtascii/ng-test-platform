@@ -4,11 +4,6 @@ import { MonitorPlay, Loader2, Square, X, CheckCircle2, XCircle, AlertTriangle, 
 import { Button } from '../../components/ui';
 import { caseIdent } from './model';
 
-/**
- * Listeden tek case'in tarayıcı açık (headed) koşumu: sağ altta küçük canlı kart.
- * run: useAutomationRun() · testCase: koşulan case · onDone: koşum kaydedilince (listeyi tazelemek için)
- * Tarayıcı penceresi backend'in çalıştığı makinede açılır; sayfadan çıkılırsa koşum durur.
- */
 // pytest hatasından tek satırlık özet: ilk "E   …" satırı, yoksa ilk satır
 const shortError = (err) => {
   const lines = String(err || '').split('\n').map(l => l.trim()).filter(Boolean);
@@ -16,10 +11,18 @@ const shortError = (err) => {
   return (e ? e.replace(/^E\s+/, '') : lines[0] || '').slice(0, 300);
 };
 
-const QuickRunCard = ({ run, testCase, onClose, onDone }) => {
+const DONE = new Set(['passed', 'failed', 'skipped']);
+const MAX_FAILS = 3;
+
+/**
+ * Listeden case'lerin tarayıcı açık (headed) koşumu: sağ altta küçük canlı kart.
+ * run: useAutomationRun() · testCases: koşulan case'ler · onDone: koşum kaydedilince (listeyi tazelemek için)
+ * Tarayıcı penceresi backend'in çalıştığı makinede açılır; sayfadan çıkılırsa koşum durur.
+ */
+const QuickRunCard = ({ run, testCases, onClose, onDone }) => {
   const { phase, logs, progress, summary, error } = run;
   const live = phase === 'connecting' || phase === 'running';
-  const ident = caseIdent(testCase.id);
+  const single = testCases.length === 1 ? testCases[0] : null;
 
   // Bitişte bir kez listeyi tazele (son sonuç sütunu güncellensin)
   const reported = useRef(false);
@@ -30,12 +33,19 @@ const QuickRunCard = ({ run, testCase, onClose, onDone }) => {
   }, [phase, onDone]);
 
   const last = [...logs].reverse().find(l => l.message?.trim());
-  const failed = summary?.counts?.failed > 0;
-  const passed = phase === 'finished' && summary && !failed;
+  const counts = summary?.counts;
+  const failed = counts?.failed > 0;
+  const passed = phase === 'finished' && counts && !failed;
+  const total = run.cases.length || testCases.length;
+  const doneCount = run.cases.filter(c => DONE.has(c.status)).length;
+  const current = run.cases.find(c => c.status === 'running');
+  const fails = run.cases.filter(c => c.status === 'failed');
+  const ids = testCases.map(c => c.id).join(',');
+  const first = testCases[0];
 
   return (
     <div role="status" aria-live="polite" aria-label="Tarayıcıda koşum"
-      className="fixed inset-x-4 bottom-4 z-40 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl sm:left-auto sm:right-6 sm:w-96 dark:border-slate-700 dark:bg-slate-900">
+      className="fixed inset-x-4 bottom-4 z-[80] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl sm:left-auto sm:right-6 sm:w-96 dark:border-slate-700 dark:bg-slate-900">
       <div className="flex items-start gap-3">
         <span className={`mt-0.5 shrink-0 ${passed ? 'text-emerald-600' : failed || phase === 'error' ? 'text-rose-600' : 'text-indigo-600 dark:text-indigo-400'}`}>
           {live ? <Loader2 size={18} className="animate-spin" />
@@ -47,12 +57,17 @@ const QuickRunCard = ({ run, testCase, onClose, onDone }) => {
           <p className="text-sm font-semibold text-slate-900 dark:text-white">
             {phase === 'connecting' ? 'Hazırlanıyor…'
               : phase === 'running' ? 'Tarayıcıda koşuluyor…'
-              : passed ? 'Geçti'
-              : failed ? 'Kaldı'
+              : passed ? (single ? 'Geçti' : 'Hepsi geçti')
+              : failed ? (single ? 'Kaldı' : `${counts.failed} case kaldı`)
               : phase === 'stopped' ? 'Durduruldu'
               : phase === 'error' ? 'Koşulamadı' : 'Bitti'}
           </p>
-          <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={testCase.title}>{ident} · {testCase.title}</p>
+          {single
+            ? <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={single.title}>{caseIdent(single.id)} · {single.title}</p>
+            : <p className="text-xs text-slate-500 dark:text-slate-400">
+                {live && run.cases.length ? `${doneCount}/${total} bitti` : `${total} case`}
+                {counts && ` · ${counts.passed || 0} geçti · ${counts.failed || 0} kaldı${counts.skipped ? ` · ${counts.skipped} atlandı` : ''}`}
+              </p>}
         </div>
         {!live && (
           <button type="button" onClick={onClose} aria-label="Kapat"
@@ -67,15 +82,28 @@ const QuickRunCard = ({ run, testCase, onClose, onDone }) => {
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
             <div className="h-full rounded-full bg-indigo-500 transition-[width]" style={{ width: `${Math.max(progress, 4)}%` }} />
           </div>
-          {last && <p className="mt-2 truncate font-mono text-[11px] text-slate-500 dark:text-slate-400" title={last.message}>{last.message}</p>}
+          {!single && current && <p className="mt-2 truncate text-xs text-slate-700 dark:text-slate-200" title={current.title}>{caseIdent(current.case_id)} · {current.title}</p>}
+          {last && <p className="mt-1.5 truncate font-mono text-[11px] text-slate-500 dark:text-slate-400" title={last.message}>{last.message}</p>}
           <p className="mt-2 text-[11px] text-slate-400">Tarayıcı penceresi NG Test sunucusunun çalıştığı makinede açılır. Bu sayfadan ayrılırsanız koşum durur.</p>
         </>
       )}
       {phase === 'error' && error && <p className="mt-2 text-xs text-rose-700 [overflow-wrap:anywhere] dark:text-rose-400">{error}</p>}
       {phase === 'finished' && failed && (
-        <p className="mt-2 line-clamp-3 font-mono text-[11px] text-rose-700 [overflow-wrap:anywhere] dark:text-rose-400">
-          {shortError(run.cases.find(c => c.error)?.error) || 'Ayrıntılar koşum kaydında.'}
-        </p>
+        single ? (
+          <p className="mt-2 line-clamp-3 font-mono text-[11px] text-rose-700 [overflow-wrap:anywhere] dark:text-rose-400">
+            {shortError(fails[0]?.error) || 'Ayrıntılar koşum kaydında.'}
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {fails.slice(0, MAX_FAILS).map(c => (
+              <li key={c.case_id} className="min-w-0 text-xs">
+                <p className="truncate text-slate-800 dark:text-slate-100" title={c.title}>{caseIdent(c.case_id)} · {c.title}</p>
+                {c.error && <p className="truncate font-mono text-[11px] text-rose-700 dark:text-rose-400" title={shortError(c.error)}>{shortError(c.error)}</p>}
+              </li>
+            ))}
+            {fails.length > MAX_FAILS && <li className="text-xs text-slate-500 dark:text-slate-400">+{fails.length - MAX_FAILS} case daha</li>}
+          </ul>
+        )
       )}
 
       <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -87,7 +115,7 @@ const QuickRunCard = ({ run, testCase, onClose, onDone }) => {
           </Link>
         )}
         {!live && (
-          <Link to={`/automation?project=${testCase.project_id}${testCase.suite_id ? `&suite=${testCase.suite_id}` : ''}&cases=${testCase.id}`}
+          <Link to={`/automation?project=${first.project_id}${first.suite_id ? `&suite=${first.suite_id}` : ''}&cases=${ids}`}
             className="inline-flex items-center rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
             Otomasyon sayfası
           </Link>
