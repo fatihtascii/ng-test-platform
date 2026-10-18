@@ -16,7 +16,8 @@ from pydantic import BaseModel
 from app.appium_utils import get_all_devices
 import json
 
-from app.core.deps import require_permission, require_permission_query_ok
+from sqlalchemy.orm import Session
+from app.core.deps import get_db, require_permission, require_permission_query_ok
 
 router = APIRouter()
 
@@ -156,13 +157,13 @@ class AppiumRunner:
         Gerçek test adımlarını buraya yazın ya da
         test_case_id'ye göre DB'den çekip dinamik yürütün.
         """
-        from appium import webdriver
-        from appium.options import AppiumOptions
-
         _runs[self.run_id]["status"] = "running"
         driver = None
 
         try:
+            # İçeride: appium kurulu değilse koşu "running"de takılıp log akışı hiç bitmiyordu
+            from appium import webdriver
+            from appium.options import AppiumOptions
             self._log(f"Appium server bağlantısı → {self.req.appium_server}")
             caps = self._build_capabilities()
             options = AppiumOptions().load_capabilities(caps)
@@ -183,6 +184,9 @@ class AppiumRunner:
             self._log("Tüm adımlar başarıyla tamamlandı", "ok")
             _runs[self.run_id]["status"] = "passed"
 
+        except ImportError:
+            self._log("Appium Python istemcisi kurulu değil: pip install Appium-Python-Client", "error")
+            _runs[self.run_id]["status"] = "failed"
         except Exception as e:
             self._log(f"HATA: {str(e)}", "error")
             _runs[self.run_id]["status"] = "failed"
@@ -202,11 +206,18 @@ def list_devices():
 
 @router.post("/run", response_model=MobileRunResponse, status_code=201,
              dependencies=[Depends(require_permission("automation.execute"))])
-async def start_run(req: MobileRunRequest):
+async def start_run(req: MobileRunRequest, db: Session = Depends(get_db)):
     """
     Mobil test koşusunu başlatır.
     test_case_id: mevcut TestCase tablosundaki id ile eşleşmeli.
     """
+    from app.modules.test_cases.models import TestCase
+    if not db.query(TestCase.id).filter(TestCase.id == req.test_case_id).first():
+        raise HTTPException(404, "Test case bulunamadı.")
+    if req.platform not in ("android", "ios"):
+        raise HTTPException(422, "Platform 'android' ya da 'ios' olmalı.")
+    if not req.app_path.strip():
+        raise HTTPException(422, "Uygulama yolu zorunlu.")
     run_id = str(uuid.uuid4())[:8]
     _runs[run_id] = {
         "id": run_id,
@@ -253,8 +264,10 @@ async def stream_logs(run_id: str):
             while sent < len(logs):
                 yield f"data: {json.dumps(logs[sent], ensure_ascii=False)}\n\n"
                 sent += 1
-            if _runs[run_id]["status"] in ("passed", "failed"):
-                yield 'data: {"msg":"[DONE]","level":"info"}\n\n'
+            final = _runs[run_id]["status"]
+            if final in ("passed", "failed"):
+                # Son mesaj koşunun sonucunu da taşır; arayüz geçti/kaldı gösterebilsin
+                yield f"data: {json.dumps({'msg': '[DONE]', 'level': 'info', 'status': final})}\n\n"
                 break
             await asyncio.sleep(0.3)
 

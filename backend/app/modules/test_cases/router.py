@@ -124,6 +124,15 @@ def get_test_case(tc_id: int, db: Session = Depends(get_db)):
     return tc
 
 
+@router.get(
+    "/{tc_id}/history",
+    dependencies=[Depends(require_permission("test_cases.view")), Depends(require_permission("test_runs.view"))],
+    summary="Case'in koşum geçmişi ve bağlı hatalar",
+)
+def get_test_case_history(tc_id: int, db: Session = Depends(get_db)):
+    return service.get_test_case_history(db, tc_id)
+
+
 @router.put(
     "/{tc_id}", dependencies=[Depends(require_permission("test_cases.edit"))],
     response_model=schemas.TestCaseResponse,

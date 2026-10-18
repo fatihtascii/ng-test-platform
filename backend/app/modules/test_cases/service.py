@@ -120,9 +120,9 @@ def update_test_case(
     if data.project_id != tc.project_id:
         _assert_project_exists(db, data.project_id)
 
-    # FIX: model_dump(exclude_unset=True) yerine tüm alanları set ediyoruz
-    # çünkü bu PUT endpoint'i (tam güncelleme). PATCH için exclude_unset kullanılır.
-    for key, value in data.model_dump().items():
+    # Yalnızca istekte gönderilen alanlar yazılır. Önceden şemadaki varsayılanlar da
+    # yazıldığı için istemci "tags" göndermeyince case'in etiketleri sessizce siliniyordu.
+    for key, value in data.model_dump(exclude_unset=True).items():
         setattr(tc, key, value)
 
     try:
@@ -175,11 +175,12 @@ def bulk_delete_test_cases(db: Session, ids: list[int]) -> dict:
     # FIX: ids içinde duplicate varsa temizle
     unique_ids = list(set(ids))
 
-    deleted_count = (
-        db.query(models.TestCase)
-        .filter(models.TestCase.id.in_(unique_ids))
-        .delete(synchronize_session=False)
-    )
+    # ORM üzerinden silinir: plan kalemleri gibi ilişkili kayıtlar cascade ile temizlenir
+    # (toplu Query.delete() ORM cascade'lerini atlıyordu).
+    rows = db.query(models.TestCase).filter(models.TestCase.id.in_(unique_ids)).all()
+    for row in rows:
+        db.delete(row)
+    deleted_count = len(rows)
 
     try:
         db.commit()
@@ -348,3 +349,64 @@ def generate_bdd_code(gherkin_text: str) -> dict:
         logger.warning("generate_bdd_code: Hiç Given/When/Then adımı parse edilemedi.")
 
     return {"code": f"# === FEATURE FILE ===\n{feature_file}\n\n# === STEP DEFINITIONS ===\n{step_defs}"}
+
+
+# ── KOŞUM GEÇMİŞİ ─────────────────────────────────────────────────
+# Koşum sonuçları farklı ekranlardan farklı adlarla yazılabiliyor; tek sözlüğe indirilir
+_RESULT_LABELS = {"Passed": "Passed", "Başarılı": "Passed", "Failed": "Failed", "Başarısız": "Failed",
+                  "Blocked": "Blocked", "Bloklandı": "Blocked", "Skipped": "Skipped", "Atlandı": "Skipped",
+                  "Pending": "Untested", "Bekliyor": "Untested", "Untested": "Untested"}
+
+
+def get_test_case_history(db: Session, tc_id: int, limit: int = 20) -> dict:
+    """Case'in yer aldığı koşumlar (yeniden eskiye) ve bağlı hata kayıtları."""
+    import json
+    from app.modules.test_runs.models import TestRun
+    from app.modules.defects.models import Defect
+
+    tc = _get_or_404(db, tc_id)
+    runs = (db.query(TestRun).filter(TestRun.project_id == tc.project_id)
+              .order_by(TestRun.created_at.desc(), TestRun.id.desc()).all())
+
+    history = []
+    for run in runs:
+        try:
+            results = json.loads(run.results or "[]")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(results, list):
+            continue
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            cid = r.get("case_id") or r.get("test_case_id")
+            if cid != tc_id and str(cid) != str(tc_id):
+                continue
+            raw = r.get("status") or r.get("run_status") or "Untested"
+            history.append({
+                "run_id": run.id,
+                "run_name": run.name,
+                "run_status": run.status,
+                "result": _RESULT_LABELS.get(raw, "Untested"),
+                "note": r.get("actual_result") or r.get("error") or r.get("note"),
+                "created_at": run.created_at,
+            })
+            break
+        if len(history) >= limit:
+            break
+
+    run_ids = [h["run_id"] for h in history if h["result"] == "Failed"]
+    q = db.query(Defect).filter(Defect.test_case_id == tc_id)
+    defects = q.all()
+    if run_ids:
+        known = {d.id for d in defects}
+        defects += [d for d in db.query(Defect).filter(Defect.test_run_id.in_(run_ids)).all() if d.id not in known]
+    defects.sort(key=lambda d: d.id, reverse=True)
+
+    return {
+        "runs": history,
+        "defects": [
+            {"id": d.id, "title": d.title, "status": d.status, "severity": d.severity, "test_run_id": d.test_run_id}
+            for d in defects
+        ],
+    }

@@ -21,6 +21,36 @@ from app.modules.defects.service import sync_run_defect
 logger = logging.getLogger("ng-test.test_runs")
 
 
+# Koşum bitince sonuçlar case'lerin "son sonuç" statüsüne yansır (otomasyon zaten böyle yapıyordu)
+_FINISHED_RUN_STATUSES = {"Tamamlandı", "Başarısız"}
+_CASE_STATUS_BY_RESULT = {"Passed": "Başarılı", "Başarılı": "Başarılı", "Failed": "Başarısız", "Başarısız": "Başarısız"}
+
+
+def sync_case_statuses(db: Session, run) -> int:
+    if run.status not in _FINISHED_RUN_STATUSES:
+        return 0
+    import json
+    from app.modules.test_cases.models import TestCase
+    try:
+        results = json.loads(run.results or "[]")
+    except (TypeError, ValueError):
+        return 0
+    wanted = {}
+    for r in results if isinstance(results, list) else []:
+        if not isinstance(r, dict):
+            continue
+        cid = r.get("case_id") or r.get("test_case_id")
+        new = _CASE_STATUS_BY_RESULT.get(r.get("status") or r.get("run_status"))
+        if isinstance(cid, int) and new:
+            wanted[cid] = new
+    if not wanted:
+        return 0
+    cases = db.query(TestCase).filter(TestCase.id.in_(wanted), TestCase.project_id == run.project_id).all()
+    for tc in cases:
+        tc.status = wanted[tc.id]
+    return len(cases)
+
+
 def _get_or_404(db: Session, run_id: int) -> models.TestRun:
     run = db.query(models.TestRun).filter(models.TestRun.id == run_id).first()
     if not run:
@@ -49,6 +79,7 @@ def create_test_run(db: Session, run: schemas.TestRunCreate) -> models.TestRun:
     db.add(db_run)
     db.flush()
     sync_run_defect(db, db_run)   # başarısız sonuç varsa otomatik defect
+    sync_case_statuses(db, db_run)
     db.commit()
     db.refresh(db_run)
     logger.info(f"TestRun oluşturuldu: id={db_run.id} name={db_run.name!r}")
@@ -119,6 +150,7 @@ def update_test_run(
         setattr(run, k, v)
 
     sync_run_defect(db, run)
+    sync_case_statuses(db, run)
     db.commit()
     db.refresh(run)
     logger.info(f"TestRun güncellendi: id={run_id}")
