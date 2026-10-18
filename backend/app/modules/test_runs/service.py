@@ -51,6 +51,62 @@ def sync_case_statuses(db: Session, run) -> int:
     return len(cases)
 
 
+# Koşum sonucu → plan kalemi statüsü
+_PLAN_STATUS_BY_RESULT = {"Passed": "Başarılı", "Başarılı": "Başarılı", "Failed": "Başarısız",
+                          "Başarısız": "Başarısız", "Skipped": "Atlandı", "Atlandı": "Atlandı"}
+
+
+def _parse_results(raw) -> list:
+    import json
+    try:
+        data = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [r for r in data if isinstance(r, dict)] if isinstance(data, list) else []
+
+
+def seed_results(db: Session, run) -> int:
+    """
+    Sonuçsuz oluşturulan koşumun kapsamını sabitler: plana bağlıysa planın case'leri,
+    değilse projenin tüm case'leri "Pending" olarak yazılır. Böylece koşum, oluşturulduğu
+    andaki case listesiyle koşulur; sonradan eklenen case'ler eski koşumları değiştirmez.
+    """
+    import json
+    from app.modules.test_cases.models import TestCase
+    from app.modules.test_plans.models import TestPlanItem
+    if _parse_results(run.results):
+        return 0
+    if run.test_plan_id:
+        ids = [cid for (cid,) in db.query(TestPlanItem.test_case_id)
+               .filter(TestPlanItem.plan_id == run.test_plan_id).order_by(TestPlanItem.id)]
+    else:
+        ids = [cid for (cid,) in db.query(TestCase.id)
+               .filter(TestCase.project_id == run.project_id).order_by(TestCase.id)]
+    run.results = json.dumps([{"test_case_id": cid, "status": "Pending", "actual_result": ""} for cid in ids])
+    return len(ids)
+
+
+def sync_plan_items(db: Session, run) -> int:
+    """Plana bağlı koşum bitince sonuçlar plan kalemlerine yansır (not dahil)."""
+    if not run.test_plan_id or run.status not in _FINISHED_RUN_STATUSES:
+        return 0
+    from app.modules.test_plans.models import TestPlanItem
+    wanted = {}
+    for r in _parse_results(run.results):
+        cid = r.get("case_id") or r.get("test_case_id")
+        st = _PLAN_STATUS_BY_RESULT.get(r.get("status") or r.get("run_status"))
+        if isinstance(cid, int) and st:
+            wanted[cid] = (st, (r.get("actual_result") or r.get("error") or None))
+    if not wanted:
+        return 0
+    items = db.query(TestPlanItem).filter(TestPlanItem.plan_id == run.test_plan_id,
+                                          TestPlanItem.test_case_id.in_(wanted)).all()
+    for it in items:
+        it.run_status, note = wanted[it.test_case_id]
+        it.note = (note or "")[:2000] or None
+    return len(items)
+
+
 def _get_or_404(db: Session, run_id: int) -> models.TestRun:
     run = db.query(models.TestRun).filter(models.TestRun.id == run_id).first()
     if not run:
@@ -76,10 +132,12 @@ def create_test_run(db: Session, run: schemas.TestRunCreate) -> models.TestRun:
             )
 
     db_run = models.TestRun(**run.model_dump())
+    seed_results(db, db_run)
     db.add(db_run)
     db.flush()
     sync_run_defect(db, db_run)   # başarısız sonuç varsa otomatik defect
     sync_case_statuses(db, db_run)
+    sync_plan_items(db, db_run)
     db.commit()
     db.refresh(db_run)
     logger.info(f"TestRun oluşturuldu: id={db_run.id} name={db_run.name!r}")
@@ -93,6 +151,7 @@ def get_test_runs(
     is_defect:  Optional[bool] = None,
     skip:       int = 0,
     limit:      int = 200,
+    test_plan_id: Optional[int] = None,
 ) -> list[models.TestRun]:
     """
     FIX: project_id ve status filtresi eklendi.
@@ -106,6 +165,8 @@ def get_test_runs(
         q = q.filter(models.TestRun.status == status)
     if is_defect is not None:
         q = q.filter(models.TestRun.is_defect == is_defect)
+    if test_plan_id is not None:
+        q = q.filter(models.TestRun.test_plan_id == test_plan_id)
 
     return (
         q.order_by(models.TestRun.id.desc())
@@ -151,6 +212,7 @@ def update_test_run(
 
     sync_run_defect(db, run)
     sync_case_statuses(db, run)
+    sync_plan_items(db, run)
     db.commit()
     db.refresh(run)
     logger.info(f"TestRun güncellendi: id={run_id}")

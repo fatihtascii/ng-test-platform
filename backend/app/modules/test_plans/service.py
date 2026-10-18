@@ -36,8 +36,9 @@ def _serialize_plan(plan: models.TestPlan) -> dict:
                 "note":               item.note,
                 "test_case_title":    item.test_case.title    if item.test_case else None,
                 "test_case_priority": item.test_case.priority if item.test_case else None,
+                "test_case_execution_type": item.test_case.execution_type if item.test_case else None,
             }
-            for item in plan.items
+            for item in sorted(plan.items, key=lambda i: i.id)
         ],
     }
 
@@ -179,6 +180,7 @@ def update_item_status(
 
     item.run_status = body.run_status
     item.note       = body.note
+    _sync_case_status([item])
     db.commit()
     db.refresh(item)
 
@@ -189,4 +191,42 @@ def update_item_status(
         "note":               item.note,
         "test_case_title":    item.test_case.title    if item.test_case else None,
         "test_case_priority": item.test_case.priority if item.test_case else None,
+        "test_case_execution_type": item.test_case.execution_type if item.test_case else None,
     }
+
+
+# Plan kalemi sonucu, case'in "son sonuç" statüsüne de yansır (koşumlardaki davranışla aynı)
+_CASE_STATUS_BY_PLAN = {"Başarılı": "Başarılı", "Başarısız": "Başarısız"}
+
+
+def _sync_case_status(items) -> None:
+    for it in items:
+        new = _CASE_STATUS_BY_PLAN.get(it.run_status)
+        if new and it.test_case is not None:
+            it.test_case.status = new
+
+
+def bulk_update_item_status(db: Session, plan_id: int, body: schemas.BulkItemStatus):
+    plan = _get_plan_or_404(db, plan_id)
+    wanted = set(body.item_ids)
+    items = [i for i in plan.items if i.id in wanted]
+    if not items:
+        raise HTTPException(status_code=404, detail="Güncellenecek kalem bulunamadı.")
+    for it in items:
+        it.run_status = body.run_status
+        if body.run_status != "Başarısız":
+            it.note = None
+    _sync_case_status(items)
+    db.commit()
+    db.refresh(plan)
+    return _serialize_plan(plan)
+
+
+def bulk_remove_items(db: Session, plan_id: int, body: schemas.BulkItemIds):
+    plan = _get_plan_or_404(db, plan_id)
+    wanted = set(body.item_ids)
+    for it in [i for i in plan.items if i.id in wanted]:
+        db.delete(it)
+    db.commit()
+    db.refresh(plan)
+    return _serialize_plan(plan)

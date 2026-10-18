@@ -59,6 +59,18 @@ def bulk_add_to_plan(
     return service.bulk_add_to_plan(db, plan_id, request)
 
 
+@router.post("/{plan_id}/items/bulk-status", dependencies=[Depends(require_permission("test_runs.execute"))],
+             response_model=schemas.TestPlanResponse)
+def bulk_item_status(plan_id: int, body: schemas.BulkItemStatus, db: Session = Depends(get_db)):
+    return service.bulk_update_item_status(db, plan_id, body)
+
+
+@router.post("/{plan_id}/items/bulk-remove", dependencies=[Depends(require_permission("test_plans.edit"))],
+             response_model=schemas.TestPlanResponse)
+def bulk_remove_items(plan_id: int, body: schemas.BulkItemIds, db: Session = Depends(get_db)):
+    return service.bulk_remove_items(db, plan_id, body)
+
+
 @router.post("/{plan_id}/items", dependencies=[Depends(require_permission("test_plans.edit"))], response_model=schemas.TestPlanResponse)
 def add_item_to_plan(
     plan_id: int,

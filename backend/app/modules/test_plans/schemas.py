@@ -58,6 +58,7 @@ class TestPlanItemResponse(BaseModel):
     note:                Optional[str] = None
     test_case_title:     Optional[str] = None
     test_case_priority:  Optional[str] = None
+    test_case_execution_type: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -81,3 +82,24 @@ class TestPlanItemUpdate(BaseModel):
 
 class BulkAddRequest(BaseModel):
     test_case_ids: List[int]
+
+class BulkItemIds(BaseModel):
+    item_ids: List[int]
+
+    @field_validator("item_ids")
+    @classmethod
+    def _not_empty(cls, v):
+        if not v:
+            raise ValueError("En az bir kalem seçilmelidir.")
+        return v
+
+
+class BulkItemStatus(BulkItemIds):
+    run_status: str
+
+    @field_validator("run_status")
+    @classmethod
+    def _status(cls, v):
+        if v not in VALID_RUN_STATUSES:
+            raise ValueError(f"Geçersiz statü: '{v}'. Geçerli değerler: {list(VALID_RUN_STATUSES)}")
+        return v
