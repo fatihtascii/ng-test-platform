@@ -37,7 +37,7 @@ def serialize(db: Session, s: models.AutomationSuite, counts: Optional[dict] = N
         counts = {s.id: db.query(func.count(TestCase.id)).filter(TestCase.suite_id == s.id).scalar()}
     return {
         "id": s.id, "name": s.name, "project_id": s.project_id, "project_name": s.project.name if s.project else None,
-        "repo_url": s.repo_url, "branch": s.branch, "token": mask_value(s.token) if s.token else None,
+        "repo_url": s.repo_url, "branch": s.branch, "local": workspace.is_local(s.repo_url), "token": mask_value(s.token) if s.token else None,
         "test_path": s.test_path, "environment_id": s.environment_id,
         "environment_name": s.environment.name if s.environment else None,
         "profiles": _loads(s.profiles, DEFAULT_PROFILES), "workers": s.workers, "timeout_minutes": s.timeout_minutes,
@@ -67,8 +67,11 @@ def _apply(db: Session, s: models.AutomationSuite, data: schemas.SuiteBase, crea
             values["repo_url"] = workspace.validate_repo_url(values["repo_url"])
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
-        if not creating and values["repo_url"] != s.repo_url and workspace.repo_dir(s.id).exists():
-            shutil.rmtree(workspace.repo_dir(s.id), ignore_errors=True)   # başka depo: temiz çek
+        if not creating and values["repo_url"] != s.repo_url:
+            # Yalnız NG Test'in kendi çektiği kopya silinir; yerel klasörlere asla dokunulmaz
+            clone = workspace.suite_dir(s.id) / "repo"
+            if clone.exists():
+                shutil.rmtree(clone, ignore_errors=True)
     if values.get("project_id") is not None and not db.query(Project.id).filter(Project.id == values["project_id"]).first():
         raise HTTPException(status_code=422, detail="Proje bulunamadı.")
     if "token" in values:
@@ -91,6 +94,8 @@ def _apply(db: Session, s: models.AutomationSuite, data: schemas.SuiteBase, crea
     for k, v in values.items():
         if v is not None or k == "environment_id":
             setattr(s, k, v.strip() if isinstance(v, str) else v)
+    if workspace.is_local(s.repo_url):
+        s.token = None      # yerel klasörde dal ve token kullanılmaz
     project_id = s.project_id
     if s.environment_id:
         env = db.query(Environment).filter(Environment.id == s.environment_id).first()

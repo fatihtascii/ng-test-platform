@@ -86,14 +86,14 @@ def prepare(config: dict, cases: list) -> SuitePlan:
             raise PrepareError("Depo testleri, script'li case'lerle ya da başka depoların testleriyle aynı koşumda koşulamaz.")
         if sync.is_running(suite.id):
             raise PrepareError("Depo şu an senkronize ediliyor; bitince tekrar deneyin.")
-        if suite.sync_status != "ready" or not os.path.exists(workspace.venv_python(suite.id)):
+        if suite.sync_status != "ready" or not os.path.exists(workspace.venv_python(suite)):
             raise PrepareError("Depo henüz hazır değil; önce senkronize edin.")
         env_id = config.get("environment_id") or suite.environment_id
         env_vars = sync.env_vars_for(db, env_id)
         notes: list[str] = []
         marker = (config.get("marker") or "").strip() if not cases else None
         if not cases:
-            items = workspace.collect(suite.id, suite.test_path, env_vars, lambda _l: None, marker or None)
+            items = workspace.collect(suite, suite.test_path, env_vars, lambda _l: None, marker or None)
             refs = list(dict.fromkeys(workspace.base_nodeid(i["nodeid"]) for i in items))
             rows = db.query(TestCase).filter(TestCase.suite_id == suite.id, TestCase.automation_ref.in_(refs)).all() if refs else []
             by_ref = {r.automation_ref: r for r in rows}
@@ -117,7 +117,7 @@ def prepare(config: dict, cases: list) -> SuitePlan:
             args += [c.automation_ref for c in cases]
         return SuitePlan(
             suite_id=suite.id, suite_name=suite.name, project_id=suite.project_id,
-            python=workspace.venv_python(suite.id), cwd=str(workspace.repo_dir(suite.id)), args=args,
+            python=workspace.venv_python(suite), cwd=str(workspace.repo_dir(suite)), args=args,
             ready=[{"case_id": c.id, "title": c.title, "ref": c.automation_ref} for c in cases],
             tracker=SuiteTracker(ref_to_case), junit_resolve=resolve,
             timeout_sec=suite.timeout_minutes * 60, environment_id=env_id, notes=notes,

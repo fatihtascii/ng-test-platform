@@ -3,9 +3,9 @@
  * Koşumu sunucu kaydeder (source=automation). Parçalar ./automation altında.
  * ?project=1&cases=3,5 ile ön seçimli açılabilir (Test case'ler sayfasındaki toplu işlem).
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Square, RotateCcw, Cpu, ExternalLink, Bug, Zap } from 'lucide-react';
+import { Play, Square, RotateCcw, Cpu, ExternalLink, Bug, Zap, RefreshCw } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import { PageHeader, Button, Panel, ResultBar, StatusBadge, EmptyState, Skeleton } from '../components/ui';
 import { Field, Tabs } from '../components/ui/data';
@@ -59,7 +59,8 @@ const AutomationRun = () => {
   const [now, setNow] = useState(0);
   const [tab, setTab] = useState(initialParams.get('tab') === 'depolar' ? 'suites' : 'run');
   const [suites, setSuites] = useState([]);
-  const [source, setSource] = useState(initialParams.get('suite') || '');   // '' = case script'leri, aksi halde depo id
+  // null = otomatik (script'li case yoksa projenin ilk deposu), '' = case script'leri, aksi halde depo id
+  const [sourceChoice, setSource] = useState(initialParams.get('suite') || null);
   const canManageSuites = can('automation.manage');
 
   const loadSuites = useCallback(() => suitesApi.list().then(r => setSuites(r.data)).catch(() => setSuites([])), []);
@@ -87,7 +88,7 @@ const AutomationRun = () => {
         // Adresle gelen case'ler bir depodansa kaynak o depo olsun
         const pre = (initialParams.get('cases') || '').split(',').map(Number);
         const fromSuite = cases.find(c => pre.includes(c.id) && c.suite_id);
-        if (fromSuite) setSource(cur => cur || String(fromSuite.suite_id));
+        if (fromSuite) setSource(cur => cur ?? String(fromSuite.suite_id));
         // Tek proje varsa ya da adresle gelinmediyse ilk otomasyon case'i olan proje seçilsin
         setProject(cur => cur || String((p.data.find(x => cases.some(c => c.project_id === x.id && isAutomated(c))) || p.data[0])?.id || ''));
       })
@@ -127,7 +128,32 @@ const AutomationRun = () => {
   }, [run.busy]);
 
   const projectSuites = useMemo(() => suites.filter(x => String(x.project_id) === project), [suites, project]);
+  const hasScriptCases = Boolean(data?.cases.some(c => String(c.project_id) === project && !c.suite_id));
+  const source = sourceChoice ?? (!hasScriptCases && projectSuites[0] ? String(projectSuites[0].id) : '');
   const suite = projectSuites.find(x => String(x.id) === source) || null;
+
+  // Yerel klasör: yeni yazılan testler görünsün diye seçildiğinde bir kez kendiliğinden yenilenir
+  const refreshed = useRef(new Set());
+  const refreshSuite = useCallback(async (id, quiet) => {
+    try { await suitesApi.sync(id); } catch (e) { if (e.status !== 409) { if (!quiet) toast.error(e.message || 'Yenilenemedi.'); return; } }
+    await loadSuites();
+    let st = null;
+    for (let i = 0; i < 600; i += 1) {
+      await new Promise(r => setTimeout(r, 1000));
+      try { st = (await suitesApi.syncState(id)).data; } catch { break; }
+      if (!st.syncing) break;
+    }
+    await Promise.all([loadSuites(), loadCases()]);
+    if (st?.sync_status === 'error') toast.error('Testler okunamadı; ayrıntı Depolar sekmesindeki günlükte.');
+    else if (st && !quiet) toast.success(`Testler yenilendi: ${st.sync_summary?.functions ?? 0} test, ${st.sync_summary?.added ?? 0} yeni.`);
+    else if (st?.sync_summary?.added) toast.success(`${st.sync_summary.added} yeni test bulundu.`);
+  }, [loadSuites, loadCases]);
+  const autoRefreshId = suite?.local && canManageSuites && !suite.syncing ? suite.id : null;
+  useEffect(() => {
+    if (!autoRefreshId || refreshed.current.has(autoRefreshId)) return;
+    refreshed.current.add(autoRefreshId);
+    refreshSuite(autoRefreshId, true);
+  }, [autoRefreshId, refreshSuite]);
   const projectCases = useMemo(() => (data ? data.cases.filter(c => String(c.project_id) === project
       && (suite ? c.suite_id === suite.id : !c.suite_id))
     .map(c => (latest.has(c.id) ? { ...c, status: latest.get(c.id) } : c)) : []), [data, project, latest, suite]);
@@ -135,7 +161,7 @@ const AutomationRun = () => {
   const selectedIds = useMemo(() => projectCases.filter(c => c.hasScript && selected.has(c.id)).map(c => c.id), [projectCases, selected]);
   const env = projectEnvs.find(e => String(e.id) === environmentId);
 
-  const changeProject = (v) => { setProject(v); setEnvironmentId(''); setSelected(new Set()); setSource(''); };
+  const changeProject = (v) => { setProject(v); setEnvironmentId(''); setSelected(new Set()); setSource(null); };
   const changeSource = (v) => {
     setSource(v); setSelected(new Set());
     const sx = suites.find(x => String(x.id) === v);
@@ -189,16 +215,25 @@ const AutomationRun = () => {
               </select>
             </Field>
             {projectSuites.length > 0 && (
-              <Field label="Kaynak" htmlFor="a-source" hint={suite ? <>Depodaki testler projenin kendi pytest ayarlarıyla koşar. {suiteStatus(suite).label !== 'Hazır' && <b className="font-medium text-amber-700 dark:text-amber-400">Depo hazır değil: {suiteStatus(suite).label}.</b>}</> : 'Case\'lere yazılmış script\'ler.'}>
-                <select id="a-source" value={source} onChange={e => changeSource(e.target.value)} disabled={run.busy} className={inputCls}>
-                  <option value="">Case script'leri</option>
-                  {projectSuites.map(x => <option key={x.id} value={x.id}>Depo: {x.name}</option>)}
-                </select>
+              <Field label="Kaynak" htmlFor="a-source" hint={suite ? (suite.syncing
+                ? <span className="inline-flex items-center gap-1 text-indigo-700 dark:text-indigo-300"><RefreshCw size={11} className="animate-spin" />Testler yenileniyor…</span>
+                : <>{suite.local ? 'Klasördeki testler projenin kendi pytest ayarları ve .venv\'iyle koşar.' : 'Depodaki testler projenin kendi pytest ayarlarıyla koşar.'} {suiteStatus(suite).label !== 'Hazır' && <b className="font-medium text-amber-700 dark:text-amber-400">Hazır değil: {suiteStatus(suite).label}.</b>}</>)
+                : 'Case\'lere yazılmış script\'ler.'}>
+                <div className="flex gap-2">
+                  <select id="a-source" value={source} onChange={e => changeSource(e.target.value)} disabled={run.busy} className={`${inputCls} min-w-0 flex-1`}>
+                    <option value="">Case script'leri</option>
+                    {projectSuites.map(x => <option key={x.id} value={x.id}>{x.local ? 'Klasör' : 'Depo'}: {x.name}</option>)}
+                  </select>
+                  {suite && canManageSuites && (
+                    <Button variant="secondary" icon={<RefreshCw size={14} className={suite.syncing ? 'animate-spin' : ''} />} disabled={run.busy || suite.syncing}
+                      onClick={() => refreshSuite(suite.id, false)} aria-label="Testleri yenile" title={suite.local ? 'Klasördeki testleri yeniden oku' : 'Depoyu senkronize et'} />
+                  )}
+                </div>
               </Field>
             )}
             <Field label="Ortam" htmlFor="a-env" hint={env ? <span className="font-mono">{env.url}</span> : projectEnvs.length ? 'Seçilirse adresi ve değişkenleri teste aktarılır.' : <>Bu projede ortam yok. <Link to={`/environments?project=${project}`} className="text-indigo-600 hover:underline dark:text-indigo-400">Ortam ekle</Link></>}>
               <select id="a-env" value={environmentId} onChange={e => setEnvironmentId(e.target.value)} disabled={run.busy || !projectEnvs.length} className={inputCls}>
-                <option value="">Ortamsız (script'teki adres)</option>
+                <option value="">{suite?.environment_name ? `Deponun ortamı (${suite.environment_name})` : suite?.local ? 'Ortamsız (klasördeki .env)' : suite ? 'Ortamsız' : 'Ortamsız (script\'teki adres)'}</option>
                 {projectEnvs.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
             </Field>
@@ -210,9 +245,9 @@ const AutomationRun = () => {
                 </select>
               </Field>
               )}
-              <label className="flex h-9 cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300" title="Kapalıyken tarayıcı sunucuda görünür açılır (yalnızca masaüstü sunucuda işe yarar)">
+              <label className="flex h-9 cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300" title="Tarayıcı penceresi NG Test backend'inin çalıştığı bilgisayarda açılır; testi adım adım izleyebilirsiniz.">
                 <input type="checkbox" checked={!headless} onChange={e => setHeadless(!e.target.checked)} disabled={run.busy} className="h-4 w-4 accent-indigo-600" />
-                Görünür
+                Tarayıcıyı göster
               </label>
             </div>
             {suite && suite.profiles?.length > 0 && (

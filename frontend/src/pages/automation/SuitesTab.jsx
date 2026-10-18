@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, RefreshCw, MoreHorizontal, Pencil, Trash2, GitBranch, ChevronRight, FolderGit2 } from 'lucide-react';
+import { Plus, RefreshCw, MoreHorizontal, Pencil, Trash2, GitBranch, ChevronRight, FolderGit2, FolderOpen } from 'lucide-react';
 import { Button, StatusBadge, EmptyState, Ident } from '../../components/ui';
 import { Menu, MenuItem, MenuSeparator, Modal } from '../../components/ui/overlay';
 import { toast } from '../../components/ui/toast';
@@ -57,14 +57,15 @@ const SuiteCard = ({ suite, canManage, onEdit, onDelete, onSynced }) => {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" aria-label={suite.name}>
       <div className="flex flex-wrap items-start gap-3 px-4 py-3">
-        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><FolderGit2 size={18} /></span>
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          title={suite.local ? 'Bu bilgisayardaki klasör' : 'Uzak depo'}>{suite.local ? <FolderOpen size={18} /> : <FolderGit2 size={18} />}</span>
         <div className="min-w-0 flex-1">
           <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
             {suite.name} <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
           </h3>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400">
-            <span className="truncate font-mono">{suite.repo_url.replace(/^https:\/\//, '')}</span>
-            <span className="inline-flex items-center gap-0.5"><GitBranch size={11} />{suite.branch}</span>
+            <span className="min-w-0 max-w-full truncate font-mono" title={suite.repo_url}>{suite.repo_url.replace(/^https:\/\//, '')}</span>
+            {suite.local ? <span>· yerel klasör</span> : <span className="inline-flex items-center gap-0.5"><GitBranch size={11} />{suite.branch}</span>}
             <span>· {suite.project_name}</span>
             {suite.environment_name && <span>· ortam: {suite.environment_name}</span>}
           </p>
@@ -76,7 +77,8 @@ const SuiteCard = ({ suite, canManage, onEdit, onDelete, onSynced }) => {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {canManage && <Button size="sm" icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />} onClick={sync} disabled={syncing}>{syncing ? 'Senkronize ediliyor' : 'Senkronize et'}</Button>}
+          {canManage && <Button size="sm" icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />} onClick={sync} disabled={syncing}>
+            {suite.local ? (syncing ? 'Yenileniyor' : 'Yenile') : (syncing ? 'Senkronize ediliyor' : 'Senkronize et')}</Button>}
           {canManage && (
             <Menu trigger={({ ref, toggle, open: o }) => (
               <button ref={ref} type="button" onClick={toggle} aria-label={`${suite.name} işlemleri`} aria-haspopup="menu" aria-expanded={o}
@@ -111,7 +113,9 @@ const SuiteCard = ({ suite, canManage, onEdit, onDelete, onSynced }) => {
 
       {suite.sync_status === 'never' && !syncing && !state && (
         <p className="border-t border-slate-100 px-4 py-2.5 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
-          Henüz senkronize edilmedi. "Senkronize et" depoyu çeker, bağımlılıkları kurar ve testleri case olarak içe aktarır (ilk seferde birkaç dakika sürebilir).
+          {suite.local
+            ? 'Henüz okunmadı. "Yenile" klasördeki testleri bulur ve case olarak içe aktarır; yeni test yazdığınızda tekrar basın.'
+            : 'Henüz senkronize edilmedi. "Senkronize et" depoyu çeker, bağımlılıkları kurar ve testleri case olarak içe aktarır (ilk seferde birkaç dakika sürebilir).'}
         </p>
       )}
 
@@ -154,13 +158,13 @@ const SuitesTab = ({ suites, projects, envs, project, canManage, onChange }) => 
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <p className="mr-auto max-w-2xl text-sm text-slate-600 dark:text-slate-300">
-          Mevcut bir pytest/Playwright otomasyon projesini (GitHub deposu) bağlayın: testleri case olarak içe aktarılır, buradan ya da CI'dan koşturulur, sonuçları raporlara ve hata kayıtlarına yansır.
+          Yazdığınız pytest/Playwright testlerini bağlayın (bilgisayarınızdaki klasör ya da GitHub deposu): testler case olarak içe aktarılır, buradan ya da CI'dan koşturulur, sonuçları raporlara ve hata kayıtlarına yansır.
         </p>
         {canManage && <Button variant="primary" icon={<Plus size={15} />} onClick={() => setForm({})} disabled={!projects.length}>Depo bağla</Button>}
       </div>
       {shown.length === 0 ? (
         <EmptyState icon={<FolderGit2 size={24} />} title="Bağlı otomasyon deposu yok"
-          description={canManage ? 'Bir GitHub deposu bağlayarak başlayın.' : 'Depo bağlamak için "otomasyon depolarını yönet" izni gerekir.'}
+          description={canManage ? 'Testlerinizin olduğu klasörü ya da GitHub deposunu bağlayarak başlayın.' : 'Depo bağlamak için "otomasyon depolarını yönet" izni gerekir.'}
           action={canManage && <Button variant="primary" icon={<Plus size={14} />} onClick={() => setForm({})}>Depo bağla</Button>} />
       ) : shown.map(s => (
         <SuiteCard key={s.id} suite={s} canManage={canManage} onEdit={x => setForm({ suite: x })} onDelete={setRemoving} onSynced={onSynced} />

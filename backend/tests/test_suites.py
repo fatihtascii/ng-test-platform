@@ -97,7 +97,7 @@ def _env(client, admin, project):
 
 
 def _suite(client, admin, project, repo, env=None, **extra):
-    body = {"name": "easycontact admin", "project_id": project["id"], "repo_url": str(repo), "branch": "main",
+    body = {"name": "easycontact admin", "project_id": project["id"], "repo_url": f"file://{repo}", "branch": "main",
             "token": "ghp_gizli_token_1234", "environment_id": env["id"] if env else None,
             "profiles": [{"name": "Smoke", "marker": "smoke"}, {"name": "Güvenli", "marker": "not data_producing"}], **extra}
     r = client.post("/suites/", json=body, headers=admin)
@@ -229,3 +229,49 @@ def test_hazir_olmayan_depo_ve_silme(client, admin, project, repo):
     assert len(left) == n and all(c["suite_id"] is None for c in left)
     from app.modules.suites import workspace
     assert not workspace.suite_dir(s["id"]).exists()
+
+
+def test_yerel_klasor_oldugu_yerde_kullanilir(client, admin, project, repo):
+    import sys
+    token = admin["Authorization"][7:]
+    env = _env(client, admin, project)
+    bad = client.post("/suites/", json={"name": "x", "project_id": project["id"], "repo_url": "/yok/boyle/bir/klasor"}, headers=admin)
+    assert bad.status_code == 422 and "Klasör bulunamadı" in bad.json()["detail"]
+
+    # Projenin kendi sanal ortamı ve pytest-html raporu olan bir klasör
+    (repo / ".venv/bin").mkdir(parents=True)
+    py = repo / ".venv/bin/python"     # pytest'in kurulu olduğu yorumlayıcıya yönlenen sahte sanal ortam
+    py.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    py.chmod(0o755)
+    (repo / "reports").mkdir()
+    (repo / "reports/report.html").write_text("ESKI RAPOR")
+    ini = (repo / "pytest.ini").read_text()
+    (repo / "pytest.ini").write_text(ini.replace("[pytest]", "[pytest]\n# --html=reports/report.html (eklenti kurulu değil, yalnız işaret)"))
+
+    s = _suite(client, admin, project, repo, env, repo_url=str(repo))
+    assert s["local"] and s["token"] is None
+    st = client.post(f"/suites/{s['id']}/sync", headers=admin).json()
+    assert st["sync_status"] == "ready", st["sync_log"][-1500:]
+    assert "kendi sanal ortamı" in st["sync_log"] and "Depo çekiliyor" not in st["sync_log"]
+    assert (repo / "reports/report.html").read_text() == "ESKI RAPOR"
+    from app.modules.suites import workspace
+    assert not workspace._uses_html_report(repo)     # yorum satırı sayılmaz
+    other = repo.parent / "html-ini"
+    other.mkdir()
+    (other / "pytest.ini").write_text("[pytest]\naddopts = -ra --html=reports/report.html\n")
+    assert workspace._uses_html_report(other)
+    assert not (workspace.suite_dir(s["id"]) / "repo").exists() and not (workspace.suite_dir(s["id"]) / "venv").exists()
+
+    # Kaydedilmemiş yeni test, commit gerekmeden görünür ve koşulur
+    (repo / "tests/smoke/test_yeni.py").write_text("def test_yeni_ozellik():\n    pass\n")
+    st = client.post(f"/suites/{s['id']}/sync", headers=admin).json()
+    full = client.get(f"/suites/{s['id']}", headers=admin).json()
+    assert "kaydedilmemiş değişiklik" in full["commit_message"]
+    new = next(c for c in client.get("/test-cases/", headers=admin).json() if c["automation_ref"] == "tests/smoke/test_yeni.py::test_yeni_ozellik")
+    msgs = _ws(client, token, {"cases": [new["id"]]})
+    summary = next(m for m in msgs if m["type"] == "summary")
+    assert summary["counts"]["passed"] == 1
+
+    # Depoyu kaldırmak klasöre dokunmaz
+    client.delete(f"/suites/{s['id']}", headers=admin)
+    assert (repo / "tests/smoke/test_yeni.py").exists() and (repo / ".venv").exists()

@@ -150,13 +150,24 @@ Motor `backend/app/modules/automation` altındadır (`runner.py` saf yardımcıl
 
 ### Otomasyon depoları
 
-Mevcut bir pytest/Playwright projesi (ör. GitHub deposu) NG Test'e bağlanabilir; kodu kopyalamaya gerek yoktur.
-Modül: `backend/app/modules/suites` (migration `0009`).
+Yazdığınız pytest/Playwright testleri NG Test'e bağlanabilir. Testler NG Test'te case olarak görünür, buradan seçilip
+koşturulur (istenirse görünür tarayıcıyla). Modül: `backend/app/modules/suites` (migration `0009`).
 
-- **Bağlama:** Otomasyon → Depolar → *Depo bağla*. Adres `https://github.com/sahip/depo` biçimindedir. Özel depo için
-  yalnızca okuma izinli bir token girin (GitHub fine-grained token, *Contents: Read-only*). Token şifreli alanda tutulur,
-  API'de maskelenir, git'e `http.extraHeader` ile verilir; adreste, komut satırında veya günlükte görünmez.
-- **Senkronizasyon:** depo `NG_DATA_DIR` (varsayılan `~/.ng-test`) altındaki `suites/<id>/repo` klasörüne çekilir.
+İki kaynak türü vardır:
+
+- **Bu bilgisayardaki klasör (önerilen, yerel kullanım):** Otomasyon → Depolar → *Depo bağla* → "Bu bilgisayardaki
+  klasör". Örnek yol: `/Users/fatihtasci/projects/easycontact-admin-tests`.
+  - Klasör olduğu yerde kullanılır: kopyalanmaz, commit/push gerekmez, kaydedilmemiş değişiklikler de görünür.
+  - Klasörde `.venv` (ya da `venv`) varsa projenin kendi sanal ortamı kullanılır; NG Test ona paket kurmaz.
+  - Ortam seçilmezse projenin kendi `.env` dosyası okunur. Ortam seçilirse değişkenleri `.env` değerlerinin önüne geçer.
+  - Yeni test yazdığınızda *Yenile*'ye basın. Koşum ekranında klasör seçildiğinde testler kendiliğinden bir kez yenilenir.
+  - "Tarayıcıyı göster" işaretlenirse Playwright penceresi backend'in çalıştığı bilgisayarda açılır (`--headed`).
+  - NG Test bu klasördeki hiçbir dosyayı silmez. Bağlantıyı kaldırmak klasöre dokunmaz.
+  - Paylaşılan bir sunucuda yerel klasör bağlamayı kapatmak için: `NG_SUITE_ALLOW_LOCAL=0`.
+- **GitHub deposu:** adres `https://github.com/sahip/depo` biçimindedir. Özel depo için yalnızca okuma izinli bir
+  token girin (GitHub fine-grained token, *Contents: Read-only*). Token şifreli alanda tutulur, API'de maskelenir,
+  git'e `http.extraHeader` ile verilir; adreste, komut satırında veya günlükte görünmez.
+- **Senkronizasyon (GitHub):** depo `NG_DATA_DIR` (varsayılan `~/.ng-test`) altındaki `suites/<id>/repo` klasörüne çekilir.
   Ayrı bir sanal ortam (`suites/<id>/venv`) kurulur, `requirements.txt` değiştiğinde yeniden yüklenir. Requirements
   playwright içeriyorsa Chromium da indirilir. Sunucuda `git` ve Python 3 bulunmalıdır.
 - **Case eşlemesi:** her test fonksiyonu bir case olur (`test_cases.suite_id` + `automation_ref` = pytest node id).
@@ -164,7 +175,7 @@ Modül: `backend/app/modules/suites` (migration `0009`).
   pytest işaretleri (marker) etiket olur. `xfail` işaretli testler `bilinen-hata` etiketini alır. Yeniden
   senkronizasyonda başlık, öncelik ve el ile eklenen etiketler korunur. Depodan silinen testler silinmez,
   `depoda-yok` etiketi alır ve koşulmaz.
-- **Ortam değişkenleri:** depo `.env` dosyası yerine depoya seçilen NG Test ortamının değişkenleri kullanılır.
+- **Ortam değişkenleri (GitHub):** depo `.env` dosyası yerine depoya seçilen NG Test ortamının değişkenleri kullanılır.
   Örneğin `BASE_URL`, `ADMIN_EMAIL` normal; `ADMIN_PASSWORD`, `INVITED_PASSWORD` gibi değerler **sır** olarak
   eklenir ve çıktıda maskelenir.
 - **Profiller:** pytest `-m` ifadesidir. Önerilenler: Smoke = `smoke`, Deploy sonrası = `deploy`,
@@ -175,7 +186,7 @@ Modül: `backend/app/modules/suites` (migration `0009`).
 - **CI'dan:** `POST /automation/runs` gövdesine `{"suite_id": 1, "marker": "smoke"}` verilebilir.
 - **Yetki:** depo bağlama, düzenleme, silme ve senkronizasyon `automation.manage` iznini ister (admin ve yönetici
   rollerinde varsayılan). Görüntülemek için `automation.view` yeterlidir.
-- Testlerde kullanılan bayraklar: `NG_SUITE_ALLOW_LOCAL=1` yerel klasörü depo adresi olarak kabul eder,
+- Testlerde kullanılan bayraklar: `NG_SUITE_ALLOW_LOCAL=1` ayrıca `file://` adreslerini klonlanacak depo olarak kabul eder,
   `NG_SUITE_SKIP_BROWSERS=1` tarayıcı indirmesini atlar.
 
 ## Projeler

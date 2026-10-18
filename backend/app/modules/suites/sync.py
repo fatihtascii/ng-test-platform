@@ -73,13 +73,16 @@ def _job(suite_id: int):
         suite.sync_status, suite.sync_log = "syncing", ""
         db.commit()
         try:
-            log(f"[1/4] Depo çekiliyor: {suite.repo_url} ({suite.branch})")
-            sha, msg = workspace.fetch_repo(suite.id, suite.repo_url, suite.branch, suite.token, log)
-            log(f"      → {sha[:7]} {msg}")
+            if workspace.is_local(suite.repo_url):
+                log(f"[1/4] Yerel klasör okunuyor: {suite.repo_url}")
+            else:
+                log(f"[1/4] Depo çekiliyor: {suite.repo_url} ({suite.branch})")
+            sha, msg = workspace.fetch_repo(suite, log)
+            log(f"      → {sha[:7]} {msg}".rstrip())
             log("[2/4] Sanal ortam ve bağımlılıklar")
-            workspace.ensure_venv(suite.id, log)
+            workspace.ensure_venv(suite, log)
             log(f"[3/4] Testler keşfediliyor: {suite.test_path}")
-            items = workspace.collect(suite.id, suite.test_path, env_vars_for(db, suite.environment_id), log)
+            items = workspace.collect(suite, suite.test_path, env_vars_for(db, suite.environment_id), log)
             groups = workspace.group_tests(items)
             log(f"      → {len(items)} test ({len(groups)} test fonksiyonu)")
             log("[4/4] Case'ler içe aktarılıyor")

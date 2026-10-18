@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { FolderOpen, GitBranch, Plus, X } from 'lucide-react';
 import { Button } from '../../components/ui';
 import { Field } from '../../components/ui/data';
 import { Drawer } from '../../components/ui/overlay';
@@ -9,6 +9,12 @@ import { suitesApi } from '../../api';
 import { suggestProfiles } from './suiteModel';
 
 const isMasked = (v) => typeof v === 'string' && v.startsWith('••••');
+const isLocalPath = (v) => /^(\/|~|[A-Za-z]:[\\/])/.test(v.trim());
+
+const SOURCES = [
+  { id: 'local', label: 'Bu bilgisayardaki klasör', icon: <FolderOpen size={14} className="shrink-0" /> },
+  { id: 'git', label: 'GitHub deposu', icon: <GitBranch size={14} className="shrink-0" /> },
+];
 
 /** Otomasyon deposu bağlama / düzenleme */
 const SuiteFormDrawer = ({ suite, projects, envs, defaultProject, onClose, onSaved }) => {
@@ -20,6 +26,8 @@ const SuiteFormDrawer = ({ suite, projects, envs, defaultProject, onClose, onSav
     workers: suite?.workers || 1, timeout_minutes: suite?.timeout_minutes || 120,
     profiles: suite?.profiles?.length ? suite.profiles : [{ name: 'Tümü', marker: '' }],
   }));
+  const [source, setSource] = useState(suite ? (suite.local ? 'local' : 'git') : 'local');
+  const local = source === 'local';
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -31,7 +39,8 @@ const SuiteFormDrawer = ({ suite, projects, envs, defaultProject, onClose, onSav
   const submit = async () => {
     const errs = {};
     if (!form.name.trim()) errs.name = 'Ad gerekli.';
-    if (!/^https:\/\/[\w.-]+\/[\w.-]+\/[\w.-]+/.test(form.repo_url.trim()) && !form.repo_url.startsWith('/')) errs.repo_url = 'https://github.com/sahip/depo biçiminde girin.';
+    if (local && !isLocalPath(form.repo_url)) errs.repo_url = 'Klasörün tam yolunu girin (ör. /Users/ad/projects/admin-tests).';
+    if (!local && !/^https:\/\/[\w.-]+\/[\w.-]+\/[\w.-]+/.test(form.repo_url.trim())) errs.repo_url = 'https://github.com/sahip/depo biçiminde girin.';
     if (!form.project_id) errs.project_id = 'Proje seçin.';
     const profiles = form.profiles.filter(p => p.name.trim());
     if (new Set(profiles.map(p => p.name.trim())).size !== profiles.length) errs.profiles = 'Profil adları benzersiz olmalı.';
@@ -42,7 +51,7 @@ const SuiteFormDrawer = ({ suite, projects, envs, defaultProject, onClose, onSav
       name: form.name.trim(), project_id: Number(form.project_id), repo_url: form.repo_url.trim(), branch: form.branch.trim() || 'main',
       test_path: form.test_path.trim() || 'tests', environment_id: form.environment_id ? Number(form.environment_id) : null,
       workers: Number(form.workers) || 1, timeout_minutes: Number(form.timeout_minutes) || 120, profiles,
-      ...(isMasked(form.token) ? {} : { token: form.token.trim() }),
+      ...(local || isMasked(form.token) ? {} : { token: form.token.trim() }),
     };
     try {
       const { data } = editing ? await suitesApi.update(suite.id, body) : await suitesApi.create(body);
@@ -52,14 +61,25 @@ const SuiteFormDrawer = ({ suite, projects, envs, defaultProject, onClose, onSav
   };
 
   return (
-    <Drawer open onClose={saving ? () => {} : onClose} size="md" eyebrow={editing ? 'Otomasyon deposu' : 'Yeni depo'} title={editing ? suite.name : 'Otomasyon deposu bağla'}
+    <Drawer open onClose={saving ? () => {} : onClose} size="md" eyebrow={editing ? 'Otomasyon deposu' : 'Yeni depo'} title={editing ? suite.name : 'Otomasyon testlerini bağla'}
       footer={<>
         <Button variant="ghost" className="ml-auto" onClick={onClose} disabled={saving}>Vazgeç</Button>
         <Button variant="primary" onClick={submit} loading={saving}>{editing ? 'Kaydet' : 'Bağla'}</Button>
       </>}>
       <form className="space-y-4 p-5" onSubmit={e => { e.preventDefault(); submit(); }}>
+        <div role="radiogroup" aria-label="Kaynak" className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+          {SOURCES.map(({ id, label, icon }) => (
+            <button key={id} type="button" role="radio" aria-checked={source === id} onClick={() => { setSource(id); setErrors({}); }}
+              className={`flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition ${source === id
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300'}`}>
+              {icon}<span className="truncate">{label}</span>
+            </button>
+          ))}
+        </div>
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
-          Mevcut bir pytest/Playwright projesini bağlayın. NG Test depoyu sunucuya çeker, kendi sanal ortamını kurar, testleri case olarak içe aktarır ve projenin kendi <code>conftest</code>'iyle koşturur. Depodaki kod değiştirilmez.
+          {local
+            ? <>Testlerinizin durduğu klasörü olduğu yerde kullanır: kopyalamaz, commit/push gerekmez. Yeni yazdığınız testler "Yenile" ile hemen görünür. Klasörde <code>.venv</code> varsa o kullanılır; NG Test klasördeki hiçbir dosyayı değiştirmez ya da silmez.</>
+            : <>NG Test depoyu sunucuya çeker, kendi sanal ortamını kurar, testleri case olarak içe aktarır ve projenin kendi <code>conftest</code>'iyle koşturur. Depodaki kod değiştirilmez.</>}
         </p>
         <Field label="Ad" htmlFor="s-name" required error={errors.name}>
           <input id="s-name" data-autofocus value={form.name} onChange={set('name')} placeholder="easycontact admin testleri" className={inputCls} />
@@ -69,20 +89,29 @@ const SuiteFormDrawer = ({ suite, projects, envs, defaultProject, onClose, onSav
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
-        <Field label="GitHub deposu" htmlFor="s-repo" required error={errors.repo_url}>
-          <input id="s-repo" value={form.repo_url} onChange={set('repo_url')} placeholder="https://github.com/sirket/admin-tests" className={`${inputCls} font-mono text-[13px]`} spellCheck={false} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Dal" htmlFor="s-branch"><input id="s-branch" value={form.branch} onChange={set('branch')} className={`${inputCls} font-mono text-[13px]`} /></Field>
+        {local ? (
+          <Field label="Klasör yolu" htmlFor="s-repo" required error={errors.repo_url}
+            hint="NG Test backend'inin çalıştığı bilgisayardaki tam yol. Mac'te Finder'da klasöre sağ tıklayıp Option tuşuyla &quot;… yol adı olarak kopyala&quot; diyebilirsiniz.">
+            <input id="s-repo" value={form.repo_url} onChange={set('repo_url')} placeholder="/Users/ad/projects/admin-tests" className={`${inputCls} font-mono text-[13px]`} spellCheck={false} />
+          </Field>
+        ) : (
+          <Field label="GitHub deposu" htmlFor="s-repo" required error={errors.repo_url}>
+            <input id="s-repo" value={form.repo_url} onChange={set('repo_url')} placeholder="https://github.com/sirket/admin-tests" className={`${inputCls} font-mono text-[13px]`} spellCheck={false} />
+          </Field>
+        )}
+        <div className={`grid gap-3 ${local ? '' : 'grid-cols-2'}`}>
+          {!local && <Field label="Dal" htmlFor="s-branch"><input id="s-branch" value={form.branch} onChange={set('branch')} className={`${inputCls} font-mono text-[13px]`} /></Field>}
           <Field label="Test klasörü" htmlFor="s-path"><input id="s-path" value={form.test_path} onChange={set('test_path')} className={`${inputCls} font-mono text-[13px]`} /></Field>
         </div>
-        <Field label="Erişim token'ı" htmlFor="s-token" hint={isMasked(form.token) ? 'Kayıtlı. Değiştirmek için yeni değeri yazın; silmek için boşaltın.' : 'Özel depo için "Contents: read" izinli bir GitHub token\'ı. Açık depoda boş bırakın.'}>
+        {!local && <Field label="Erişim token'ı" htmlFor="s-token" hint={isMasked(form.token) ? 'Kayıtlı. Değiştirmek için yeni değeri yazın; silmek için boşaltın.' : 'Özel depo için "Contents: read" izinli bir GitHub token\'ı. Açık depoda boş bırakın.'}>
           <input id="s-token" type={isMasked(form.token) ? 'text' : 'password'} value={form.token} onChange={set('token')} onFocus={e => isMasked(form.token) && e.target.select()}
             placeholder="github_pat_…" className={`${inputCls} font-mono text-[13px]`} autoComplete="off" />
-        </Field>
-        <Field label="Ortam" htmlFor="s-env" hint="Değişkenleri (BASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD…) testlere ortam değişkeni olarak verilir; .env dosyasının yerini tutar. Şifreleri gizli değişken yapın.">
+        </Field>}
+        <Field label="Ortam" htmlFor="s-env" hint={local
+          ? 'Boş bırakırsanız klasördeki .env dosyası kullanılır. Ortam seçerseniz değişkenleri .env değerlerinin önüne geçer.'
+          : 'Değişkenleri (BASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD…) testlere ortam değişkeni olarak verilir; .env dosyasının yerini tutar. Şifreleri gizli değişken yapın.'}>
           <select id="s-env" value={form.environment_id} onChange={set('environment_id')} className={inputCls}>
-            <option value="">Ortamsız</option>
+            <option value="">{local ? 'Ortamsız (klasördeki .env)' : 'Ortamsız'}</option>
             {projectEnvs.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </Field>

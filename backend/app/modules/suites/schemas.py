@@ -44,6 +44,7 @@ class SuiteResponse(BaseModel):
     project_name:    Optional[str] = None
     repo_url:        str
     branch:          str
+    local:           bool = False                    # bu bilgisayardaki klasör (olduğu yerde kullanılır)
     token:           Optional[str] = None           # maskeli
     test_path:       str
     environment_id:  Optional[int] = None
