@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import PermissionGuard from '../components/PermissionGuard';
-import { projectsApi, testCasesApi } from '../api';
+import { projectsApi, fetchAllTestCases } from '../api';
 import {
   ArrowLeft, Folder, Settings, Users, Beaker,
   Activity, AlertCircle, CheckCircle2, Clock,
@@ -109,7 +109,7 @@ const ProjectDetail = () => {
     const fetchTCs = async () => {
       setTcLoading(true);
       try {
-        const res = await testCasesApi.getAll({ project_id: id });
+        const res = { data: await fetchAllTestCases({ project_id: id }) };
         setTestCases(res.data || []);
       } catch { console.error('Test senaryoları çekilemedi.'); }
       finally { setTcLoading(false); }

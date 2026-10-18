@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import { ResultBar } from '../components/ui';
-import { projectsApi, testCasesApi, testRunsApi } from '../api';
+import { projectsApi, testRunsApi, fetchAllTestCases } from '../api';
 import {
   Play, Terminal, Server, Globe, Cpu, FlaskConical,
   CheckSquare, Loader2, CheckCircle2, AlertCircle,
@@ -85,7 +85,7 @@ const AutomationRun = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [pR, cR] = await Promise.allSettled([projectsApi.getAll(), testCasesApi.getAll()]);
+        const [pR, cR] = await Promise.allSettled([projectsApi.getAll(), fetchAllTestCases().then(data => ({ data }))]);
         if (pR.status === 'fulfilled') setProjects(pR.value.data || []);
         else setError('Projeler yüklenemedi.');
         if (cR.status === 'fulfilled') {

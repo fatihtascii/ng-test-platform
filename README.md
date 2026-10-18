@@ -71,6 +71,18 @@ Renk yalnızca anlam taşır.
   değiştirilir; değişiklik anında geçerli olur. `admin` rolü tüm izinlere sahiptir.
 - Kayıt (`/auth/register`) her zaman `viewer` rolüyle hesap açar.
 
+## Koşumlar ve planlar
+
+- **Koşum kapsamı oluşturulurken sabitlenir:** plana bağlıysa planın case'leri, değilse projenin
+  tüm case'leri "Bekliyor" olarak koşuma yazılır. Sonradan eklenen case'ler eski koşumları değiştirmez.
+- **Koşum ekranı (`/test-runs/:id`)** sonuçları görüntüleme ve koşmayı birleştirir. Sonuçlar
+  otomatik kaydedilir. Kısayollar: `j`/`k` gezin, `p` geçti, `f` kaldı, `s` atla, `n` not.
+- **Koşum tamamlanınca** sonuçlar case'lerin son sonucuna, bağlı planın kalemlerine ve koşumun
+  ortak hata kaydına yansır. Tamamlanan koşum yeniden açılabilir.
+- **Plan sayfası (`/test-plans/:id`)** kalemleri, toplu sonuç/çıkarma işlemlerini, çoklu case
+  eklemeyi ve plana bağlı koşumları gösterir. Plan kalemi sonucu da case'in son sonucunu günceller.
+- Kimlikler: `TC-` case, `KS-` koşum, `TP-` plan, `BUG-` hata kaydı.
+
 ## Defect takibi
 
 Defect'ler `defects` tablosunda tutulur:

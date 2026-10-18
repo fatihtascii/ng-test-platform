@@ -12,6 +12,7 @@ import TestRuns      from './pages/TestRuns';
 import TestRunDetail from './pages/TestRunDetail';
 import UsersPage     from './pages/Users';
 import TestPlans     from './pages/TestPlans';
+import TestPlanDetail from './pages/TestPlanDetail';
 import Defects       from './pages/Defects';
 import DefectDetail  from './pages/DefectDetail';
 import Reports       from './pages/Reports';
@@ -81,6 +82,7 @@ function App() {
         <Route path="/projects/:id" element={<Guard perm="projects.view"><ProjectDetail /></Guard>} />
         <Route path="/test-cases" element={<Guard perm="test_cases.view"><TestCases /></Guard>} />
         <Route path="/test-plans" element={<Guard perm="test_plans.view"><TestPlans /></Guard>} />
+        <Route path="/test-plans/:id" element={<Guard perm="test_plans.view"><TestPlanDetail /></Guard>} />
         <Route path="/test-runs" element={<Guard perm="test_runs.view"><TestRuns /></Guard>} />
         <Route path="/test-runs/:id" element={<Guard perm="test_runs.view"><TestRunDetail /></Guard>} />
         <Route path="/users" element={<Guard perm="users.view"><UsersPage /></Guard>} />

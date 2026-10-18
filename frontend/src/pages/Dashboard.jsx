@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { RefreshCw, Plus, AlertCircle } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
-import api from '../api';
+import api, { fetchAllTestCases, fetchAllTestRuns } from '../api';
 import {
   Button, PageHeader, Panel, ResultBar, ResultLegend, StatusBadge, EmptyState, Skeleton, Ident,
 } from '../components/ui';
@@ -72,8 +72,8 @@ const summarySentence = (segs, total) => {
 // Tüm panellerin verisi; izin olmayan uç noktalar (403) boş liste döner
 const fetchDashboard = async () => {
   const [p, c, pl, r, d] = await Promise.allSettled([
-    api.get('/projects'), api.get('/test-cases'), api.get('/test-plans'),
-    api.get('/test-runs'), api.get('/defects'),
+    api.get('/projects'), fetchAllTestCases().then(data => ({ data })), api.get('/test-plans'),
+    fetchAllTestRuns().then(data => ({ data })), api.get('/defects'),
   ]);
   const val = (x) => (x.status === 'fulfilled' ? x.value.data : []);
   return {

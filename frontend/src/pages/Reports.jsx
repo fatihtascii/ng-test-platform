@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { testRunsApi, testCasesApi, projectsApi, testPlansApi } from '../api';
+import { projectsApi, testPlansApi, fetchAllTestRuns, fetchAllTestCases } from '../api';
 import PermissionGuard from '../components/PermissionGuard';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -79,8 +79,8 @@ const Reports = () => {
     setLoading(true);
     try {
       const [runsRes, casesRes, projsRes, plansRes] = await Promise.allSettled([
-        testRunsApi.getAll(),
-        testCasesApi.getAll(),
+        fetchAllTestRuns().then(data => ({ data })),
+        fetchAllTestCases().then(data => ({ data })),
         projectsApi.getAll(),
         testPlansApi.getAll(),
       ]);

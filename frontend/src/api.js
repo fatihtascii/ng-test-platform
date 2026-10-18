@@ -102,6 +102,17 @@ export const fetchAllTestCases = async (params = {}) => {
   }
 };
 
+/** Koşum listesi de sunucuda sayfalı (en fazla 500); eski "defect koşumu" kayıtları hariç tutulur. */
+export const fetchAllTestRuns = async (params = {}) => {
+  const PAGE = 500;
+  const all = [];
+  for (let skip = 0; ; skip += PAGE) {
+    const { data } = await api.get('/test-runs', { params: { is_defect: false, ...params, skip, limit: PAGE } });
+    all.push(...data);
+    if (data.length < PAGE) return all;
+  }
+};
+
 export const mobileApi = {
   devices:  ()     => api.get('/api/mobile/devices', { timeout: 30000 }),
   run:      (data) => api.post('/api/mobile/run', data),
@@ -115,12 +126,14 @@ export const testPlansApi = {
   remove:     (id)            => api.delete(`/test-plans/${id}`),
   addItem:    (id, data)      => api.post(`/test-plans/${id}/items`, data),
   bulkAdd:    (id, ids)       => api.post(`/test-plans/${id}/bulk-add`, { test_case_ids: ids }),
+  bulkItemStatus: (id, itemIds, runStatus) => api.post(`/test-plans/${id}/items/bulk-status`, { item_ids: itemIds, run_status: runStatus }),
+  bulkRemoveItems: (id, itemIds) => api.post(`/test-plans/${id}/items/bulk-remove`, { item_ids: itemIds }),
   updateItem: (planId, itemId, data) => api.patch(`/test-plans/${planId}/items/${itemId}`, data),
   removeItem: (planId, itemId)       => api.delete(`/test-plans/${planId}/items/${itemId}`),
 };
 
 export const testRunsApi = {
-  getAll:  ()           => api.get('/test-runs'),
+  getAll:  (params)     => api.get('/test-runs', { params }),
   getOne:  (id)         => api.get(`/test-runs/${id}`),
   create:  (data)       => api.post('/test-runs', data),
   update:  (id, data)   => api.put(`/test-runs/${id}`, data),

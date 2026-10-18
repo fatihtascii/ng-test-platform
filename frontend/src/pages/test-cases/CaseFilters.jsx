@@ -1,33 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import { X } from 'lucide-react';
-import { SearchInput, FilterSelect } from '../../components/ui/data';
+import { DebouncedSearchInput, FilterSelect } from '../../components/ui/data';
 import { STATUSES, PRIORITIES, TEST_TYPES, EXECUTION_LABEL } from './model';
-
-/**
- * Arama kutusu yerel durumla çalışır, adres çubuğuna kısa bir gecikmeyle yazılır.
- * (Doğrudan URL'ye bağlıyken hızlı yazımda harfler kayboluyordu.)
- */
-const useDebouncedQuery = (q, setQ, delay = 150) => {
-  const [draft, setDraft] = useState(q);
-  const [synced, setSynced] = useState(q);
-  const timer = useRef(null);
-  // URL dışarıdan değiştiyse (Temizle, geri tuşu) kutuyu eşitle
-  if (q !== synced) { setSynced(q); setDraft(q); }
-  useEffect(() => () => clearTimeout(timer.current), []);
-  const change = (v) => {
-    setDraft(v);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => { setSynced(v); setQ(v); }, v ? delay : 0);
-  };
-  return [draft, change];
-};
 
 const CaseFilters = ({ query, projects, tags, searchRef }) => {
   const { q, filters, setQ, setFilter, clearFilters, hasFilter } = query;
-  const [draft, setDraft] = useDebouncedQuery(q, setQ);
   return (
     <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-      <SearchInput ref={searchRef} value={draft} onChange={setDraft} shortcut="/"
+      <DebouncedSearchInput ref={searchRef} value={q} onChange={setQ} shortcut="/"
         placeholder="Başlık, TC-ID, etiket veya adım ara" className="lg:w-80" />
       <div className="flex flex-wrap items-center gap-2">
         <FilterSelect label="Proje" value={filters.project} onChange={v => setFilter('project', v)}

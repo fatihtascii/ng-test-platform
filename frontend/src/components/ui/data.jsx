@@ -2,7 +2,7 @@
  * Veri tabloları ve liste ekranları için ortak parçalar:
  * sıralanabilir başlık, seçim kutusu, sayfalama, arama ve filtre kutuları.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowUp, ArrowDown, ChevronsUpDown, ChevronLeft, ChevronRight, Search, X, ChevronDown } from 'lucide-react';
 
 const cx = (...p) => p.filter(Boolean).join(' ');
@@ -85,6 +85,26 @@ export const SearchInput = React.forwardRef(({ value, onChange, placeholder = 'A
   </div>
 ));
 SearchInput.displayName = 'SearchInput';
+
+/**
+ * Adres çubuğuna (veya pahalı bir filtreye) bağlı arama kutusu: yazarken yerel durumla çalışır,
+ * değeri kısa bir gecikmeyle bildirir. Dışarıdan değer değişirse (Temizle, geri tuşu) kutu eşitlenir.
+ * (Doğrudan URL'ye bağlı kontrollü input hızlı yazımda harf kaybediyordu.)
+ */
+export const DebouncedSearchInput = React.forwardRef(({ value, onChange, delay = 150, ...props }, ref) => {
+  const [draft, setDraft] = useState(value);
+  const [synced, setSynced] = useState(value);
+  const timer = useRef(null);
+  if (value !== synced) { setSynced(value); setDraft(value); }
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const change = (v) => {
+    setDraft(v);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => { setSynced(v); onChange(v); }, v ? delay : 0);
+  };
+  return <SearchInput ref={ref} value={draft} onChange={change} {...props} />;
+});
+DebouncedSearchInput.displayName = 'DebouncedSearchInput';
 
 // ── Filtre seçici ─────────────────────────────────────────────
 /**
