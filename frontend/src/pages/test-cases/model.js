@@ -90,7 +90,8 @@ export const parseCase = (tc) => {
   };
 };
 
-export const isAutomatable = (c) => c.execution_type === 'Automated' && Boolean(c.automation_script?.trim());
+export const isAutomatable = (c) => c.execution_type === 'Automated'
+  && (Boolean(c.automation_script?.trim()) || (Boolean(c.automation_ref) && !c.tagList?.includes('depoda-yok')));
 
 export const caseIdent = (id) => `TC-${id}`;
 

@@ -5,18 +5,20 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Square, RotateCcw, Cpu, ExternalLink, Bug } from 'lucide-react';
+import { Play, Square, RotateCcw, Cpu, ExternalLink, Bug, Zap } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import { PageHeader, Button, Panel, ResultBar, StatusBadge, EmptyState, Skeleton } from '../components/ui';
-import { Field } from '../components/ui/data';
+import { Field, Tabs } from '../components/ui/data';
 import { inputCls } from '../components/ui/tokens';
 import { toast } from '../components/ui/toast';
-import { projectsApi, environmentsApi, fetchAllTestCases, fetchAllTestRuns } from '../api';
+import { projectsApi, environmentsApi, fetchAllTestCases, fetchAllTestRuns, suitesApi } from '../api';
 import { useAutomationRun } from './automation/useAutomationRun';
 import CasePicker from './automation/CasePicker';
 import LiveCaseList from './automation/LiveCaseList';
 import RunConsole from './automation/RunConsole';
 import RecentRuns from './automation/RecentRuns';
+import SuitesTab from './automation/SuitesTab';
+import { suiteStatus } from './automation/suiteModel';
 
 const BROWSERS = ['Chrome', 'Firefox', 'Safari', 'Edge'];
 const PHASE = {
@@ -31,6 +33,9 @@ const fmtElapsed = (ms) => {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
+
+/** Koşturulabilir mi: script'i var ya da depodaki bir teste bağlı (ve test hâlâ depoda) */
+const runnable = (c) => Boolean(c.automation_script?.trim()) || (Boolean(c.automation_ref) && !String(c.tags || '').includes('"depoda-yok"'));
 
 const isAutomated = (tc) => {
   if (tc.execution_type === 'Automated') return true;
@@ -52,6 +57,23 @@ const AutomationRun = () => {
   const [selected, setSelected] = useState(() => new Set((initialParams.get('cases') || '').split(',').map(Number).filter(Boolean)));
   const [recent, setRecent] = useState([]);
   const [now, setNow] = useState(0);
+  const [tab, setTab] = useState(initialParams.get('tab') === 'depolar' ? 'suites' : 'run');
+  const [suites, setSuites] = useState([]);
+  const [source, setSource] = useState(initialParams.get('suite') || '');   // '' = case script'leri, aksi halde depo id
+  const canManageSuites = can('automation.manage');
+
+  const loadSuites = useCallback(() => suitesApi.list().then(r => setSuites(r.data)).catch(() => setSuites([])), []);
+  const loadCases = useCallback(() => fetchAllTestCases().then(cases => setData(d => (d ? {
+    ...d, cases: cases.filter(isAutomated).map(c => ({ ...c, hasScript: runnable(c) })),
+  } : d))).catch(() => {}), []);
+  useEffect(() => { loadSuites(); }, [loadSuites]);
+  const onSuitesChange = useCallback(() => { loadSuites(); loadCases(); }, [loadSuites, loadCases]);
+  const changeTab = (t) => {
+    setTab(t);
+    const u = new URL(window.location.href);
+    if (t === 'suites') u.searchParams.set('tab', 'depolar'); else u.searchParams.delete('tab');
+    window.history.replaceState(null, '', u);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -60,14 +82,18 @@ const AutomationRun = () => {
         if (!alive) return;
         setData({
           projects: p.data, envs: envs.data,
-          cases: cases.filter(isAutomated).map(c => ({ ...c, hasScript: Boolean(c.automation_script?.trim()) })),
+          cases: cases.filter(isAutomated).map(c => ({ ...c, hasScript: runnable(c) })),
         });
+        // Adresle gelen case'ler bir depodansa kaynak o depo olsun
+        const pre = (initialParams.get('cases') || '').split(',').map(Number);
+        const fromSuite = cases.find(c => pre.includes(c.id) && c.suite_id);
+        if (fromSuite) setSource(cur => cur || String(fromSuite.suite_id));
         // Tek proje varsa ya da adresle gelinmediyse ilk otomasyon case'i olan proje seçilsin
         setProject(cur => cur || String((p.data.find(x => cases.some(c => c.project_id === x.id && isAutomated(c))) || p.data[0])?.id || ''));
       })
       .catch(e => { if (alive) setError(e.message || 'Veriler yüklenemedi.'); });
     return () => { alive = false; };
-  }, []);
+  }, [initialParams]);
 
   const loadRecent = useCallback(() => {
     if (!project) return Promise.resolve();
@@ -100,23 +126,37 @@ const AutomationRun = () => {
     return () => window.removeEventListener('beforeunload', h);
   }, [run.busy]);
 
-  const projectCases = useMemo(() => (data ? data.cases.filter(c => String(c.project_id) === project)
-    .map(c => (latest.has(c.id) ? { ...c, status: latest.get(c.id) } : c)) : []), [data, project, latest]);
+  const projectSuites = useMemo(() => suites.filter(x => String(x.project_id) === project), [suites, project]);
+  const suite = projectSuites.find(x => String(x.id) === source) || null;
+  const projectCases = useMemo(() => (data ? data.cases.filter(c => String(c.project_id) === project
+      && (suite ? c.suite_id === suite.id : !c.suite_id))
+    .map(c => (latest.has(c.id) ? { ...c, status: latest.get(c.id) } : c)) : []), [data, project, latest, suite]);
   const projectEnvs = useMemo(() => (data ? data.envs.filter(e => String(e.project_id) === project) : []), [data, project]);
   const selectedIds = useMemo(() => projectCases.filter(c => c.hasScript && selected.has(c.id)).map(c => c.id), [projectCases, selected]);
   const env = projectEnvs.find(e => String(e.id) === environmentId);
 
-  const changeProject = (v) => { setProject(v); setEnvironmentId(''); setSelected(new Set()); };
+  const changeProject = (v) => { setProject(v); setEnvironmentId(''); setSelected(new Set()); setSource(''); };
+  const changeSource = (v) => {
+    setSource(v); setSelected(new Set());
+    const sx = suites.find(x => String(x.id) === v);
+    setEnvironmentId(sx?.environment_id ? String(sx.environment_id) : '');
+  };
 
+  const envParam = environmentId ? Number(environmentId) : null;
   const start = (ids = selectedIds) => {
     if (!ids.length) { toast.error('En az bir test seçin.'); return; }
-    run.start({ cases: ids, browser, headless, environmentId: environmentId ? Number(environmentId) : null, project });
+    run.start({ cases: ids, browser, headless, environmentId: envParam, project });
   };
+  const startProfile = (p) => run.start({ cases: [], suiteId: suite.id, marker: p.marker, headless, environmentId: envParam, project });
   const rerun = (ids) => {
-    const runnable = ids.filter(id => projectCases.some(c => c.id === id && c.hasScript));
-    if (!runnable.length) { toast.error('Bu case\'lerin script\'i artık yok.'); return; }
-    setSelected(new Set(runnable));
-    start(runnable);
+    const all = data ? data.cases : [];
+    const ok = ids.filter(id => all.some(c => c.id === id && c.hasScript));
+    if (!ok.length) { toast.error('Bu case\'ler artık koşturulamıyor (script yok ya da depodan kaldırıldı).'); return; }
+    const first = all.find(c => c.id === ok[0]);
+    const want = first?.suite_id ? String(first.suite_id) : '';
+    if (want !== source) setSource(want);
+    setSelected(new Set(ok));
+    run.start({ cases: ok, browser, headless, environmentId: envParam, project });
   };
 
   if (error && !data) {
@@ -131,37 +171,63 @@ const AutomationRun = () => {
   return (
     <div className="space-y-5">
       <PageHeader title="Otomasyon"
-        description="Case'lerin Playwright script'lerini sunucuda koşturun. Sonuçlar koşum olarak kaydedilir; kalan testler için hata kaydı açılır." />
+        description="Case script'lerini ya da bağlı otomasyon deposundaki testleri sunucuda koşturun. Sonuçlar koşum olarak kaydedilir; kalan testler için hata kaydı açılır." />
 
-      {!data ? (
+      <Tabs value={tab} onChange={changeTab} tabs={[{ id: 'run', label: 'Koşum' }, { id: 'suites', label: 'Depolar', count: suites.length || undefined }]} />
+
+      {tab === 'suites' ? (
+        data ? <SuitesTab suites={suites} projects={data.projects} envs={data.envs} project={project} canManage={canManageSuites} onChange={onSuitesChange} />
+          : <Skeleton className="h-64" />
+      ) : !data ? (
         <div className="grid gap-5 lg:grid-cols-[22rem_minmax(0,1fr)]"><Skeleton className="h-[32rem]" /><Skeleton className="h-[32rem]" /></div>
       ) : (
-        <div className="grid items-start gap-5 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 items-start gap-5 [&>*]:min-w-0 lg:grid-cols-[22rem_minmax(0,1fr)]">
           <Panel title="Koşum ayarları" bodyClassName="space-y-4 p-4" className="lg:sticky lg:top-4">
             <Field label="Proje" htmlFor="a-project">
               <select id="a-project" value={project} onChange={e => changeProject(e.target.value)} disabled={run.busy} className={inputCls}>
                 {data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </Field>
+            {projectSuites.length > 0 && (
+              <Field label="Kaynak" htmlFor="a-source" hint={suite ? <>Depodaki testler projenin kendi pytest ayarlarıyla koşar. {suiteStatus(suite).label !== 'Hazır' && <b className="font-medium text-amber-700 dark:text-amber-400">Depo hazır değil: {suiteStatus(suite).label}.</b>}</> : 'Case\'lere yazılmış script\'ler.'}>
+                <select id="a-source" value={source} onChange={e => changeSource(e.target.value)} disabled={run.busy} className={inputCls}>
+                  <option value="">Case script'leri</option>
+                  {projectSuites.map(x => <option key={x.id} value={x.id}>Depo: {x.name}</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="Ortam" htmlFor="a-env" hint={env ? <span className="font-mono">{env.url}</span> : projectEnvs.length ? 'Seçilirse adresi ve değişkenleri teste aktarılır.' : <>Bu projede ortam yok. <Link to={`/environments?project=${project}`} className="text-indigo-600 hover:underline dark:text-indigo-400">Ortam ekle</Link></>}>
               <select id="a-env" value={environmentId} onChange={e => setEnvironmentId(e.target.value)} disabled={run.busy || !projectEnvs.length} className={inputCls}>
                 <option value="">Ortamsız (script'teki adres)</option>
                 {projectEnvs.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
             </Field>
-            <div className="grid grid-cols-[1fr_auto] items-end gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+              {suite ? <p className="self-center text-xs text-slate-500 dark:text-slate-400">Tarayıcı projenin pytest.ini ayarından gelir.</p> : (
               <Field label="Tarayıcı" htmlFor="a-browser">
                 <select id="a-browser" value={browser} onChange={e => setBrowser(e.target.value)} disabled={run.busy} className={inputCls}>
                   {BROWSERS.map(b => <option key={b}>{b}</option>)}
                 </select>
               </Field>
+              )}
               <label className="flex h-9 cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300" title="Kapalıyken tarayıcı sunucuda görünür açılır (yalnızca masaüstü sunucuda işe yarar)">
                 <input type="checkbox" checked={!headless} onChange={e => setHeadless(!e.target.checked)} disabled={run.busy} className="h-4 w-4 accent-indigo-600" />
                 Görünür
               </label>
             </div>
+            {suite && suite.profiles?.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">Profiller</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {suite.profiles.map(p => (
+                    <Button key={p.name} size="sm" icon={<Zap size={13} />} title={p.marker ? `pytest -m "${p.marker}"` : 'Tüm testler'}
+                      disabled={!canRun || run.busy || suite.sync_status !== 'ready' || suite.syncing} onClick={() => startProfile(p)}>{p.name}</Button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
-              <p className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">Testler</p>
+              <p className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">{suite ? 'Ya da test seçin' : 'Testler'}</p>
               <CasePicker cases={projectCases} selected={selected} onChange={setSelected} disabled={run.busy} />
             </div>
             {canRun ? (

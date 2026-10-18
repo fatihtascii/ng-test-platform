@@ -74,7 +74,11 @@ export const useAutomationRun = () => {
     wsRef.current = ws;
     ws.onopen = () => {
       pushLog('info', '◎ Sunucuya bağlanıldı, ortam hazırlanıyor…');
-      ws.send(JSON.stringify({ cases: config.cases, browser: config.browser, headless: config.headless, environment_id: config.environmentId || null }));
+      ws.send(JSON.stringify({
+        cases: config.cases, browser: config.browser, headless: config.headless, environment_id: config.environmentId || null,
+        // Depo profili: case listesi yerine depo + pytest -m ifadesi
+        ...(config.suiteId ? { suite_id: config.suiteId, marker: config.marker ?? '' } : {}),
+      }));
     };
     ws.onmessage = (e) => {
       try { handle(JSON.parse(e.data)); } catch { pushLog('warn', 'Sunucudan okunamayan bir mesaj geldi.'); }

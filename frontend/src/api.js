@@ -178,6 +178,16 @@ export const variablesApi = {
   remove:  (id)       => api.delete(`/variables/${id}`),
 };
 
+export const suitesApi = {
+  list:      (params)             => api.get('/suites/', { params }),
+  get:       (id)                 => api.get(`/suites/${id}`),
+  create:    (data)               => api.post('/suites/', data),
+  update:    (id, data)           => api.patch(`/suites/${id}`, data),
+  remove:    (id, deleteCases)    => api.delete(`/suites/${id}`, { params: { delete_cases: Boolean(deleteCases) } }),
+  sync:      (id)                 => api.post(`/suites/${id}/sync`),
+  syncState: (id)                 => api.get(`/suites/${id}/sync`),
+};
+
 export const integrationsApi = {
   getAll:  ()                => api.get('/integrations/'),
   status:  ()                => api.get('/integrations/status'),          // { slack, jira, github } kullanılabilir mi

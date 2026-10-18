@@ -174,7 +174,14 @@ const CaseDetail = ({ c, projectName, can }) => {
           <Meta label="Oluşturuldu"><span className="tabular-nums">{formatDate(c.created_at, true)}</span></Meta>
           <Meta label="Güncellendi"><span className="tabular-nums">{formatDate(c.updated_at || c.created_at, true)}</span></Meta>
         </dl>
-        {c.execution_type === 'Automated' && !c.automation_script && (
+        {c.automation_ref && (
+          <div className="mt-4 rounded-md bg-indigo-50 px-3 py-2 text-xs text-indigo-900 dark:bg-indigo-500/10 dark:text-indigo-200">
+            <p className="font-medium">Otomasyon deposundaki test</p>
+            <p className="mt-0.5 break-all font-mono">{c.automation_ref}</p>
+            <Link to={`/automation?project=${c.project_id}&suite=${c.suite_id || ''}&cases=${c.id}`} className="mt-1 inline-block font-medium text-indigo-700 hover:underline dark:text-indigo-300">Otomasyonda koş</Link>
+          </div>
+        )}
+        {c.execution_type === 'Automated' && !c.automation_script && !c.automation_ref && (
           <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
             Otomasyon case'i ama script'i yok; otomasyonda koşulamaz.
           </p>
