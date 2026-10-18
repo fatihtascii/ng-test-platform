@@ -4,12 +4,12 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Copy, Pencil, Trash2, MoreHorizontal, Bug, ArrowRight, RotateCcw, CheckCircle2, Search as SearchIcon } from 'lucide-react';
+import { ArrowLeft, Copy, Pencil, Trash2, MoreHorizontal, Bug, ArrowRight, RotateCcw, CheckCircle2, Search as SearchIcon, ExternalLink, Ticket } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
 import { Button, StatusBadge, Ident, Skeleton, EmptyState, Panel } from '../components/ui';
 import { Menu, MenuItem, ConfirmDialog } from '../components/ui/overlay';
 import { toast } from '../components/ui/toast';
-import { defectsApi, projectsApi, testCasesApi } from '../api';
+import { defectsApi, projectsApi, testCasesApi, integrationsApi } from '../api';
 import { formatDate, relativeTime } from './test-runs/model';
 import DefectFormDrawer from './defects/DefectFormDrawer';
 import FailedCaseList from './defects/FailedCaseList';
@@ -53,6 +53,7 @@ const DefectDetail = () => {
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [jiraOn, setJiraOn] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -69,6 +70,7 @@ const DefectDetail = () => {
     });
     defectsApi.assignees().then(({ data }) => { if (alive) setAssignees(data); }).catch(() => {});
     projectsApi.getAll().then(({ data }) => { if (alive) setProjects(data); }).catch(() => {});
+    integrationsApi.status().then(({ data }) => { if (alive) setJiraOn(Boolean(data.jira)); }).catch(() => {});
     return () => { alive = false; };
   }, [defectId]);
 
@@ -88,6 +90,17 @@ const DefectDetail = () => {
   const copy = async () => {
     try { await navigator.clipboard.writeText(defectReport(d)); toast.success('Rapor panoya kopyalandı.'); }
     catch { toast.error('Panoya kopyalanamadı.'); }
+  };
+
+  const exportJira = async () => {
+    setSaving('jira');
+    try {
+      const { data } = await defectsApi.exportJira(d.id);
+      setState(s => ({ ...s, defect: data }));
+      setActivityKey(k => k + 1);
+      toast.success(`Jira'da ${data.external_key} açıldı.`);
+    } catch (e) { toast.error(e.message || 'Jira\'ya aktarılamadı.'); }
+    finally { setSaving(null); }
   };
 
   const remove = async () => {
@@ -144,6 +157,14 @@ const DefectDetail = () => {
             {canManage && next && (
               <Button variant={d.status === 'Resolved' ? 'secondary' : 'primary'} icon={<NextIcon size={14} />} loading={saving === 'status'}
                 onClick={() => update('status', { status: next.to }, `${defectIdent(d.id)} → ${STATUS_LABEL[next.to]}`)}>{next.label}</Button>
+            )}
+            {d.external_key ? (
+              <a href={d.external_url} target="_blank" rel="noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200 hover:bg-indigo-50 dark:text-indigo-300 dark:ring-indigo-500/30 dark:hover:bg-indigo-500/10">
+                <Ticket size={14} /> {d.external_key} <ExternalLink size={12} />
+              </a>
+            ) : jiraOn && canManage && (
+              <Button icon={<Ticket size={14} />} onClick={exportJira} loading={saving === 'jira'}>Jira'ya aktar</Button>
             )}
             <Button icon={<Copy size={14} />} onClick={copy}>Kopyala</Button>
             {canManage && (

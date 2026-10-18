@@ -178,6 +178,14 @@ export const variablesApi = {
   remove:  (id)       => api.delete(`/variables/${id}`),
 };
 
+export const integrationsApi = {
+  getAll:  ()                => api.get('/integrations/'),
+  status:  ()                => api.get('/integrations/status'),          // { slack, jira, github } kullanılabilir mi
+  save:    (provider, body)  => api.put(`/integrations/${provider}`, body),
+  test:    (provider, body)  => api.post(`/integrations/${provider}/test`, body),
+  events:  (provider, limit) => api.get(`/integrations/${provider}/events`, { params: { limit } }),
+};
+
 export const defectsApi = {
   // Defect'ler backend'de ayrı "defects" tablosunda tutulur (otomatik + manuel)
   getAll:     (params)   => api.get('/defects', { params }),
@@ -192,4 +200,5 @@ export const defectsApi = {
   addComment:    (id, body)      => api.post(`/defects/${id}/comments`, { body }),
   updateComment: (id, cid, body) => api.patch(`/defects/${id}/comments/${cid}`, { body }),
   removeComment: (id, cid)       => api.delete(`/defects/${id}/comments/${cid}`),
+  exportJira:    (id)            => api.post(`/defects/${id}/jira`),
 };

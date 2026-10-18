@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { MessageSquare, Pencil, Trash2, RotateCcw, CircleDot, UserRound, Flag, Type, Sparkles } from 'lucide-react';
+import { MessageSquare, Pencil, Trash2, RotateCcw, CircleDot, UserRound, Flag, Type, Sparkles, Ticket } from 'lucide-react';
 import { Avatar, Button, Skeleton, StatusBadge } from '../../components/ui';
 import { ConfirmDialog } from '../../components/ui/overlay';
 import { textareaCls } from '../../components/ui/tokens';
@@ -38,6 +38,10 @@ const ChangeLine = ({ a }) => {
       text = !a.to_value ? <>atamayı kaldırdı{a.from_value && <> ({a.from_value})</>}</>
         : a.from_value ? <>atananı <b className="font-medium">{a.from_value}</b> → <b className="font-medium">{a.to_value}</b> yaptı</>
         : <><b className="font-medium">{a.to_value}</b> kişisine atadı</>;
+      break;
+    case 'external':
+      icon = Ticket;
+      text = <>kaydı Jira'ya aktardı: {a.body ? <a href={a.body} target="_blank" rel="noreferrer" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">{a.to_value}</a> : <b className="font-medium">{a.to_value}</b>}</>;
       break;
     case 'title':
       icon = Type;
