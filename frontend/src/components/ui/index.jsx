@@ -55,11 +55,26 @@ export const StatusBadge = ({ status, tone, children, className }) => {
 };
 
 // ── Buton ─────────────────────────────────────────────────────
+/**
+ * Buton türleri anlamı taşır; aynı iş her sayfada aynı renkte görünür:
+ *   primary    ana işlem (oluştur, kaydet, ilerlet) — indigo
+ *   run        koşum başlatan ana işlem — yeşil;  runSoft: koşum başlatan yan işlem
+ *   ai         yapay zekâyla üretme — orkide (index.css'te ai ölçeği)
+ *   accentSoft plana/listeye ekleme gibi bağlayan işlemler — açık indigo
+ *   danger     geri alınamaz işlem (sil) — kırmızı;  dangerSoft: durdur, hata kaydı aç
+ *   secondary  nötr işlem (dışa aktar, kopyala);  ghost: araç çubuğu / ikincil
+ * Koyu temada dolu renkler bir ton açılır, açık renkli olanlarda yazı koyulaşır (okunurluk).
+ */
 const BUTTON_VARIANTS = {
-  primary:   'bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-indigo-600/50',
-  secondary: 'bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 hover:text-slate-900 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-800',
-  ghost:     'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100',
-  danger:    'bg-rose-600 text-white hover:bg-rose-700 disabled:bg-rose-600/50',
+  primary:    'bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:disabled:bg-indigo-500/40',
+  run:        'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:bg-emerald-600/50 dark:bg-emerald-400 dark:text-emerald-950 dark:hover:bg-emerald-300 dark:disabled:bg-emerald-400/25 dark:disabled:text-emerald-200',
+  runSoft:    'bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100 dark:bg-emerald-400/20 dark:text-emerald-200 dark:ring-emerald-400/60 dark:hover:bg-emerald-400/30',
+  ai:         'bg-ai-50 text-ai-800 ring-1 ring-inset ring-ai-200 hover:bg-ai-100 dark:bg-ai-400/20 dark:text-ai-200 dark:ring-ai-400/60 dark:hover:bg-ai-400/30',
+  accentSoft: 'bg-indigo-50 text-indigo-800 ring-1 ring-inset ring-indigo-200 hover:bg-indigo-100 dark:bg-indigo-400/20 dark:text-indigo-200 dark:ring-indigo-400/60 dark:hover:bg-indigo-400/30',
+  danger:     'bg-rose-600 text-white shadow-sm hover:bg-rose-700 disabled:bg-rose-600/50 dark:bg-rose-500 dark:hover:bg-rose-400 dark:disabled:bg-rose-500/40',
+  dangerSoft: 'bg-rose-50 text-rose-800 ring-1 ring-inset ring-rose-200 hover:bg-rose-100 dark:bg-rose-400/20 dark:text-rose-200 dark:ring-rose-400/60 dark:hover:bg-rose-400/30',
+  secondary:  'bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 hover:text-slate-900 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-500 dark:hover:bg-slate-700 dark:hover:text-white',
+  ghost:      'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white',
 };
 const BUTTON_SIZES = {
   sm: 'h-7 px-2.5 text-xs gap-1.5',
@@ -70,7 +85,7 @@ const BUTTON_SIZES = {
 export const Button = ({ variant = 'secondary', size = 'md', icon, loading, children, className, ...props }) => (
   <button
     className={cx(
-      'inline-flex shrink-0 items-center rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+      'inline-flex shrink-0 items-center rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:saturate-50',
       BUTTON_VARIANTS[variant], BUTTON_SIZES[size], className,
     )}
     disabled={loading || props.disabled}

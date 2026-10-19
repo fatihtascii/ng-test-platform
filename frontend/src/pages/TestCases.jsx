@@ -282,7 +282,7 @@ const TestCases = () => {
       description={projects.length ? 'İlk case\'i elle yazın ya da AI ile bir taslak üretin.' : 'Case eklemek için önce bir proje oluşturun.'}
       action={projects.length ? (can('test_cases.create') && (
         <div className="flex gap-2">
-          <Button icon={<Sparkles size={14} />} onClick={() => setDialog({ type: 'ai' })}>AI ile taslak</Button>
+          <Button variant="ai" icon={<Sparkles size={14} />} onClick={() => setDialog({ type: 'ai' })}>AI ile taslak</Button>
           <Button variant="primary" icon={<Plus size={14} />} onClick={() => startCreate()}>Test case ekle</Button>
         </div>
       )) : can('projects.create') && <Button variant="primary" onClick={() => navigate('/projects')}>Projelere git</Button>} />
@@ -302,7 +302,7 @@ const TestCases = () => {
             disabled={loading}><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></Button>
           <Button icon={<Download size={14} />} onClick={() => exportCsv(filtered, 'listesi')} disabled={!filtered.length}>CSV</Button>
           {can('test_cases.create') && <>
-            <Button icon={<Sparkles size={14} />} onClick={() => setDialog({ type: 'ai' })} disabled={!projects.length}>AI ile taslak</Button>
+            <Button variant="ai" icon={<Sparkles size={14} />} onClick={() => setDialog({ type: 'ai' })} disabled={!projects.length}>AI ile taslak</Button>
             <Button variant="primary" icon={<Plus size={15} />} onClick={() => startCreate()} disabled={!projects.length}
               title="Yeni test case (n)">Yeni test case</Button>
           </>}

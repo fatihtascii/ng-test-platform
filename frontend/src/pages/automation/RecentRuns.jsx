@@ -33,7 +33,7 @@ const RecentRuns = ({ runs, onRerun, canRun, busy }) => (
                 {s.Failed ? `${s.Failed} kaldı` : s.rate != null ? `%${s.rate}` : '—'}
               </span>
               {canRun && failedIds.length > 0 && (
-                <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} disabled={busy} onClick={() => onRerun(failedIds)}
+                <Button size="sm" variant="runSoft" icon={<RotateCcw size={13} />} disabled={busy} onClick={() => onRerun(failedIds)}
                   title="Bu koşumda kalan case'leri tekrar koştur">Kalanları koş</Button>
               )}
             </li>

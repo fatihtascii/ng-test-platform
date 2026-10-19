@@ -121,9 +121,9 @@ const QuickRunCard = ({ run, testCases, onClose, onDone, onRetry, onShowInList }
 
       {phase === 'finished' && summary?.defects && <DefectLinks defects={summary.defects} className="mt-2" />}
       <div className="mt-3 flex flex-wrap justify-end gap-2">
-        {live && <Button size="sm" icon={<Square size={13} />} onClick={run.stop} disabled={phase === 'connecting'}>Durdur</Button>}
+        {live && <Button size="sm" variant="dangerSoft" icon={<Square size={13} />} onClick={run.stop} disabled={phase === 'connecting'}>Durdur</Button>}
         {!live && onRetry && retryIds.length > 0 && (
-          <Button size="sm" variant="primary" icon={<RotateCcw size={13} />} onClick={() => onRetry(retryIds)} className="mr-auto">{retryLabel}</Button>
+          <Button size="sm" variant="run" icon={<RotateCcw size={13} />} onClick={() => onRetry(retryIds)} className="mr-auto">{retryLabel}</Button>
         )}
         {phase === 'finished' && !single && fails.length > 0 && summary?.run_id && onShowInList && (
           <button type="button" onClick={() => onShowInList(summary.run_id)}

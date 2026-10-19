@@ -153,7 +153,7 @@ const CaseForm = ({ form, setForm, errors, mode, projects, tagSuggestions }) => 
               placeholder={'Feature: Kullanıcı girişi\n\n  Scenario: Başarılı giriş\n    Given Kullanıcı giriş sayfasındadır\n    When Geçerli bilgileri girer\n    Then Genel durum sayfası açılır'}
               className={`${textareaCls} font-mono text-[13px] leading-relaxed`} />
             <div className="flex items-center gap-2">
-              <Button size="sm" icon={<Wand2 size={13} />} onClick={generateBdd} loading={bdd.loading}
+              <Button size="sm" variant="ai" icon={<Wand2 size={13} />} onClick={generateBdd} loading={bdd.loading}
                 disabled={form.gherkin_scenario.trim().length < 10}>pytest-bdd iskeleti üret</Button>
               <span className="text-xs text-slate-500 dark:text-slate-400">Üretilen kod kaydedilmez; kopyalayıp projenize ekleyin.</span>
             </div>

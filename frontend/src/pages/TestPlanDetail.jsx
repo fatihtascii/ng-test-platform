@@ -182,12 +182,12 @@ const TestPlanDetail = () => {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {canAutomate && autoItems.length > 0 && (
-            <Button icon={<Cpu size={15} />} onClick={() => runInAutomation(autoItems)} title="Planın otomasyon case'lerini koş; sonuçlar plana yazılır">
+            <Button variant="runSoft" icon={<Cpu size={15} />} onClick={() => runInAutomation(autoItems)} title="Planın otomasyon case'lerini koş; sonuçlar plana yazılır">
               Otomasyonla koş ({autoItems.length})
             </Button>
           )}
           {can('test_runs.create') && stats.total > 0 && (
-            <Button variant="primary" icon={<PlayCircle size={15} />} onClick={openRunForm}>Koşum oluştur</Button>
+            <Button variant="run" icon={<PlayCircle size={15} />} onClick={openRunForm}>Koşum oluştur</Button>
           )}
           {(canEdit || can('test_plans.delete')) && (
             <Menu trigger={({ ref, toggle: t, open }) => (
@@ -238,7 +238,7 @@ const TestPlanDetail = () => {
         <>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <SearchInput value={q} onChange={setQ} placeholder="Plandaki case'lerde ara" className="sm:w-72" />
-            {canEdit && <Button icon={<Plus size={14} />} onClick={() => setDialog({ type: 'pick' })} className="sm:ml-auto">Case ekle</Button>}
+            {canEdit && <Button variant="accentSoft" icon={<Plus size={14} />} onClick={() => setDialog({ type: 'pick' })} className="sm:ml-auto">Case ekle</Button>}
           </div>
 
           {selected.size > 0 && (
@@ -251,7 +251,7 @@ const TestPlanDetail = () => {
                   </Button>
                 ))}
                 {canAutomate && selectedAuto > 0 && (
-                  <Button size="sm" icon={<Cpu size={13} />} onClick={() => runInAutomation(plan.items.filter(i => selected.has(i.id)))}>Otomasyonda koş ({selectedAuto})</Button>
+                  <Button size="sm" variant="runSoft" icon={<Cpu size={13} />} onClick={() => runInAutomation(plan.items.filter(i => selected.has(i.id)))}>Otomasyonda koş ({selectedAuto})</Button>
                 )}
                 {canEdit && <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => setDialog({ type: 'remove' })}>Plandan çıkar</Button>}
                 <button type="button" onClick={() => setSelected(new Set())} aria-label="Seçimi temizle" className="rounded-md p-1 text-indigo-700 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-indigo-500/20"><X size={15} /></button>
@@ -315,7 +315,7 @@ const TestPlanDetail = () => {
           {runs.length === 0 ? (
             <EmptyState icon={<PlayCircle size={24} />} title="Bu planla henüz koşum yapılmadı"
               description="Koşum oluşturduğunuzda planın case'leri kapsam olarak alınır; koşum bitince sonuçlar bu plana yazılır."
-              action={can('test_runs.create') && stats.total > 0 && <Button variant="primary" icon={<PlayCircle size={14} />} onClick={openRunForm}>Koşum oluştur</Button>} />
+              action={can('test_runs.create') && stats.total > 0 && <Button variant="run" icon={<PlayCircle size={14} />} onClick={openRunForm}>Koşum oluştur</Button>} />
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {runs.map(r => {

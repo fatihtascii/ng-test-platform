@@ -28,15 +28,15 @@ const BulkBar = ({ count, hiddenCount, onClear, onStatus, onAddToPlan, onAutomat
               onClick={() => onStatus(status).then(ok => ok && setStatus(''))}>Uygula</Button>
           </div>
         )}
-        {onAddToPlan && <Button size="sm" icon={<ClipboardList size={13} />} onClick={onAddToPlan}>Plana ekle</Button>}
+        {onAddToPlan && <Button size="sm" variant="accentSoft" icon={<ClipboardList size={13} />} onClick={onAddToPlan}>Plana ekle</Button>}
         {onAutomation && (
-          <Button size="sm" icon={<Play size={13} />} onClick={onAutomation} disabled={!automatableCount}
+          <Button size="sm" variant="runSoft" icon={<Play size={13} />} onClick={onAutomation} disabled={!automatableCount}
             title={automatableCount ? undefined : 'Seçimde script\'i olan otomasyon case\'i yok'}>
             Otomasyonda koş{automatableCount ? ` (${automatableCount})` : ''}
           </Button>
         )}
         {onBrowserRun && (
-          <Button size="sm" icon={<MonitorPlay size={13} />} onClick={onBrowserRun} disabled={!automatableCount || browserBusy}
+          <Button size="sm" variant="runSoft" icon={<MonitorPlay size={13} />} onClick={onBrowserRun} disabled={!automatableCount || browserBusy}
             title={browserBusy ? 'Bir tarayıcı koşumu sürüyor' : automatableCount ? 'Seçilen otomasyon case\'lerini burada, tarayıcı görünür koş' : 'Seçimde otomasyon case\'i yok'}>
             Tarayıcıda çalıştır{automatableCount ? ` (${automatableCount})` : ''}
           </Button>

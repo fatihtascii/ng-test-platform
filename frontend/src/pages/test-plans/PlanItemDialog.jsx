@@ -62,7 +62,7 @@ const PlanItemDialog = ({ item, plan, readOnly, canDefect, onClose, onSave }) =>
             placeholder={status === 'Başarısız' ? 'Gözlenen davranış, hata mesajı, ortam…' : 'İsteğe bağlı'} className={textareaCls} />
         </div>
         {status === 'Başarısız' && canDefect && !readOnly && (
-          <Button size="sm" icon={<Bug size={13} />} onClick={defect} loading={busy === 'defect'} disabled={!note.trim()}
+          <Button size="sm" variant="dangerSoft" icon={<Bug size={13} />} onClick={defect} loading={busy === 'defect'} disabled={!note.trim()}
             title={note.trim() ? undefined : 'Önce ne olduğunu yazın'}>Hata kaydı aç</Button>
         )}
       </div>

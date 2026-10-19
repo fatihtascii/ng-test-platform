@@ -74,7 +74,7 @@ const MobileRunDialog = ({ testCase, onClose }) => {
       footer={run.phase === 'setup' || run.phase === 'starting' ? (
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>Vazgeç</Button>
-          <Button variant="primary" icon={<Play size={14} />} onClick={start} disabled={!canStart} loading={run.phase === 'starting'}>Koşuyu başlat</Button>
+          <Button variant="run" icon={<Play size={14} />} onClick={start} disabled={!canStart} loading={run.phase === 'starting'}>Koşuyu başlat</Button>
         </>
       ) : (
         <>

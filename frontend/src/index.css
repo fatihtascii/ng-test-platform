@@ -13,6 +13,7 @@
  *   emerald → geçti        rose  → kaldı / hata
  *   amber   → bloklu / uyarı      violet → bekliyor (nötr)
  *   blue    → bilgi
+ *   ai      → yapay zekâyla üretim (yalnız AI butonları)
  *
  * Sayfalardaki dekoratif renkler (fuchsia, pink, teal, cyan, sky, orange…) aşağıda
  * bu anlamlı ölçeklere bağlanır; böylece tüm uygulama tek bir dil konuşur.
@@ -117,6 +118,19 @@
   --color-violet-800: #2f3540;
   --color-violet-900: #22272f;
   --color-violet-950: #15181d;
+
+  /* ── Yapay zekâ ile üretim: orkide (yalnız AI butonları) ── */
+  --color-ai-50:  #f6f0fc;
+  --color-ai-100: #ece0f9;
+  --color-ai-200: #d9c2f2;
+  --color-ai-300: #bf9ae8;
+  --color-ai-400: #a273dc;
+  --color-ai-500: #8755c9;
+  --color-ai-600: #7042ad;
+  --color-ai-700: #5a358b;
+  --color-ai-800: #482c6f;
+  --color-ai-900: #3a2559;
+  --color-ai-950: #231436;
 
   /* ── Dekoratif renkler → anlamlı ölçeklere ────────────── */
   --color-red-50: var(--color-rose-50);   --color-red-100: var(--color-rose-100);   --color-red-200: var(--color-rose-200);

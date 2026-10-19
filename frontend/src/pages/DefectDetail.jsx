@@ -177,7 +177,7 @@ const DefectDetail = () => {
               <Button icon={<Ticket size={14} />} onClick={exportJira} loading={saving === 'jira'}>Jira'ya aktar</Button>
             )}
             {retest && (
-              <Button variant={d.status === 'Re-test' ? 'primary' : 'secondary'} icon={<Cpu size={14} />} onClick={() => navigate(retest.to)}
+              <Button variant={d.status === 'Re-test' ? 'run' : 'runSoft'} icon={<Cpu size={14} />} onClick={() => navigate(retest.to)}
                 title="Kayıttaki otomasyon case'lerini otomasyonda yeniden koş; otomatik açılmış kayıt, case geçince kendiliğinden çözülür">
                 Yeniden test et{retest.ids.length > 1 ? ` (${retest.ids.length})` : ''}
               </Button>

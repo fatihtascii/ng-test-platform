@@ -91,7 +91,7 @@ const RunCasePanel = ({
             className={cx(textareaCls, result.status === 'Failed' && !result.note.trim() && !readOnly && 'border-rose-300 dark:border-rose-500/50')} />
           {result.status === 'Failed' && canDefect && (
             <div className="mt-2 flex items-center gap-2">
-              <Button size="sm" icon={<Bug size={13} />} onClick={onDefect} loading={defectBusy} disabled={!result.note.trim()}
+              <Button size="sm" variant="dangerSoft" icon={<Bug size={13} />} onClick={onDefect} loading={defectBusy} disabled={!result.note.trim()}
                 title={result.note.trim() ? undefined : 'Önce ne olduğunu yazın'}>Ayrı hata kaydı aç</Button>
               <span className="text-xs text-slate-500 dark:text-slate-400">Kaldı sonucu alan tüm case'ler zaten koşumun ortak hata kaydında toplanır.</span>
             </div>

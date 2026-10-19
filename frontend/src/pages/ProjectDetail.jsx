@@ -126,7 +126,7 @@ const ProjectDetail = () => {
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Oluşturuldu {formatDate(project.created_at)}{s.last_run_at && <> · son koşum {relativeTime(s.last_run_at)}</>}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
-            {can('test_runs.create') && <Button variant="primary" icon={<PlayCircle size={14} />} onClick={() => navigate(`/test-runs?new=1&project_id=${pid}`)} disabled={!s.cases}>Koşum oluştur</Button>}
+            {can('test_runs.create') && <Button variant="run" icon={<PlayCircle size={14} />} onClick={() => navigate(`/test-runs?new=1&project_id=${pid}`)} disabled={!s.cases}>Koşum oluştur</Button>}
             {can('reports.view') && <Button icon={<BarChart3 size={14} />} onClick={() => navigate(`/reports${q}`)}>Rapor</Button>}
             {(can('projects.edit') || can('projects.delete')) && (
               <Menu trigger={({ ref, toggle, open }) => (

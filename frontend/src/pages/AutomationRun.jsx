@@ -283,7 +283,7 @@ const AutomationRun = () => {
                 <p className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">Profiller</p>
                 <div className="flex flex-wrap gap-1.5">
                   {suite.profiles.map(p => (
-                    <Button key={p.name} size="sm" icon={<Zap size={13} />} title={p.marker ? `pytest -m "${p.marker}"` : 'Tüm testler'}
+                    <Button key={p.name} size="sm" variant="runSoft" icon={<Zap size={13} />} title={p.marker ? `pytest -m "${p.marker}"` : 'Tüm testler'}
                       disabled={!canRun || run.busy || suite.sync_status !== 'ready' || suite.syncing} onClick={() => startProfile(p)}>{p.name}</Button>
                   ))}
                 </div>
@@ -297,7 +297,7 @@ const AutomationRun = () => {
               run.busy ? (
                 <Button variant="danger" className="w-full justify-center" icon={<Square size={14} />} onClick={run.stop} disabled={run.phase === 'connecting'}>Durdur</Button>
               ) : (
-                <Button variant="primary" size="lg" className="w-full justify-center" icon={<Play size={15} />} onClick={() => start()} disabled={!selectedIds.length}>
+                <Button variant="run" size="lg" className="w-full justify-center" icon={<Play size={15} />} onClick={() => start()} disabled={!selectedIds.length}>
                   {selectedIds.length ? `${selectedIds.length} testi koş` : 'Test seçin'}
                 </Button>
               )
@@ -335,7 +335,7 @@ const AutomationRun = () => {
                       <Link to={`/defects/${run.summary.defect}`} className="inline-flex items-center gap-1 font-medium text-rose-700 hover:underline dark:text-rose-400"><Bug size={13} /> {run.summary.defect}</Link>
                     )}
                     {!run.busy && canRun && failedIds.length > 0 && (
-                      <Button size="sm" className="ml-auto" icon={<RotateCcw size={13} />} onClick={() => rerun(failedIds)}>Kalanları tekrar koş</Button>
+                      <Button size="sm" variant="runSoft" className="ml-auto" icon={<RotateCcw size={13} />} onClick={() => rerun(failedIds)}>Kalanları tekrar koş</Button>
                     )}
                   </p>
                   {run.error && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{run.error}</p>}

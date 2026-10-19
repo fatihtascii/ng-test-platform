@@ -125,7 +125,7 @@ export const CaseDetailActions = ({ c, can, onEdit, onDuplicate, onDelete, onMob
         <Button variant="ghost" size="icon" onClick={onNext} disabled={!onNext} aria-label="Sonraki case (j)" title="Sonraki (j)"><ChevronDown size={16} /></Button>
       </div>
       {canBrowser && (
-        <Button size="sm" icon={<MonitorPlay size={13} />} onClick={onBrowserRun} disabled={browserBusy}
+        <Button size="sm" variant="runSoft" icon={<MonitorPlay size={13} />} onClick={onBrowserRun} disabled={browserBusy}
           title={browserBusy ? 'Bir tarayıcı koşumu sürüyor' : 'Bu case\'i tarayıcı görünür koş'}>
           <span className="hidden sm:inline">Tarayıcıda çalıştır</span><span className="sm:hidden">Çalıştır</span>
         </Button>
