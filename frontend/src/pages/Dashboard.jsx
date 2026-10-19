@@ -2,7 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { RefreshCw, Plus, AlertCircle } from 'lucide-react';
 import { usePermission } from '../hooks/usePermission';
-import api, { fetchAllTestCases, fetchAllTestRuns } from '../api';
+import api, { fetchAllTestCases, fetchAllTestRuns, suitesApi } from '../api';
+import AttentionPanel from './dashboard/AttentionPanel';
+import { attentionItems } from './dashboard/attention';
+import { currentUser } from './defects/model';
 import {
   Button, PageHeader, Panel, ResultBar, ResultLegend, StatusBadge, EmptyState, Skeleton, Ident,
 } from '../components/ui';
@@ -70,14 +73,14 @@ const summarySentence = (segs, total) => {
 };
 
 // Tüm panellerin verisi; izin olmayan uç noktalar (403) boş liste döner
-const fetchDashboard = async () => {
-  const [p, c, pl, r, d] = await Promise.allSettled([
+const fetchDashboard = async (canSuites) => {
+  const [p, c, pl, r, d, s] = await Promise.allSettled([
     api.get('/projects'), fetchAllTestCases().then(data => ({ data })), api.get('/test-plans'),
-    fetchAllTestRuns().then(data => ({ data })), api.get('/defects'),
+    fetchAllTestRuns().then(data => ({ data })), api.get('/defects'), canSuites ? suitesApi.list() : Promise.resolve({ data: [] }),
   ]);
   const val = (x) => (x.status === 'fulfilled' ? x.value.data : []);
   return {
-    data: { projects: val(p), cases: val(c), plans: val(pl), runs: val(r), defects: val(d) },
+    data: { projects: val(p), cases: val(c), plans: val(pl), runs: val(r), defects: val(d), suites: val(s) },
     error: p.status === 'rejected' && c.status === 'rejected' ? 'Veriler yüklenemedi. Sunucu bağlantısını kontrol edin.' : null,
   };
 };
@@ -87,7 +90,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { can } = usePermission();
 
-  const [data, setData]       = useState({ projects: [], cases: [], plans: [], runs: [], defects: [] });
+  const [data, setData]       = useState({ projects: [], cases: [], plans: [], runs: [], defects: [], suites: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
 
@@ -97,13 +100,14 @@ const Dashboard = () => {
     setLoading(false);
   }, []);
 
+  const canSuites = can('automation.view');
   useEffect(() => {
     let alive = true;
-    fetchDashboard().then(r => { if (alive) apply(r); });
+    fetchDashboard(canSuites).then(r => { if (alive) apply(r); });
     return () => { alive = false; };
-  }, [apply]);
+  }, [apply, canSuites]);
 
-  const fetchAll = () => { setLoading(true); fetchDashboard().then(apply); };
+  const fetchAll = () => { setLoading(true); fetchDashboard(canSuites).then(apply); };
 
   const overall = useMemo(() => caseSegments(data.cases), [data.cases]);
   const tested  = overall[0].value + overall[1].value;
@@ -118,6 +122,8 @@ const Dashboard = () => {
 
   const openDefects = useMemo(() => data.defects.filter(d => d.status !== 'Resolved'), [data.defects]);
   const activePlans = useMemo(() => data.plans.filter(p => p.status !== 'Tamamlandı'), [data.plans]);
+  const me = useMemo(() => currentUser(), []);
+  const attention = useMemo(() => attentionItems({ ...data, me, can }), [data, me, can]);
   const recentRuns  = useMemo(() => [...data.runs].sort((a, b) => b.id - a.id).slice(0, 6), [data.runs]);
 
   const today = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -164,6 +170,8 @@ const Dashboard = () => {
           <Readout label="Proje" value={data.projects.length} to={can('projects.view') ? '/projects' : null} />
         </dl>
       </Panel>
+
+      <AttentionPanel items={attention} loading={loading} />
 
       <div className="grid items-start gap-6 lg:grid-cols-3">
         {/* ── Projeler ─────────────────────────────────────── */}
@@ -240,7 +248,7 @@ const Dashboard = () => {
                 return (
                   <li key={plan.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_40%_auto]">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-slate-900 dark:text-white">{plan.title}</p>
+                      <Link to={`/test-plans/${plan.id}`} className="block truncate text-sm font-medium text-slate-900 hover:underline dark:text-white">{plan.title}</Link>
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                         {data.projects.find(p => p.id === plan.project_id)?.name || '—'}
                         {plan.end_date && <> · bitiş {new Date(plan.end_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}</>}
